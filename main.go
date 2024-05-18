@@ -2,101 +2,144 @@ package main
 
 import (
 	"fmt"
-	"time"
 	"image/color"
+	"math/rand"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-const screenWidth = 600
-const screenHeight = 400
+const screenWidth = 1900
+const screenHeight = 1000
 const numLayers = 5
 
+func drawIntLayer(layer *Layer, x float32, y float32, brushSize float32, brushType string, c color.RGBA) {
+	if brushType == "circle" {
+		// Draw a circle
+		vector.DrawFilledCircle(layer.image, x, y, brushSize, c, true)
+	} else {
+		// Draw a square
+		vector.DrawFilledRect(layer.image, x, y, brushSize, brushSize, c, true)
+	}
+}
+
+func (g *Game) Update() error {
+	// check if w is pressed
+	if ebiten.IsKeyPressed(ebiten.KeyW) {
+		if !g.keyWPressed {
+			if g.currentLayer < numLayers-1 {
+				g.currentLayer++
+			}
+		}
+		g.keyWPressed = true
+	} else {
+		g.keyWPressed = false
+	}
+
+	if ebiten.IsKeyPressed(ebiten.KeyS) {
+		if !g.keySPressed {
+			if g.currentLayer > 0 {
+				g.currentLayer--
+			}
+		}
+		g.keySPressed = true
+	} else {
+		g.keySPressed = false
+	}
+
+	// Change the color of the brush
+	if ebiten.IsKeyPressed(ebiten.KeyR) {
+		g.color = color.RGBA{
+			R: uint8(rand.Uint32() & 0xff),
+			G: uint8(rand.Uint32() & 0xff),
+			B: uint8(rand.Uint32() & 0xff),
+			A: uint8(rand.Uint32() & 0xff),
+		}
+	}
+
+
+
+	// increase the brush size by scrolling
+	_, scrollY := ebiten.Wheel()
+	if scrollY > 0 {
+		g.brushSize += 1
+	} else if scrollY < 0 {
+		// Ensure the brush size does not go below 1
+		if g.brushSize > 1 {
+			g.brushSize -= 1
+		}
+	}
+
+
+	// Draw on the current layer
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		x, y := ebiten.CursorPosition()
+		drawIntLayer(&g.layers.layers[g.currentLayer], float32(x), float32(y), g.brushSize, "circle", g.color)
+	}
+
+	return nil
+}
+
+func (g *Game) Draw(screen *ebiten.Image) {
+	// Draw the layers
+	for i := 0; i < numLayers; i++ {
+		screen.DrawImage(g.layers.layers[i].image, nil)
+	}
+
+	// fmt.Printf("FPS: %v", ebiten.ActualFPS())
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", ebiten.ActualFPS()))
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current Layer: %v", g.currentLayer), 0, 20)
+}
+
+func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
+	return 1900, 1000
+}
 
 type Layer struct {
-	mask  [screenWidth][screenHeight]bool 
-	color [screenWidth][screenHeight]color.RGBA
+	image *ebiten.Image
 }
 
 type Layers struct {
 	layers [numLayers]Layer
 }
 
-// func addRandomDataToLayer(layer *Layers) {
-// 	for row := 0; row < screenWidth; row++ {
-// 		for col := 0; col < screenHeight; col++ {
-// 			if rand.Intn(2) == 1 {
-// 				layer.layers[0].mask[row][col] = true
-// 				layer.layers[0].color[row][col] = color.RGBA{0, 0, 0, 255}
-// 			}
-// 		}
-// 	}
-// }
-
-func render(layers *Layers) (image [screenWidth][screenHeight]color.RGBA) {
-	image = [screenWidth][screenHeight]color.RGBA{}
-
-
-	for layer := range layers.layers {
-		currentLayerColor := &layers.layers[layer].color
-		currentLayer := &layers.layers[layer].mask
-		for row := range currentLayer{
-			currentRow := currentLayer[row]
-			for  col := range currentRow{
-				if currentRow[col] {
-					image[row][col] = currentLayerColor[row][col]
-				}
-			}
-		}
-	}
-	return image
-} 
-
-// func render2(layers *Layers) (image [screenWidth][screenHeight]color.RGBA) {
-// 	image = [screenWidth][screenHeight]color.RGBA{}
-// 	imageBoll := [screenWidth][screenHeight]bool{}
-
-// 	numLayers := len(layers.layers)
-// 	for layer := range layers.layers {
-// 		layerReversed := numLayers - layer - 1
-// 		currentLayerColor := &layers.layers[layerReversed].color
-// 		currentLayer := &layers.layers[layerReversed].mask
-// 		for row, currentRow := range currentLayer {
-// 			for col, isSet := range currentRow {
-// 				if imageBoll[row][col] && isSet {
-// 					image[row][col] = currentLayerColor[row][col]
-// 					imageBoll[row][col] = true
-// 				}
-// 			}
-// 		}
-// 	}
-// 	return image
-// }
-
+type Game struct {
+	layers       *Layers
+	currentLayer int
+	brushSize    float32
+	keyWPressed  bool
+	keySPressed  bool
+	color 	  color.RGBA
+}
 
 func main() {
-	var totalDuration time.Duration
-	runs := 5000
-	
-	// addRandomDataToLayer(&Layers{})
+	ebiten.SetVsyncEnabled(false)
 
-	for i := 0; i < runs; i++ {
-		start := time.Now()
-		render(&Layers{})
-		elapsed := time.Since(start)
-		totalDuration += elapsed
+	layers := Layers{
+		layers: [numLayers]Layer{
+			{image: ebiten.NewImage(screenWidth, screenHeight)},
+			{image: ebiten.NewImage(screenWidth, screenHeight)},
+			{image: ebiten.NewImage(screenWidth, screenHeight)},
+			{image: ebiten.NewImage(screenWidth, screenHeight)},
+			{image: ebiten.NewImage(screenWidth, screenHeight)},
+		},
+	}
+	// Set the background color of each layer
+	for i := 0; i < numLayers; i++ {
+		layers.layers[i].image.Fill(color.Transparent)
 	}
 
-	averageTime := totalDuration / time.Duration(runs)
-	fmt.Printf("Average time: %v\n", averageTime)
-	fmt.Printf("Average FPS: %v\n", 1e9/averageTime.Nanoseconds())
+	game := &Game{
+		layers:       &layers,
+		currentLayer: 0,
+		brushSize:    10,
+		color: color.RGBA{255, 0, 0, 255},
+	}
 
-	// for i := 0; i < runs; i++ {
-	// 	start := time.Now()
-	// 	render2(&Layers{})
-	// 	elapsed := time.Since(start)
-	// 	totalDuration += elapsed
-	// }
-
-	// averageTime = totalDuration / time.Duration(runs)
-	// fmt.Printf("Average time V2: %v\n", averageTime)
-	// fmt.Printf("Average FPS V2: %v\n", 1e9/averageTime.Nanoseconds())
+	ebiten.SetWindowSize(screenWidth, screenHeight)
+	ebiten.SetWindowTitle("Ebiten Game")
+	if err := ebiten.RunGame(game); err != nil {
+		panic(err)
+	}
 }
