@@ -14,6 +14,24 @@ const screenWidth = 1900
 const screenHeight = 1000
 const numLayers = 5
 
+type Slider struct {
+    x, y, w, h int
+    value      float32
+    color      color.RGBA
+}
+
+func (s *Slider) Update(mouseX, mouseY int, mousePressed bool) {
+    if mousePressed && mouseX >= s.x && mouseX <= s.x+s.w && mouseY >= s.y && mouseY <= s.y+s.h {
+        s.value = float32(mouseX-s.x) / float32(s.w)
+    }
+}
+
+func (s *Slider) Draw(screen *ebiten.Image) {
+    vector.DrawFilledRect(screen, float32(s.x), float32(s.y), float32(s.w), float32(s.h), color.Gray{0x80} , true)
+    vector.DrawFilledRect(screen, float32(s.x)+float32(s.w)*s.value-2, float32(s.y), 4, float32(s.h), s.color , true)
+}
+
+
 func (g *Game) isKeyReleased(key ebiten.Key) bool {
 	// Check if the key was previously pressed and is now released
 	return g.prevKeyStates[key] && !g.currKeyStates[key]
@@ -78,13 +96,23 @@ func (g *Game) Update() error {
 		g.brushSize -= 1
 	}
 
+	mouseX, mouseY := ebiten.CursorPosition()
+	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	
-
+	for _, slider := range g.sliders {
+        slider.Update(mouseX, mouseY, mousePressed)
+    }
+	
+	g.color = color.RGBA{
+        uint8(g.sliders[0].value * 255),
+        uint8(g.sliders[1].value * 255),
+        uint8(g.sliders[2].value * 255),
+        uint8(g.sliders[3].value * 255),
+    }
 
 	// Draw on the current layer
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		x, y := ebiten.CursorPosition()
-		drawIntLayer(&g.layers.layers[g.currentLayer], float32(x), float32(y), g.brushSize, g.brushType, g.color)
+	if mousePressed {
+		drawIntLayer(&g.layers.layers[g.currentLayer], float32(mouseX), float32(mouseY), g.brushSize, g.brushType, g.color)
 	}
 
 	return nil
@@ -95,6 +123,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	for i := 0; i < numLayers; i++ {
 		screen.DrawImage(g.layers.layers[i].image, nil)
 	}
+
+	// Draw button
+    vector.DrawFilledRect(screen, float32(g.buttonX), float32(g.buttonY), float32(g.buttonW), float32(g.buttonH), g.color , true)
+
+    // Draw sliders
+    for _, slider := range g.sliders {
+        slider.Draw(screen)
+    }
 
 	// fmt.Printf("FPS: %v", ebiten.ActualFPS())
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", ebiten.ActualFPS()))
@@ -123,6 +159,11 @@ type Game struct {
 	prevKeyStates map[ebiten.Key]bool
 	currKeyStates map[ebiten.Key]bool
 	color 	  color.RGBA
+	sliders     [4]*Slider
+    buttonX     int
+    buttonY     int
+    buttonW     int
+    buttonH     int
 }
 
 func main() {
@@ -152,6 +193,16 @@ func main() {
 		brushType: 0,
 		prevKeyStates: make(map[ebiten.Key]bool),
 		currKeyStates: make(map[ebiten.Key]bool),
+		sliders: [4]*Slider{
+            {x: 50, y: 350, w: 200, h: 20, color: color.RGBA{255, 0, 0, 255}},
+            {x: 50, y: 380, w: 200, h: 20, color: color.RGBA{0, 255, 0, 255}},
+            {x: 50, y: 410, w: 200, h: 20, color: color.RGBA{0, 0, 255, 255}},
+            {x: 50, y: 440, w: 200, h: 20, color: color.RGBA{0, 0, 0, 255}}, // Alpha slider
+        },
+        buttonX:     200,
+        buttonY:     200,
+        buttonW:     100,
+        buttonH:     50,
 	}
 
 	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR}
