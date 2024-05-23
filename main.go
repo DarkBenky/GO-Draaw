@@ -94,6 +94,9 @@ type Mask struct {
 func (mask *Mask) createMask(layer *Layer, x int, y int, g *Game) {
 	brushSize := g.brushSize
 	mask.currentMaskSize = int(brushSize)
+	if brushSize > maxMaskSize {
+		brushSize = maxMaskSize
+	}
 	for i := 0; i < int(brushSize); i++ {
 		for j := 0; j < int(brushSize); j++ {
 			newX := x - int(brushSize)/2 + i
