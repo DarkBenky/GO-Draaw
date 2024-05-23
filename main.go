@@ -84,50 +84,78 @@ func drawIntLayer(layer *Layer, x float32, y float32, g *Game) {
 	}
 }
 
-// func (mask [g.brushSize][g.brushSize]color.RGBA)createMask(layer *Layer , x *int , y *int , g *Game) {
-// 	const brushSize = g.brushSize
-// 	const brushType = g.brushType
-// 	for i := 0; i < int(brushSize); i++ {
-// 		for j := 0; j < int(brushSize); j++ {
-// 			newX := x - int(brushSize)/2 + i
-// 			newY := y - int(brushSize)/2 + j
-// 			if brushType == 0 {
-// 				if 
-// 			if newX >= 0 && newX < screenWidth && newY >= 0 && newY < screenHeight {
-// 				mask[i][j] = layer.image.At(newX, newY)
-// 			}
-// 		}
-// 	return mask
-// 	}
-// }
+const maxMaskSize = 100
 
-// // TODO: optimize this function
-// func blurIntLayer(layer *Layer, x *int , y *int, game *Game) {
-// 	mask = createMask(layer, x, y, game.brushSize)
-// 	if game.brushSize == 0 {
-// 		for i := 1; i < int(game.brushSize)-1; i++ {
-// 			for j := 1; j < int(game.brushSize)-1; j++ {
-// 				// Calculate the average color of the surrounding pixels
-// 				avgColor := color.RGBA{}
-// 				for k := -1; k <= 1; k++ {
-// 					for l := -1; l <= 1; l++ {
-// 						avgColor.R += mask[i+k][j+l].R
-// 						avgColor.G += mask[i+k][j+l].G
-// 						avgColor.B += mask[i+k][j+l].B
-// 					}
-// 				}
-// 				avgColor.R /= 9
-// 				avgColor.G /= 9
-// 				avgColor.B /= 9
-// 				vector.DrawFilledRect(layer.image, float32(x+i), float32(y+j), 1, 1, avgColor, true)
-// 			}
-		
-// 		}
-// 	}
-// 	else if game.brushSize == 1 {
+type Mask struct {
+	mask            [maxMaskSize][maxMaskSize]color.RGBA
+	currentMaskSize int
+}
 
-// 	}
-// }
+func (mask *Mask) createMask(layer *Layer, x int, y int, g *Game) {
+	brushSize := g.brushSize
+	mask.currentMaskSize = int(brushSize)
+	for i := 0; i < int(brushSize); i++ {
+		for j := 0; j < int(brushSize); j++ {
+			newX := x - int(brushSize)/2 + i
+			newY := y - int(brushSize)/2 + j
+			if newX >= 0 && newX < screenWidth && newY >= 0 && newY < screenHeight {
+				mask.mask[i][j] = layer.image.At(newX, newY).(color.RGBA)
+			}
+		}
+	}
+}
+
+type ColorInt16 struct {
+	R uint16
+	G uint16
+	B uint16
+	A uint16
+}
+
+func (layer *Layer) blurLayer(x int, y int, game *Game, mask *Mask) {
+	mask.createMask(layer, x, y, game)
+	temp := make([][]color.RGBA, mask.currentMaskSize)
+	for i := range temp {
+		temp[i] = make([]color.RGBA, mask.currentMaskSize)
+	}
+
+	kernelSize :=  int(game.brushSize / 25) + 1
+
+	for h := 0; h < mask.currentMaskSize; h++ {
+		for w := 0; w < mask.currentMaskSize; w++ {
+			average := ColorInt16{}
+			count := uint16(0)
+			for i := -kernelSize; i <= kernelSize; i++ {
+				for j := -kernelSize; j <= kernelSize; j++ {
+					nh, nw := h+i, w+j
+					if nh >= 0 && nh < mask.currentMaskSize && nw >= 0 && nw < mask.currentMaskSize {
+						average.R += uint16(mask.mask[nh][nw].R)
+						average.G += uint16(mask.mask[nh][nw].G)
+						average.B += uint16(mask.mask[nh][nw].B)
+						average.A += uint16(mask.mask[nh][nw].A)
+						count++
+					}
+				}
+			}
+			average.R /= count
+			average.G /= count
+			average.B /= count
+			average.A /= count
+			temp[h][w] = color.RGBA{uint8(average.R), uint8(average.G), uint8(average.B), uint8(average.A)}
+		}
+	}
+
+	for h := 0; h < mask.currentMaskSize; h++ {
+		for w := 0; w < mask.currentMaskSize; w++ {
+			newX := x - mask.currentMaskSize/2 + h
+			newY := y - mask.currentMaskSize/2 + w
+			if newX >= 0 && newX < screenWidth && newY >= 0 && newY < screenHeight {
+				layer.image.Set(newX, newY, temp[h][w])
+			}
+		}
+	}
+}
+
 
 func (g *Game) Update() error {
 	// Update the current key states
@@ -191,9 +219,8 @@ func (g *Game) Update() error {
 	if mousePressed && g.currentTool == 0 {
 		drawIntLayer(&g.layers.layers[g.currentLayer], float32(mouseX), float32(mouseY), g)
 	} else if mousePressed && g.currentTool == 1 {
-		// blurIntLayer(&g.layers.layers[g.currentLayer], mouseX, mouseY, g)
+		g.layers.layers[g.currentLayer].blurLayer(mouseX, mouseY, g, &g.mask)
 	}
-
 
 	return nil
 }
@@ -247,10 +274,12 @@ type Game struct {
 	sliders       [4]*Slider
 	Buttons       []*Button
 	currentTool   int
+	mask 		Mask
 }
 
 func main() {
 	ebiten.SetVsyncEnabled(false)
+
 
 	ebiten.SetTPS(60)
 
@@ -290,6 +319,7 @@ func main() {
 		},
 		currentTool: 0,
 		Buttons:     buttons,
+		mask : Mask{},
 	}
 
 	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR}
