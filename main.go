@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"image/color"
-	"math"
 	"math/rand"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -73,10 +72,50 @@ func drawIntLayer(layer *Layer, x float32, y float32, g *Game) {
 	}
 }
 
-// TODO: optimize this function
-func blurIntLayer(layer *Layer, x, y int, game *Game) {
-	
-}
+// func (mask [g.brushSize][g.brushSize]color.RGBA)createMask(layer *Layer , x *int , y *int , g *Game) {
+// 	const brushSize = g.brushSize
+// 	const brushType = g.brushType
+// 	for i := 0; i < int(brushSize); i++ {
+// 		for j := 0; j < int(brushSize); j++ {
+// 			newX := x - int(brushSize)/2 + i
+// 			newY := y - int(brushSize)/2 + j
+// 			if brushType == 0 {
+// 				if 
+// 			if newX >= 0 && newX < screenWidth && newY >= 0 && newY < screenHeight {
+// 				mask[i][j] = layer.image.At(newX, newY)
+// 			}
+// 		}
+// 	return mask
+// 	}
+// }
+
+// // TODO: optimize this function
+// func blurIntLayer(layer *Layer, x *int , y *int, game *Game) {
+// 	mask = createMask(layer, x, y, game.brushSize)
+// 	if game.brushSize == 0 {
+// 		for i := 1; i < int(game.brushSize)-1; i++ {
+// 			for j := 1; j < int(game.brushSize)-1; j++ {
+// 				// Calculate the average color of the surrounding pixels
+// 				avgColor := color.RGBA{}
+// 				for k := -1; k <= 1; k++ {
+// 					for l := -1; l <= 1; l++ {
+// 						avgColor.R += mask[i+k][j+l].R
+// 						avgColor.G += mask[i+k][j+l].G
+// 						avgColor.B += mask[i+k][j+l].B
+// 					}
+// 				}
+// 				avgColor.R /= 9
+// 				avgColor.G /= 9
+// 				avgColor.B /= 9
+// 				vector.DrawFilledRect(layer.image, float32(x+i), float32(y+j), 1, 1, avgColor, true)
+// 			}
+		
+// 		}
+// 	}
+// 	else if game.brushSize == 1 {
+
+// 	}
+// }
 
 func (g *Game) Update() error {
 	// Update the current key states
@@ -140,7 +179,7 @@ func (g *Game) Update() error {
 	if mousePressed && g.currentTool == 0 {
 		drawIntLayer(&g.layers.layers[g.currentLayer], float32(mouseX), float32(mouseY), g)
 	} else if mousePressed && g.currentTool == 1 {
-		blurIntLayer(&g.layers.layers[g.currentLayer], mouseX, mouseY, g)
+		// blurIntLayer(&g.layers.layers[g.currentLayer], mouseX, mouseY, g)
 	}
 
 
