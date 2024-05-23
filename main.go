@@ -112,6 +112,16 @@ type ColorInt16 struct {
 	A uint16
 }
 
+// blurLayer applies a blur effect to a specific region of the layer's image.
+// It takes the x and y coordinates of the region, a pointer to the Game struct,
+// and a pointer to the Mask struct as parameters.
+// The function creates a mask using the current layer, x, y, and game parameters.
+// It then applies the blur effect to the region defined by the mask.
+// The blur effect is calculated by averaging the color values of the pixels
+// within a kernel size determined by the brush size of the game.
+// The resulting blurred pixels are stored in a temporary matrix.
+// Finally, the blurred pixels are applied to the layer's image at the
+// corresponding positions defined by the mask.
 func (layer *Layer) blurLayer(x int, y int, game *Game, mask *Mask) {
 	mask.createMask(layer, x, y, game)
 	temp := make([][]color.RGBA, mask.currentMaskSize)
