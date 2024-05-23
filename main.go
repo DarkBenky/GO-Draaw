@@ -1,3 +1,15 @@
+// FIXME[High]: UI elements merge into one layer and then draw on the screen
+// TODO [High]: Implement the blur function --Currently Developing
+// TODO [High]: Implement the increase contrast function
+// TODO [High]: Implement the increase brightness function
+// TODO [High]: Implement the decrease brightness function
+// TODO [High]: Implement the edge detection function
+// TODO [High]: Implement the decrease contrast function
+// TODO [High]: Implement the sharpen function
+// TODO [High]: Implement the eraser tool
+// TODO [High]: Implement the fill tool
+// TODO [High]: Implement the line tool
+
 package main
 
 import (
