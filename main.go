@@ -1,5 +1,5 @@
 // FIXME[High]: UI elements merge into one layer and then draw on the screen
-// TODO [High]: Implement the blur function --Currently Developing
+// [DONE]: Implement the blur function 
 // TODO [High]: Implement the increase contrast function
 // TODO [High]: Implement the increase brightness function
 // TODO [High]: Implement the decrease brightness function
