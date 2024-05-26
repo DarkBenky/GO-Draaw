@@ -1,9 +1,9 @@
 // FIXME[High]: UI elements merge into one layer and then draw on the screen
-// [DONE]: Implement the blur function 
+// : Implement the blur function [DONE]
 // TODO [High]: Implement the increase contrast function
 // TODO [High]: Implement the increase brightness function
 // TODO [High]: Implement the decrease brightness function
-// TODO [High]: Implement the edge detection function
+// [High]: Implement the edge detection function [DONE]
 // TODO [High]: Implement the decrease contrast function
 // TODO [High]: Implement the sharpen function
 // TODO [High]: Implement the eraser tool
@@ -15,6 +15,7 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"math/rand"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -115,16 +116,74 @@ type ColorInt16 struct {
 	A uint16
 }
 
-// blurLayer applies a blur effect to a specific region of the layer's image.
-// It takes the x and y coordinates of the region, a pointer to the Game struct,
-// and a pointer to the Mask struct as parameters.
-// The function creates a mask using the current layer, x, y, and game parameters.
-// It then applies the blur effect to the region defined by the mask.
-// The blur effect is calculated by averaging the color values of the pixels
-// within a kernel size determined by the brush size of the game.
-// The resulting blurred pixels are stored in a temporary matrix.
-// Finally, the blurred pixels are applied to the layer's image at the
-// corresponding positions defined by the mask.
+
+
+func (layer *Layer) edgeLayer(x int, y int, game *Game, mask *Mask, threshold int) {
+	mask.createMask(layer, x, y, game)
+	temp := make([][]color.RGBA, mask.currentMaskSize)
+	edgeColor := game.color
+
+	sobelX := [3][3]int{
+		{-1, 0, 1},
+		{-2, 0, 2},
+		{-1, 0, 1},
+	}
+	sobelY := [3][3]int{
+		{-1, -2, -1},
+		{0, 0, 0},
+		{1, 2, 1},
+	}
+
+	for i := range temp {
+		temp[i] = make([]color.RGBA, mask.currentMaskSize)
+	}
+
+	for h := 0; h < mask.currentMaskSize; h++ {
+		for w := 0; w < mask.currentMaskSize; w++ {
+			var gxR, gxG, gxB, gyR, gyG, gyB int
+
+			for i := -1; i <= 1; i++ {
+				for j := -1; j <= 1; j++ {
+					nh, nw := h+i, w+j
+					if nh >= 0 && nh < mask.currentMaskSize && nw >= 0 && nw < mask.currentMaskSize {
+						gxR += int(mask.mask[nh][nw].R) * sobelX[i+1][j+1]
+						gxG += int(mask.mask[nh][nw].G) * sobelX[i+1][j+1]
+						gxB += int(mask.mask[nh][nw].B) * sobelX[i+1][j+1]
+						gyR += int(mask.mask[nh][nw].R) * sobelY[i+1][j+1]
+						gyG += int(mask.mask[nh][nw].G) * sobelY[i+1][j+1]
+						gyB += int(mask.mask[nh][nw].B) * sobelY[i+1][j+1]
+					}
+				}
+			}
+
+			// Calculate the gradient magnitude
+			gradientR := math.Sqrt(float64(gxR*gxR + gyR*gyR))
+			gradientG := math.Sqrt(float64(gxG*gxG + gyG*gyG))
+			gradientB := math.Sqrt(float64(gxB*gxB + gyB*gyB))
+
+			// Average the gradient magnitude
+			gradient := (gradientR + gradientG + gradientB) / 3
+
+			// Apply the threshold
+			if gradient > float64(threshold) {
+				temp[h][w] = edgeColor
+			} else {
+				temp[h][w] = mask.mask[h][w]
+			}
+		}
+		// Copy the result back to the layer's image
+		for h := 1; h < mask.currentMaskSize-1; h++ {
+			for w := 1; w < mask.currentMaskSize-1; w++ {
+				newX := x - mask.currentMaskSize/2 + h
+				newY := y - mask.currentMaskSize/2 + w
+				if newX >= 0 && newX < screenWidth && newY >= 0 && newY < screenHeight {
+					layer.image.Set(newX, newY, temp[h][w])
+				}
+			}
+		}
+	}
+}
+
 func (layer *Layer) blurLayer(x int, y int, game *Game, mask *Mask) {
 	mask.createMask(layer, x, y, game)
 	temp := make([][]color.RGBA, mask.currentMaskSize)
@@ -132,7 +191,7 @@ func (layer *Layer) blurLayer(x int, y int, game *Game, mask *Mask) {
 		temp[i] = make([]color.RGBA, mask.currentMaskSize)
 	}
 
-	kernelSize :=  int(game.brushSize / 25) + 1
+	kernelSize := int(game.brushSize/25) + 1
 
 	for h := 0; h < mask.currentMaskSize; h++ {
 		for w := 0; w < mask.currentMaskSize; w++ {
@@ -168,7 +227,6 @@ func (layer *Layer) blurLayer(x int, y int, game *Game, mask *Mask) {
 		}
 	}
 }
-
 
 func (g *Game) Update() error {
 	// Update the current key states
@@ -233,6 +291,8 @@ func (g *Game) Update() error {
 		drawIntLayer(&g.layers.layers[g.currentLayer], float32(mouseX), float32(mouseY), g)
 	} else if mousePressed && g.currentTool == 1 {
 		g.layers.layers[g.currentLayer].blurLayer(mouseX, mouseY, g, &g.mask)
+	} else if mousePressed && g.currentTool == 2 {
+		g.layers.layers[g.currentLayer].edgeLayer(mouseX, mouseY, g, &g.mask, 50)
 	}
 
 	return nil
@@ -287,12 +347,11 @@ type Game struct {
 	sliders       [4]*Slider
 	Buttons       []*Button
 	currentTool   int
-	mask 		Mask
+	mask          Mask
 }
 
 func main() {
 	ebiten.SetVsyncEnabled(false)
-
 
 	ebiten.SetTPS(60)
 
@@ -332,7 +391,7 @@ func main() {
 		},
 		currentTool: 0,
 		Buttons:     buttons,
-		mask : Mask{},
+		mask:        Mask{},
 	}
 
 	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR}
