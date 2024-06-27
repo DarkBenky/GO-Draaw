@@ -23,8 +23,345 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-const screenWidth = 1900
-const screenHeight = 1000
+type Vector struct {
+	x, y, z float64
+}
+
+type Ray struct {
+	origin, direction Vector
+}
+
+func (v *Vector) Add(v2 Vector) Vector {
+	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
+}
+
+func (v Vector) Sub(v2 Vector) Vector {
+	return Vector{v.x - v2.x, v.y - v2.y, v.z - v2.z}
+}
+
+func (v Vector) Dot(v2 Vector) float64 {
+	return v.x*v2.x + v.y*v2.y + v.z*v2.z
+}
+
+func (v *Vector) Cross(v2 Vector) Vector {
+	return Vector{v.y*v2.z - v.z*v2.y, v.z*v2.x - v.x*v2.z, v.x*v2.y - v.y*v2.x}
+}
+
+func (v *Vector) Scale(s float64) Vector {
+	return Vector{v.x * s, v.y * s, v.z * s}
+}
+
+func (v *Vector) Magnitude() float64 {
+	return math.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
+}
+
+func (v Vector) Normalize() Vector {
+	mag := v.Magnitude()
+	return Vector{v.x / mag, v.y / mag, v.z / mag}
+}
+
+type Object interface {
+	Intersect(ray Ray) float64
+	Normal(v Vector) Vector
+}
+
+type Polygon struct {
+	vertices    [3]Vector // Triangle
+	boundingBox [2]Vector
+	color       color.RGBA
+}
+
+func NewPolygon(v1, v2, v3 Vector, color color.RGBA) Polygon {
+	minX := math.Min(v1.x, math.Min(v2.x, v3.x))
+	minY := math.Min(v1.y, math.Min(v2.y, v3.y))
+	minZ := math.Min(v1.z, math.Min(v2.z, v3.z))
+	maxX := math.Max(v1.x, math.Max(v2.x, v3.x))
+	maxY := math.Max(v1.y, math.Max(v2.y, v3.y))
+	maxZ := math.Max(v1.z, math.Max(v2.z, v3.z))
+	return Polygon{
+		vertices:    [3]Vector{v1, v2, v3},
+		boundingBox: [2]Vector{Vector{minX, minY, minZ}, Vector{maxX, maxY, maxZ}},
+		color:       color,
+	}
+}
+
+func (p Polygon) Normal(v Vector) Vector {
+	edge1 := p.vertices[1].Sub(p.vertices[0])
+	edge2 := p.vertices[2].Sub(p.vertices[0])
+	return edge1.Cross(edge2).Normalize()
+}
+
+func (p Polygon) IsPointInPolygon(point Vector) bool {
+	normal := p.Normal(Vector{})
+	for i := 0; i < len(p.vertices); i++ {
+		v0 := p.vertices[i]
+		v1 := p.vertices[(i+1)%len(p.vertices)]
+		edge := v1.Sub(v0)
+		vp := point.Sub(v0)
+		c := edge.Cross(vp)
+		if normal.Dot(c) < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+type Intersection struct {
+	distance   float64
+	normal     Vector
+	color      color.RGBA
+	reflection Vector
+}
+
+func (p Polygon) Intersect(ray Ray) Intersection {
+
+	// Default intersection result for no intersection
+	noIntersection := Intersection{distance: -1.0}
+
+	// start := time.Now() // Start the timer
+
+	// Check if the ray intersects the bounding box
+	if !p.IsRayIntersectingBoundingBox(ray) {
+		return noIntersection
+	}
+
+	// fmt.Println("Bounding Box Intersection Time: ", time.Since(start))
+	// start = time.Now()
+
+	normal := p.Normal(Vector{})
+	planePoint := p.vertices[0]
+
+	denominator := normal.Dot(ray.direction)
+	if math.Abs(denominator) < 1e-6 {
+		return noIntersection // Ray is parallel to the polygon plane
+	}
+
+	t := planePoint.Sub(ray.origin).Dot(normal) / denominator
+	if t < 0 {
+		return noIntersection // Polygon is behind the ray
+	}
+
+	P := ray.origin.Add(ray.direction.Scale(t))
+	if !p.IsPointInPolygon(P) {
+		return noIntersection // Intersection point is outside the polygon
+	}
+
+	// fmt.Println("Intersection Time: ", time.Since(start))
+	// start = time.Now()
+
+	reflection := Vector{}
+	if math.Abs(ray.direction.Dot(normal)) > 1e-6 {
+		reflection = ray.direction.Sub(normal.Scale(2 * ray.direction.Dot(normal))).Normalize()
+	} else {
+		// Handle case where ray direction and normal are nearly parallel
+		reflection = ray.direction // Fallback to the original direction
+	}
+
+	// fmt.Println("Reflection Time: ", time.Since(start))
+
+	return Intersection{
+		distance:   t,
+		normal:     normal,
+		color:      p.color,
+		reflection: reflection,
+	}
+}
+
+func (p Polygon) IsRayIntersectingBoundingBox(ray Ray) bool {
+	// Calculate the inverse of the ray direction for use in the slab method.
+	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
+
+	// Calculate tmin and tmax for the x-axis, which represent the intersection
+	// distances to the bounding box planes in the x direction.
+	tmin := (p.boundingBox[0].x - ray.origin.x) * invDir.x
+	tmax := (p.boundingBox[1].x - ray.origin.x) * invDir.x
+
+	// Swap tmin and tmax if necessary to ensure tmin <= tmax.
+	if tmin > tmax {
+		tmin, tmax = tmax, tmin
+	}
+
+	// Calculate tymin and tymax for the y-axis.
+	tymin := (p.boundingBox[0].y - ray.origin.y) * invDir.y
+	tymax := (p.boundingBox[1].y - ray.origin.y) * invDir.y
+
+	// Swap tymin and tymax if necessary.
+	if tymin > tymax {
+		tymin, tymax = tymax, tymin
+	}
+
+	// Check for overlap in the x and y slabs. If there's no overlap,
+	// the ray does not intersect the bounding box.
+	if (tmin > tymax) || (tymin > tmax) {
+		return false
+	}
+
+	// Update tmin and tmax to ensure they represent the intersection
+	// distances for both x and y slabs.
+	if tymin > tmin {
+		tmin = tymin
+	}
+	if tymax < tmax {
+		tmax = tymax
+	}
+
+	// Calculate tzmin and tzmax for the z-axis.
+	tzmin := (p.boundingBox[0].z - ray.origin.z) * invDir.z
+	tzmax := (p.boundingBox[1].z - ray.origin.z) * invDir.z
+
+	// Swap tzmin and tzmax if necessary.
+	if tzmin > tzmax {
+		tzmin, tzmax = tzmax, tzmin
+	}
+
+	// Check for overlap in the x, y, and z slabs. If there's no overlap,
+	// the ray does not intersect the bounding box.
+	if (tmin > tzmax) || (tzmin > tmax) {
+		return false
+	}
+
+	// If we pass all checks, the ray intersects the bounding box.
+	return true
+}
+
+type Mesh struct {
+	polygons []Polygon
+	boundingBox [2]Vector
+}
+
+func NewMesh(polygons []Polygon) Mesh {
+	minX := math.Inf(1)
+	minY := math.Inf(1)
+	minZ := math.Inf(1)
+	maxX := math.Inf(-1)
+	maxY := math.Inf(-1)
+	maxZ := math.Inf(-1)
+	for _, polygon := range polygons {
+		for _, vertex := range polygon.vertices {
+			minX = math.Min(minX, vertex.x)
+			minY = math.Min(minY, vertex.y)
+			minZ = math.Min(minZ, vertex.z)
+			maxX = math.Max(maxX, vertex.x)
+			maxY = math.Max(maxY, vertex.y)
+			maxZ = math.Max(maxZ, vertex.z)
+		}
+	}
+	return Mesh{
+		polygons: polygons,
+		boundingBox: [2]Vector{Vector{minX, minY, minZ}, Vector{maxX, maxY, maxZ}},
+	}
+}
+
+
+func (m Mesh) Intersect(ray Ray) Intersection {
+	closestIntersection := Intersection{}
+	closestIntersection.distance = -1.0
+	for _, polygon := range m.polygons {
+		intersection := polygon.Intersect(ray)
+		if intersection.distance > 0 && closestIntersection.distance < intersection.distance {
+			closestIntersection = intersection
+		}
+	}
+	return closestIntersection
+}
+
+func DrawMesh(ray Ray, m Mesh, screen *ebiten.Image, fov float64) {
+	// Calculate the field of view (FOV) in radians
+	fovX := fov * math.Pi / 180.0 // Convert degrees to radians
+	fovY := float64(screenHeight) / float64(screenWidth) * fovX
+
+	
+	// Iterate over the screen pixels
+	for y := 0; y < screenHeight; y++ {
+		for x := 0; x < screenWidth; x++ {
+			// Calculate normalized device coordinates (NDC) in range [-1, 1]
+			ndcX := (2.0 * float64(x) / float64(screenWidth)) - 1.0
+			ndcY := 1.0 - (2.0 * float64(y) / float64(screenHeight))
+
+			// Calculate direction vector based on FOV and NDC
+			ray.direction.x = ndcX * math.Tan(fovX/2.0)
+			ray.direction.y = ndcY * math.Tan(fovY/2.0)
+
+			// Normalize the direction vector
+			ray.direction = ray.direction.Normalize()
+
+			// Check if the ray intersects the bounding box of the entire mesh
+			if !isRayIntersectingMeshBoundingBox(ray, m) {
+				continue
+			}
+
+
+			// Intersect the ray with the mesh
+			intersection := m.Intersect(ray)
+
+			// Set the color of the pixel on the screen if there's an intersection
+			if intersection.distance != -1 {
+				screen.Set(x, y, intersection.color)
+				// fmt.Println(intersection.color)
+			}
+		}
+	}
+}
+
+func isRayIntersectingMeshBoundingBox(ray Ray, m Mesh) bool {
+	// Calculate the inverse of the ray direction for use in the slab method.
+	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
+
+	// Calculate tmin and tmax for the x-axis, which represent the intersection
+	// distances to the bounding box planes in the x direction.
+	tmin := (m.boundingBox[0].x - ray.origin.x) * invDir.x
+	tmax := (m.boundingBox[1].x - ray.origin.x) * invDir.x
+
+	// Swap tmin and tmax if necessary to ensure tmin <= tmax.
+	if tmin > tmax {
+		tmin, tmax = tmax, tmin
+	}
+
+	// Calculate tymin and tymax for the y-axis.
+	tymin := (m.boundingBox[0].y - ray.origin.y) * invDir.y
+	tymax := (m.boundingBox[1].y - ray.origin.y) * invDir.y
+
+	// Swap tymin and tymax if necessary.
+	if tymin > tymax {
+		tymin, tymax = tymax, tymin
+	}
+
+	// Check for overlap in the x and y slabs. If there's no overlap,
+	// the ray does not intersect the bounding box.
+	if (tmin > tymax) || (tymin > tmax) {
+		return false
+	}
+
+	// Update tmin and tmax to ensure they represent the intersection
+	// distances for both x and y slabs.
+	if tymin > tmin {
+		tmin = tymin
+	}
+	if tymax < tmax {
+		tmax = tymax
+	}
+
+	// Calculate tzmin and tzmax for the z-axis.
+	tzmin := (m.boundingBox[0].z - ray.origin.z) * invDir.z
+	tzmax := (m.boundingBox[1].z - ray.origin.z) * invDir.z
+
+	// Swap tzmin and tzmax if necessary.
+	if tzmin > tzmax {
+		tzmin, tzmax = tzmax, tzmin
+	}
+
+	// Check for overlap in the x, y, and z slabs. If there's no overlap,
+	// the ray does not intersect the bounding box.
+	if (tmin > tzmax) || (tzmin > tmax) {
+		return false
+	}
+
+	// If we pass all checks, the ray intersects the bounding box.
+	return true
+}
+
+const screenWidth = 720
+const screenHeight = 480
 const numLayers = 5
 
 type Button struct {
@@ -115,8 +452,6 @@ type ColorInt16 struct {
 	B uint16
 	A uint16
 }
-
-
 
 func (layer *Layer) edgeLayer(x int, y int, game *Game, mask *Mask, threshold int) {
 	mask.createMask(layer, x, y, game)
@@ -322,10 +657,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Brush Size: %v", g.brushSize), 0, 40)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Brush Type: %v", g.brushType), 0, 60)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current Tool: %v", g.currentTool), 0, 80)
+
+	DrawMesh(g.ray, g.meshes[0], screen, 60)
+	DrawMesh(g.ray, g.meshes[1], screen, 60)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return 1900, 1000
+	return 720, 480
 }
 
 type Layer struct {
@@ -348,6 +686,8 @@ type Game struct {
 	Buttons       []*Button
 	currentTool   int
 	mask          Mask
+	meshes          []Mesh
+	ray           Ray
 }
 
 func main() {
@@ -375,6 +715,20 @@ func main() {
 		layers.layers[i].image.Fill(color.Transparent)
 	}
 
+	p1 := NewPolygon(Vector{0, 0, 0}, Vector{0, 1, 0}, Vector{1, 1, 1}, color.RGBA{255, 0, 0, 255})
+	p2 := NewPolygon(Vector{0, 0, 0}, Vector{1, 0, 0}, Vector{1, 1, 1}, color.RGBA{0, 255, 0, 255})
+	p3 := NewPolygon(Vector{0, 0, 0}, Vector{1, 0, 0}, Vector{1, 1, 0}, color.RGBA{0, 0, 255, 255})
+	p4 := NewPolygon(Vector{0, 0, 0}, Vector{1, 0, 0}, Vector{1, 1, 1}, color.RGBA{255, 0, 0, 255})
+
+	mesh := NewMesh([]Polygon{p1, p2, p3, p4})
+
+	p5 := NewPolygon(Vector{1, 0, 0}, Vector{0, 1, 0}, Vector{1, 1, 10}, color.RGBA{255, 0, 0, 255})
+	p6 := NewPolygon(Vector{0, 1, 10}, Vector{1, 0, 0}, Vector{1, 1, 1}, color.RGBA{0, 255, 0, 255})
+	p7 := NewPolygon(Vector{5, 1, 0}, Vector{1, 0, 0}, Vector{1, 1, 0}, color.RGBA{0, 0, 255, 255})
+	p8 := NewPolygon(Vector{1, 0, 0}, Vector{1, 0, 0}, Vector{1, 1, 1}, color.RGBA{255, 0, 0, 255})
+
+	mesh2 := NewMesh([]Polygon{p5, p6, p7, p8})
+
 	game := &Game{
 		layers:        &layers,
 		currentLayer:  0,
@@ -392,6 +746,8 @@ func main() {
 		currentTool: 0,
 		Buttons:     buttons,
 		mask:        Mask{},
+		meshes:      []Mesh{mesh, mesh2},
+		ray:         Ray{origin: Vector{0, 0, -3}, direction: Vector{0, 0, 0.5}},
 	}
 
 	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR}
