@@ -17,6 +17,8 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"sync"
+	"runtime"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -31,7 +33,7 @@ type Ray struct {
 	origin, direction Vector
 }
 
-func (v *Vector) Add(v2 Vector) Vector {
+func (v Vector) Add(v2 Vector) Vector {
 	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
 }
 
@@ -111,6 +113,11 @@ type Intersection struct {
 	normal     Vector
 	color      color.RGBA
 	reflection Vector
+	intersectionPoint Point
+}
+
+type Point struct {
+	x, y, z float64
 }
 
 func (p Polygon) Intersect(ray Ray) Intersection {
@@ -164,6 +171,7 @@ func (p Polygon) Intersect(ray Ray) Intersection {
 		normal:     normal,
 		color:      p.color,
 		reflection: reflection,
+		intersectionPoint: Point(P),
 	}
 }
 
@@ -303,6 +311,92 @@ func DrawMesh(ray Ray, m Mesh, screen *ebiten.Image, fov float64) {
 	}
 }
 
+const numberOfThreads = 4
+
+func DrawMeshMultiProcessing(ray Ray, mashes []Mesh, screen *ebiten.Image, fov float64) {
+	// Calculate the field of view (FOV) in radians
+	fovX := fov * math.Pi / 180.0 // Convert degrees to radians
+	fovY := float64(screenHeight) / float64(screenWidth) * fovX
+
+	BlocksOfScreen := make([][]Ray, numberOfThreads)
+	IndicesOfScreen := make([][]int, numberOfThreads)
+
+	for i := range BlocksOfScreen {
+		BlocksOfScreen[i] = make([]Ray, 0, screenHeight*screenWidth/numberOfThreads)
+		IndicesOfScreen[i] = make([]int, 0, screenHeight*screenWidth/numberOfThreads)
+	}
+
+	// Iterate over the screen pixels
+	for y := 0; y < screenHeight; y++ {
+		for x := 0; x < screenWidth; x++ {
+			// Calculate normalized device coordinates (NDC) in range [-1, 1]
+			ndcX := (2.0 * float64(x) / float64(screenWidth)) - 1.0
+			ndcY := 1.0 - (2.0 * float64(y) / float64(screenHeight))
+
+			// Calculate direction vector based on FOV and NDC
+			ray.direction.x = ndcX * math.Tan(fovX/2.0)
+			ray.direction.y = ndcY * math.Tan(fovY/2.0)
+
+			// Normalize the direction vector
+			ray.direction = ray.direction.Normalize()
+
+			// Split the rays into blocks
+			threadIndex := (y * screenWidth + x) % numberOfThreads
+			BlocksOfScreen[threadIndex] = append(BlocksOfScreen[threadIndex], ray)
+			IndicesOfScreen[threadIndex] = append(IndicesOfScreen[threadIndex], y*screenWidth+x)
+		}
+	}
+
+	// Channel to communicate pixel updates to the main thread
+	pixelUpdates := make(chan PixelUpdate, screenWidth*screenHeight)
+
+	var wg sync.WaitGroup
+
+	// Do raycasting in parallel
+	for i := 0; i < numberOfThreads; i++ {
+		wg.Add(1)
+		go func(block []Ray, indices []int) {
+			defer wg.Done()
+			for j, ray := range block {
+				for _, m := range mashes {
+					// Check if the ray intersects the bounding box of the entire mesh
+					if !isRayIntersectingMeshBoundingBox(ray, m) {
+						continue
+					}
+
+					// Intersect the ray with the mesh
+					intersection := m.Intersect(ray)
+
+					// Calculate the x and y coordinates
+					index := indices[j]
+					x := index % (screenWidth)
+					y := index / (screenWidth)
+
+					// Send the pixel update to the main thread if there's an intersection
+					if intersection.distance != -1 {
+						pixelUpdates <- PixelUpdate{x: x, y: y, color: intersection.color}
+					}
+				}
+			}
+		}(BlocksOfScreen[i], IndicesOfScreen[i])
+	}
+
+	go func() {
+		wg.Wait()
+		close(pixelUpdates)
+	}()
+
+	// Apply pixel updates to the screen in the main thread
+	for update := range pixelUpdates {
+		screen.Set(update.x, update.y, update.color)
+	}
+}
+
+type PixelUpdate struct {
+	x, y  int
+	color color.Color
+}
+
 func isRayIntersectingMeshBoundingBox(ray Ray, m Mesh) bool {
 	// Calculate the inverse of the ray direction for use in the slab method.
 	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
@@ -360,8 +454,8 @@ func isRayIntersectingMeshBoundingBox(ray Ray, m Mesh) bool {
 	return true
 }
 
-const screenWidth = 720
-const screenHeight = 480
+const screenWidth = 1280
+const screenHeight = 720
 const numLayers = 5
 
 type Button struct {
@@ -658,12 +752,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Brush Type: %v", g.brushType), 0, 60)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current Tool: %v", g.currentTool), 0, 80)
 
-	DrawMesh(g.ray, g.meshes[0], screen, 60)
-	DrawMesh(g.ray, g.meshes[1], screen, 60)
+	// DrawMesh(g.ray, g.meshes[0], screen, 60)
+	// DrawMesh(g.ray, g.meshes[1], screen, 60)
+
+	// DrawMeshMultiProcessing(g.ray, g.meshes[0], screen, 60)
+	DrawMeshMultiProcessing(g.ray, g.meshes, screen, 60)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return 720, 480
+	return 1280, 720
 }
 
 type Layer struct {
@@ -691,6 +788,13 @@ type Game struct {
 }
 
 func main() {
+
+	numCPU := runtime.NumCPU()
+	fmt.Println("Number of CPUs:", numCPU)
+
+	runtime.GOMAXPROCS(numberOfThreads)
+
+
 	ebiten.SetVsyncEnabled(false)
 
 	ebiten.SetTPS(60)
