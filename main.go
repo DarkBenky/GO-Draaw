@@ -20,613 +20,493 @@ import (
 	"runtime"
 	"sync"
 
-	"os"
-	"runtime/pprof"
-
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-func startCPUProfile() {
-	f, err := os.Create("cpu.prof")
-	if err != nil {
-		fmt.Println("could not create CPU profile: ", err)
-	}
-	if err := pprof.StartCPUProfile(f); err != nil {
-		fmt.Println("could not start CPU profile: ", err)
-	}
-}
-
-func stopCPUProfile() {
-	pprof.StopCPUProfile()
-}
-
 type Vector struct {
 	x, y, z float64
-}
-
-type VectorArray []Vector
-
-type Ray struct {
-	origin, direction Vector
-}
-
-type RayArray []Ray
-
-func (rays *RayArray)RaysDirNormalize() *RayArray{
-	for i := range *rays{
-		(*rays)[i].direction = (*rays)[i].direction.Normalize()
-	}
-	return rays
 }
 
 func (v Vector) Add(v2 Vector) Vector {
 	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
 }
 
-func (v *VectorArray)Add(v2 *VectorArray) *VectorArray{
-	for i := range *v{
-		(*v)[i].x += (*v2)[i].x
-		(*v)[i].y += (*v2)[i].y
-		(*v)[i].z += (*v2)[i].z
-	}
-	return v
-}
-
 func (v Vector) Sub(v2 Vector) Vector {
 	return Vector{v.x - v2.x, v.y - v2.y, v.z - v2.z}
 }
 
-func (v *VectorArray)Sub(v2 *VectorArray) *VectorArray{
-	for i := range *v{
-		(*v)[i].x -= (*v2)[i].x
-		(*v)[i].y -= (*v2)[i].y
-		(*v)[i].z -= (*v2)[i].z
-	}
-	return v
+func (v Vector) Mul(scalar float64) Vector {
+	return Vector{v.x * scalar, v.y * scalar, v.z * scalar}
 }
 
 func (v Vector) Dot(v2 Vector) float64 {
 	return v.x*v2.x + v.y*v2.y + v.z*v2.z
 }
 
-func (v *VectorArray)Dot(v2 *VectorArray) *VectorArray{
-	for i := range *v{
-		(*v)[i].x *= (*v2)[i].x
-		(*v)[i].y *= (*v2)[i].y
-		(*v)[i].z *= (*v2)[i].z
-	}
-	return v
-}
-
 func (v Vector) Cross(v2 Vector) Vector {
 	return Vector{v.y*v2.z - v.z*v2.y, v.z*v2.x - v.x*v2.z, v.x*v2.y - v.y*v2.x}
 }
 
-func (v *VectorArray)Cross(v2 *VectorArray) *VectorArray{
-	for i := range *v{
-		(*v)[i].x = (*v)[i].y*(*v2)[i].z - (*v)[i].z*(*v2)[i].y
-		(*v)[i].y = (*v)[i].z*(*v2)[i].x - (*v)[i].x*(*v2)[i].z
-		(*v)[i].z = (*v)[i].x*(*v2)[i].y - (*v)[i].y*(*v2)[i].x
-	}
-	return v
-}
-
-func (v *Vector) Scale(s float64) Vector {
-	return Vector{v.x * s, v.y * s, v.z * s}
-}
-
-func (v *VectorArray)Scale(s float64) *VectorArray{
-	for i := range *v{
-		(*v)[i].x *= s
-		(*v)[i].y *= s
-		(*v)[i].z *= s
-	}
-	return v
-}
-
-func (v *Vector) Magnitude() float64 {
-	return math.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
-}
-
-func (v *VectorArray)Magnitude() *VectorArray{
-	for i := range *v{
-		(*v)[i].x = math.Sqrt((*v)[i].x*(*v)[i].x + (*v)[i].y*(*v)[i].y + (*v)[i].z*(*v)[i].z)
-	}
-	return v
-}
-
 func (v Vector) Normalize() Vector {
-	mag := v.Magnitude()
-	v.x /= mag
-	v.y /= mag
-	v.z /= mag
-	return v
-}
-
-func (v *VectorArray)Normalize() *VectorArray{
-	for i := range *v{
-		mag := (*v)[i].Magnitude()
-		(*v)[i].x /= mag
-		(*v)[i].y /= mag
-		(*v)[i].z /= mag
+	magnitude := math.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
+	if magnitude == 0 {
+		return Vector{0, 0, 0}
 	}
-	return v
+	return Vector{v.x / magnitude, v.y / magnitude, v.z / magnitude}
 }
 
-type Object interface {
-	Intersect(ray Ray) float64
-	Normal(v Vector) Vector
+type Ray struct {
+	origin, direction Vector
 }
 
-type Polygon struct {
-	vertices    [3]Vector // Triangle
-	boundingBox [2]Vector
+type Triangle struct {
+	v1, v2, v3  Vector
 	color       color.RGBA
+	BoundingBox [2]Vector
 }
 
-func NewPolygon(v1, v2, v3 Vector, color color.RGBA) Polygon {
-	minX := math.Min(v1.x, math.Min(v2.x, v3.x))
-	minY := math.Min(v1.y, math.Min(v2.y, v3.y))
-	minZ := math.Min(v1.z, math.Min(v2.z, v3.z))
-	maxX := math.Max(v1.x, math.Max(v2.x, v3.x))
-	maxY := math.Max(v1.y, math.Max(v2.y, v3.y))
-	maxZ := math.Max(v1.z, math.Max(v2.z, v3.z))
-	return Polygon{
-		vertices:    [3]Vector{v1, v2, v3},
-		boundingBox: [2]Vector{Vector{minX, minY, minZ}, Vector{maxX, maxY, maxZ}},
-		color:       color,
+func CreateCube(center Vector, size float64, color color.RGBA) []Triangle {
+	halfSize := size / 2
+
+	vertices := [8]Vector{
+		{center.x - halfSize, center.y - halfSize, center.z - halfSize},
+		{center.x + halfSize, center.y - halfSize, center.z - halfSize},
+		{center.x + halfSize, center.y + halfSize, center.z - halfSize},
+		{center.x - halfSize, center.y + halfSize, center.z - halfSize},
+		{center.x - halfSize, center.y - halfSize, center.z + halfSize},
+		{center.x + halfSize, center.y - halfSize, center.z + halfSize},
+		{center.x + halfSize, center.y + halfSize, center.z + halfSize},
+		{center.x - halfSize, center.y + halfSize, center.z + halfSize},
+	}
+
+	return []Triangle{
+		NewTriangle(vertices[0], vertices[1], vertices[2], color), // Front face
+		NewTriangle(vertices[0], vertices[2], vertices[3], color),
+
+		NewTriangle(vertices[4], vertices[5], vertices[6], color), // Back face
+		NewTriangle(vertices[4], vertices[6], vertices[7], color),
+
+		NewTriangle(vertices[0], vertices[1], vertices[5], color), // Bottom face
+		NewTriangle(vertices[0], vertices[5], vertices[4], color),
+
+		NewTriangle(vertices[2], vertices[3], vertices[7], color), // Top face
+		NewTriangle(vertices[2], vertices[7], vertices[6], color),
+
+		NewTriangle(vertices[1], vertices[2], vertices[6], color), // Right face
+		NewTriangle(vertices[1], vertices[6], vertices[5], color),
+
+		NewTriangle(vertices[0], vertices[3], vertices[7], color), // Left face
+		NewTriangle(vertices[0], vertices[7], vertices[4], color),
 	}
 }
 
-func (p Polygon) Normal(v Vector) Vector {
-	edge1 := p.vertices[1].Sub(p.vertices[0])
-	edge2 := p.vertices[2].Sub(p.vertices[0])
-	return edge1.Cross(edge2).Normalize()
+func (triangle *Triangle) CalculateBoundingBox() {
+	triangle.BoundingBox[0] = Vector{math.Min(triangle.v1.x, math.Min(triangle.v2.x, triangle.v3.x)), math.Min(triangle.v1.y, math.Min(triangle.v2.y, triangle.v3.y)), math.Min(triangle.v1.z, math.Min(triangle.v2.z, triangle.v3.z))}
+	triangle.BoundingBox[1] = Vector{math.Max(triangle.v1.x, math.Max(triangle.v2.x, triangle.v3.x)), math.Max(triangle.v1.y, math.Max(triangle.v2.y, triangle.v3.y)), math.Max(triangle.v1.z, math.Max(triangle.v2.z, triangle.v3.z))}
 }
 
-func (p Polygon) IsPointInPolygon(point Vector) bool {
-	normal := p.Normal(Vector{})
-	for i := 0; i < len(p.vertices); i++ {
-		v0 := p.vertices[i]
-		v1 := p.vertices[(i+1)%len(p.vertices)]
-		edge := v1.Sub(v0)
-		vp := point.Sub(v0)
-		c := edge.Cross(vp)
-		if normal.Dot(c) < 0 {
-			return false
-		}
+func NewTriangle(v1, v2, v3 Vector, color color.RGBA) Triangle {
+	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color}
+	triangle.CalculateBoundingBox()
+	return triangle
+}
+
+func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
+	tMin := (triangle.BoundingBox[0].x - ray.origin.x) / ray.direction.x
+	tMax := (triangle.BoundingBox[1].x - ray.origin.x) / ray.direction.x
+
+	if tMin > tMax {
+		tMin, tMax = tMax, tMin
 	}
-	return true
+
+	tyMin := (triangle.BoundingBox[0].y - ray.origin.y) / ray.direction.y
+	tyMax := (triangle.BoundingBox[1].y - ray.origin.y) / ray.direction.y
+
+	if tyMin > tyMax {
+		tyMin, tyMax = tyMax, tyMin
+	}
+
+	if (tMin > tyMax) || (tyMin > tMax) {
+		return false
+	}
+
+	if tyMin > tMin {
+		tMin = tyMin
+	}
+
+	if tyMax < tMax {
+		tMax = tyMax
+	}
+
+	tzMin := (triangle.BoundingBox[0].z - ray.origin.z) / ray.direction.z
+	tzMax := (triangle.BoundingBox[1].z - ray.origin.z) / ray.direction.z
+
+	if tzMin > tzMax {
+		tzMin, tzMax = tzMax, tzMin
+	}
+
+	if (tMin > tzMax) || (tzMin > tMax) {
+		return false
+	}
+
+	// if tzMin > tMin {
+	// 	tMin = tzMin
+	// }
+
+	if tzMax < tMax {
+		tMax = tzMax
+	}
+
+	return tMax > 0
 }
 
 type Intersection struct {
-	distance          float64
-	normal            Vector
-	color             color.RGBA
-	reflection        Vector
-	intersectionPoint Point
+	PointOfIntersection Vector
+	Color               color.RGBA
+	Normal              Vector
+	Direction           Vector
+	Distance            float64
 }
 
-type Point struct {
-	x, y, z float64
+type Light struct {
+	Position  Vector
+	Color     color.RGBA
+	intensity float64
 }
 
-func (p Polygon) Intersect(ray Ray) Intersection {
+func (light *Light) CalculateLighting(intersection Intersection, triangles []Triangle) color.RGBA {
+	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+	shadowRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: lightDir}
 
-	// Default intersection result for no intersection
-	noIntersection := Intersection{distance: -1.0}
-
-	// start := time.Now() // Start the timer
-
-	// Check if the ray intersects the bounding box
-	if !p.IsRayIntersectingBoundingBox(ray) {
-		return noIntersection
-	}
-
-	// fmt.Println("Bounding Box Intersection Time: ", time.Since(start))
-	// start = time.Now()
-
-	normal := p.Normal(Vector{})
-	planePoint := p.vertices[0]
-
-	denominator := normal.Dot(ray.direction)
-	if math.Abs(denominator) < 1e-6 {
-		return noIntersection // Ray is parallel to the polygon plane
-	}
-
-	t := planePoint.Sub(ray.origin).Dot(normal) / denominator
-	if t < 0 {
-		return noIntersection // Polygon is behind the ray
-	}
-
-	P := ray.origin.Add(ray.direction.Scale(t))
-	if !p.IsPointInPolygon(P) {
-		return noIntersection // Intersection point is outside the polygon
-	}
-
-	// fmt.Println("Intersection Time: ", time.Since(start))
-	// start = time.Now()
-
-	reflection := Vector{}
-	if math.Abs(ray.direction.Dot(normal)) > 1e-6 {
-		reflection = ray.direction.Sub(normal.Scale(2 * ray.direction.Dot(normal))).Normalize()
-	} else {
-		// Handle case where ray direction and normal are nearly parallel
-		reflection = ray.direction // Fallback to the original direction
-	}
-
-	// fmt.Println("Reflection Time: ", time.Since(start))
-
-	return Intersection{
-		distance:          t,
-		normal:            normal,
-		color:             p.color,
-		reflection:        reflection,
-		intersectionPoint: Point(P),
-	}
-}
-
-func (p Polygon) IsRayIntersectingBoundingBox(ray Ray) bool {
-	// Calculate the inverse of the ray direction for use in the slab method.
-	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
-
-	// Calculate tmin and tmax for the x-axis, which represent the intersection
-	// distances to the bounding box planes in the x direction.
-	tmin := (p.boundingBox[0].x - ray.origin.x) * invDir.x
-	tmax := (p.boundingBox[1].x - ray.origin.x) * invDir.x
-
-	// Swap tmin and tmax if necessary to ensure tmin <= tmax.
-	if tmin > tmax {
-		tmin, tmax = tmax, tmin
-	}
-
-	// Calculate tymin and tymax for the y-axis.
-	tymin := (p.boundingBox[0].y - ray.origin.y) * invDir.y
-	tymax := (p.boundingBox[1].y - ray.origin.y) * invDir.y
-
-	// Swap tymin and tymax if necessary.
-	if tymin > tymax {
-		tymin, tymax = tymax, tymin
-	}
-
-	// Check for overlap in the x and y slabs. If there's no overlap,
-	// the ray does not intersect the bounding box.
-	if (tmin > tymax) || (tymin > tmax) {
-		return false
-	}
-
-	// Update tmin and tmax to ensure they represent the intersection
-	// distances for both x and y slabs.
-	if tymin > tmin {
-		tmin = tymin
-	}
-	if tymax < tmax {
-		tmax = tymax
-	}
-
-	// Calculate tzmin and tzmax for the z-axis.
-	tzmin := (p.boundingBox[0].z - ray.origin.z) * invDir.z
-	tzmax := (p.boundingBox[1].z - ray.origin.z) * invDir.z
-
-	// Swap tzmin and tzmax if necessary.
-	if tzmin > tzmax {
-		tzmin, tzmax = tzmax, tzmin
-	}
-
-	// Check for overlap in the x, y, and z slabs. If there's no overlap,
-	// the ray does not intersect the bounding box.
-	if (tmin > tzmax) || (tzmin > tmax) {
-		return false
-	}
-
-	// If we pass all checks, the ray intersects the bounding box.
-	return true
-}
-
-type Mesh struct {
-	polygons    []Polygon
-	boundingBox [2]Vector
-}
-
-func NewMesh(polygons []Polygon) Mesh {
-	minX := math.Inf(1)
-	minY := math.Inf(1)
-	minZ := math.Inf(1)
-	maxX := math.Inf(-1)
-	maxY := math.Inf(-1)
-	maxZ := math.Inf(-1)
-	for _, polygon := range polygons {
-		for _, vertex := range polygon.vertices {
-			minX = math.Min(minX, vertex.x)
-			minY = math.Min(minY, vertex.y)
-			minZ = math.Min(minZ, vertex.z)
-			maxX = math.Max(maxX, vertex.x)
-			maxY = math.Max(maxY, vertex.y)
-			maxZ = math.Max(maxZ, vertex.z)
-		}
-	}
-	return Mesh{
-		polygons:    polygons,
-		boundingBox: [2]Vector{Vector{minX, minY, minZ}, Vector{maxX, maxY, maxZ}},
-	}
-}
-
-func (m Mesh) Intersect(ray Ray) Intersection {
-	closestIntersection := Intersection{}
-	closestIntersection.distance = -1.0
-	for _, polygon := range m.polygons {
-		intersection := polygon.Intersect(ray)
-		if intersection.distance > 0 && closestIntersection.distance < intersection.distance {
-			closestIntersection = intersection
-		}
-	}
-	return closestIntersection
-}
-
-func DrawMesh(ray Ray, m Mesh, screen *ebiten.Image, fov float64) {
-	// Calculate the field of view (FOV) in radians
-	fovX := fov * math.Pi / 180.0 // Convert degrees to radians
-	fovY := float64(screenHeight) / float64(screenWidth) * fovX
-
-	// Iterate over the screen pixels
-	for y := 0; y < screenHeight; y++ {
-		for x := 0; x < screenWidth; x++ {
-			// Calculate normalized device coordinates (NDC) in range [-1, 1]
-			ndcX := (2.0 * float64(x) / float64(screenWidth)) - 1.0
-			ndcY := 1.0 - (2.0 * float64(y) / float64(screenHeight))
-
-			// Calculate direction vector based on FOV and NDC
-			ray.direction.x = ndcX * math.Tan(fovX/2.0)
-			ray.direction.y = ndcY * math.Tan(fovY/2.0)
-
-			// Normalize the direction vector
-			ray.direction = ray.direction.Normalize()
-
-			// Check if the ray intersects the bounding box of the entire mesh
-			if !isRayIntersectingMeshBoundingBox(ray, m) {
-				continue
-			}
-
-			// Intersect the ray with the mesh
-			intersection := m.Intersect(ray)
-
-			// Set the color of the pixel on the screen if there's an intersection
-			if intersection.distance != -1 {
-				screen.Set(x, y, intersection.color)
-				// fmt.Println(intersection.color)
-			}
-		}
-	}
-}
-
-const numberOfThreads = 4
-
-func DrawMeshMultiProcessing(ray Ray, mashes []Mesh, screen *ebiten.Image, fov float64) {
-	// Calculate the field of view (FOV) in radians
-	fovX := fov * math.Pi / 180.0 // Convert degrees to radians
-	fovY := float64(screenHeight) / float64(screenWidth) * fovX
-
-	BlocksOfScreen := make([][]Ray, numberOfThreads)
-	IndicesOfScreen := make([][]int, numberOfThreads)
-
-	for i := range BlocksOfScreen {
-		BlocksOfScreen[i] = make([]Ray, 0, screenHeight*screenWidth/numberOfThreads)
-		IndicesOfScreen[i] = make([]int, 0, screenHeight*screenWidth/numberOfThreads)
-	}
-
-	// Iterate over the screen pixels
-	for y := 0; y < screenHeight; y++ {
-		for x := 0; x < screenWidth; x++ {
-			// Calculate normalized device coordinates (NDC) in range [-1, 1]
-			ndcX := (2.0 * float64(x) / float64(screenWidth)) - 1.0
-			ndcY := 1.0 - (2.0 * float64(y) / float64(screenHeight))
-
-			// Calculate direction vector based on FOV and NDC
-			ray.direction.x = ndcX * math.Tan(fovX/2.0)
-			ray.direction.y = ndcY * math.Tan(fovY/2.0)
-
-			// Normalize the direction vector
-			ray.direction = ray.direction.Normalize()
-
-			// Split the rays into blocks
-			threadIndex := (y*screenWidth + x) % numberOfThreads
-			BlocksOfScreen[threadIndex] = append(BlocksOfScreen[threadIndex], ray)
-			IndicesOfScreen[threadIndex] = append(IndicesOfScreen[threadIndex], y*screenWidth+x)
+	// Check if the point is in shadow
+	inShadow := false
+	for _, triangle := range triangles {
+		if _, intersect := shadowRay.IntersectTriangle(triangle); intersect {
+			inShadow = true
+			break
 		}
 	}
 
-	// Channel to communicate pixel updates to the main thread
-	pixelUpdates := make(chan PixelUpdate, screenWidth*screenHeight)
-
-	var wg sync.WaitGroup
-
-	// Do raycasting in parallel
-	for i := 0; i < numberOfThreads; i++ {
-		wg.Add(1)
-		go func(block []Ray, indices []int) {
-			defer wg.Done()
-			for j, ray := range block {
-				for _, m := range mashes {
-					// Check if the ray intersects the bounding box of the entire mesh
-					if !isRayIntersectingMeshBoundingBox(ray, m) {
-						continue
-					}
-
-					// Intersect the ray with the mesh
-					intersection := m.Intersect(ray)
-
-					// Calculate the x and y coordinates
-					index := indices[j]
-					x := index % (screenWidth)
-					y := index / (screenWidth)
-
-					// Send the pixel update to the main thread if there's an intersection
-					if intersection.distance != -1 {
-						pixelUpdates <- PixelUpdate{x: x, y: y, color: intersection.color}
-					}
-				}
-			}
-		}(BlocksOfScreen[i], IndicesOfScreen[i])
+	// Ambient light contribution
+	ambientFactor := 0.3 // Adjust ambient factor as needed
+	ambientColor := color.RGBA{
+		uint8(float64(intersection.Color.R) * ambientFactor),
+		uint8(float64(intersection.Color.G) * ambientFactor),
+		uint8(float64(intersection.Color.B) * ambientFactor),
+		intersection.Color.A,
 	}
 
-	go func() {
-		wg.Wait()
-		close(pixelUpdates)
-	}()
-
-	// Apply pixel updates to the screen in the main thread
-	for update := range pixelUpdates {
-		screen.Set(update.x, update.y, update.color)
+	if inShadow {
+		// If in shadow, return ambient color
+		return ambientColor
 	}
+
+	// Calculate diffuse lighting
+
+	lightIntensity := light.intensity * math.Max(0.0, lightDir.Dot(intersection.Normal))
+	finalColor := color.RGBA{
+		clampUint8(float64(ambientColor.R) + lightIntensity*float64(intersection.Color.R)),
+		clampUint8(float64(ambientColor.G) + lightIntensity*float64(intersection.Color.G)),
+		clampUint8(float64(ambientColor.B) + lightIntensity*float64(intersection.Color.B)),
+		ambientColor.A,
+	}
+
+	// R := clampUint8(float64(ambientColor.R) + lightIntensity*float64(intersection.Color.R))
+	// G := clampUint8(float64(ambientColor.G) + lightIntensity*float64(intersection.Color.G))
+	// B := clampUint8(float64(ambientColor.B) + lightIntensity*float64(intersection.Color.B))
+
+	return finalColor
 }
 
-
-func DrawMeshTrueMpProcessing(ray Ray, mashes []Mesh, screen *ebiten.Image, fov float64) {
-	// Calculate the field of view (FOV) in radians
-	fovX := fov * math.Pi / 180.0 // Convert degrees to radians
-	fovY := float64(screenHeight) / float64(screenWidth) * fovX
-
-	BlocksOfScreen := make([]RayArray, numberOfThreads)
-	IndicesOfScreen := make([][]int, numberOfThreads)
-
-	for i := range BlocksOfScreen {
-		BlocksOfScreen[i] = make(RayArray, 0, screenHeight*screenWidth/numberOfThreads)
-		IndicesOfScreen[i] = make([]int, 0, screenHeight*screenWidth/numberOfThreads)
+// Helper function to clamp a float64 value to uint8 range
+func clampUint8(value float64) uint8 {
+	if value < 0 {
+		return 0
 	}
-
-	// Iterate over the screen pixels
-	for y := 0; y < screenHeight; y++ {
-		for x := 0; x < screenWidth; x++ {
-			// Calculate normalized device coordinates (NDC) in range [-1, 1]
-			ndcX := (2.0 * float64(x) / float64(screenWidth)) - 1.0
-			ndcY := 1.0 - (2.0 * float64(y) / float64(screenHeight))
-
-			// Calculate direction vector based on FOV and NDC
-			ray.direction.x = ndcX * math.Tan(fovX/2.0)
-			ray.direction.y = ndcY * math.Tan(fovY/2.0)
-
-			// Split the rays into blocks
-			threadIndex := (y*screenWidth + x) % numberOfThreads
-			BlocksOfScreen[threadIndex] = append(BlocksOfScreen[threadIndex], ray)
-			IndicesOfScreen[threadIndex] = append(IndicesOfScreen[threadIndex], y*screenWidth+x)
-		}
+	if value > 255 {
+		return 255
 	}
-
-	for i := range BlocksOfScreen{
-		BlocksOfScreen[i].RaysDirNormalize()
-	}
-
-	// Normalize the direction vector
-	
-
-	// Channel to communicate pixel updates to the main thread
-	pixelUpdates := make(chan PixelUpdate, screenWidth*screenHeight)
-
-	var wg sync.WaitGroup
-
-	// Do raycasting in parallel
-	for i := 0; i < numberOfThreads; i++ {
-		wg.Add(1)
-		go func(block []Ray, indices []int) {
-			defer wg.Done()
-			for j, ray := range block {
-				for _, m := range mashes {
-					// Check if the ray intersects the bounding box of the entire mesh
-					if !isRayIntersectingMeshBoundingBox(ray, m) {
-						continue
-					}
-
-					// Intersect the ray with the mesh
-					intersection := m.Intersect(ray)
-
-					// Calculate the x and y coordinates
-					index := indices[j]
-					x := index % (screenWidth)
-					y := index / (screenWidth)
-
-					// Send the pixel update to the main thread if there's an intersection
-					if intersection.distance != -1 {
-						pixelUpdates <- PixelUpdate{x: x, y: y, color: intersection.color}
-					}
-				}
-			}
-		}(BlocksOfScreen[i], IndicesOfScreen[i])
-	}
-
-	go func() {
-		wg.Wait()
-		close(pixelUpdates)
-	}()
-
-	// Apply pixel updates to the screen in the main thread
-	for update := range pixelUpdates {
-		screen.Set(update.x, update.y, update.color)
-	}
+	return uint8(value)
 }
 
+func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
+	if !triangle.IntersectBoundingBox(*ray) {
+		return Intersection{}, false
+	}
 
-type PixelUpdate struct {
+	// Möller–Trumbore intersection algorithm
+	edge1 := triangle.v2.Sub(triangle.v1)
+	edge2 := triangle.v3.Sub(triangle.v1)
+	h := ray.direction.Cross(edge2)
+	a := edge1.Dot(h)
+	if a > -0.00001 && a < 0.00001 {
+		return Intersection{}, false
+	}
+	f := 1.0 / a
+	s := ray.origin.Sub(triangle.v1)
+	u := f * s.Dot(h)
+	if u < 0.0 || u > 1.0 {
+		return Intersection{}, false
+	}
+	q := s.Cross(edge1)
+	v := f * ray.direction.Dot(q)
+	if v < 0.0 || u+v > 1.0 {
+		return Intersection{}, false
+	}
+	t := f * edge2.Dot(q)
+	if t > 0.00001 {
+		point := ray.origin.Add(ray.direction.Mul(t))
+		normal := edge1.Cross(edge2).Normalize()
+		distance := t // The distance should be the parameter t
+
+		return Intersection{PointOfIntersection: point, Color: triangle.color, Normal: normal, Direction: ray.direction, Distance: distance}, true
+	}
+	return Intersection{}, false
+}
+
+const workerCount = 8
+
+type Camera struct {
+	Position  Vector
+	Direction Vector
+}
+
+type Pixel struct {
 	x, y  int
-	color color.Color
+	color color.RGBA
 }
 
-func isRayIntersectingMeshBoundingBox(ray Ray, m Mesh) bool {
-	// Calculate the inverse of the ray direction for use in the slab method.
-	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
+func (intersection *Intersection) Scatter(samples int, triangles []Triangle, light Light) color.RGBA {
+	var finalColor color.RGBA64
 
-	// Calculate tmin and tmax for the x-axis, which represent the intersection
-	// distances to the bounding box planes in the x direction.
-	tmin := (m.boundingBox[0].x - ray.origin.x) * invDir.x
-	tmax := (m.boundingBox[1].x - ray.origin.x) * invDir.x
+	for i := 0; i < samples; i++ {
+		// Generate random direction in hemisphere around the normal (cosine-weighted distribution)
+		u := rand.Float64()
+		v := rand.Float64()
+		r := math.Sqrt(u)
+		theta := 2 * math.Pi * v
 
-	// Swap tmin and tmax if necessary to ensure tmin <= tmax.
-	if tmin > tmax {
-		tmin, tmax = tmax, tmin
+		// Construct local coordinate system
+		w := intersection.Normal
+		var uVec, vVec Vector
+		if math.Abs(w.x) > 0.1 {
+			uVec = Vector{0.0, 1.0, 0.0}
+		} else {
+			uVec = Vector{1.0, 0.0, 0.0}
+		}
+		uVec = uVec.Cross(w).Normalize()
+		vVec = w.Cross(uVec)
+
+		// Calculate direction in local coordinates
+		directionLocal := uVec.Mul(r * math.Cos(theta)).Add(vVec.Mul(r * math.Sin(theta))).Add(w.Mul(math.Sqrt(1 - u)))
+
+		// Transform direction to global coordinates
+		direction := directionLocal.Normalize()
+
+		// Create ray starting from intersection point
+		ray := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: direction}
+
+		// Find intersection with scene
+		scatteredIntersection := Intersection{Distance: math.MaxFloat64}
+		for _, triangle := range triangles {
+			tempIntersection, intersect := ray.IntersectTriangle(triangle)
+			if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
+				scatteredIntersection = tempIntersection
+			}
+		}
+
+		if scatteredIntersection.Distance != math.MaxFloat64 {
+			finalColor.R += uint16(scatteredIntersection.Color.R)
+			finalColor.G += uint16(scatteredIntersection.Color.G)
+			finalColor.B += uint16(scatteredIntersection.Color.B)
+			finalColor.A += uint16(scatteredIntersection.Color.A)
+		}
 	}
 
-	// Calculate tymin and tymax for the y-axis.
-	tymin := (m.boundingBox[0].y - ray.origin.y) * invDir.y
-	tymax := (m.boundingBox[1].y - ray.origin.y) * invDir.y
-
-	// Swap tymin and tymax if necessary.
-	if tymin > tymax {
-		tymin, tymax = tymax, tymin
+	// Average color by dividing by samples
+	if samples > 0 {
+		finalColor.R /= uint16(samples)
+		finalColor.G /= uint16(samples)
+		finalColor.B /= uint16(samples)
+		finalColor.A = 255 // Ensure alpha remains fully opaque
 	}
 
-	// Check for overlap in the x and y slabs. If there's no overlap,
-	// the ray does not intersect the bounding box.
-	if (tmin > tymax) || (tymin > tmax) {
+	return color.RGBA{uint8(finalColor.R), uint8(finalColor.G), uint8(finalColor.B), uint8(finalColor.A)}
+}
+
+type object struct {
+	triangles   []Triangle
+	BoundingBox [2]Vector
+}
+
+func CreateObject(triangles []Triangle) *object {
+	object := &object{
+		triangles: triangles,
+		BoundingBox: [2]Vector{
+			Vector{math.MaxFloat64, math.MaxFloat64, math.MaxFloat64},
+			Vector{-math.MaxFloat64, -math.MaxFloat64, -math.MaxFloat64},
+		},
+	}
+	object.CalculateBoundingBox()
+	return object
+}
+
+func (object *object) CalculateBoundingBox() {
+	for _, triangle := range object.triangles {
+		// Update minimum coordinates (BoundingBox[0])
+		object.BoundingBox[0].x = math.Min(object.BoundingBox[0].x, triangle.BoundingBox[0].x)
+		object.BoundingBox[0].y = math.Min(object.BoundingBox[0].y, triangle.BoundingBox[0].y)
+		object.BoundingBox[0].z = math.Min(object.BoundingBox[0].z, triangle.BoundingBox[0].z)
+
+		// Update maximum coordinates (BoundingBox[1])
+		object.BoundingBox[1].x = math.Max(object.BoundingBox[1].x, triangle.BoundingBox[1].x)
+		object.BoundingBox[1].y = math.Max(object.BoundingBox[1].y, triangle.BoundingBox[1].y)
+		object.BoundingBox[1].z = math.Max(object.BoundingBox[1].z, triangle.BoundingBox[1].z)
+	}
+}
+
+func (object *object) IntersectBoundingBox(ray Ray) bool {
+	tMin := (object.BoundingBox[0].x - ray.origin.x) / ray.direction.x
+	tMax := (object.BoundingBox[1].x - ray.origin.x) / ray.direction.x
+
+	if tMin > tMax {
+		tMin, tMax = tMax, tMin
+	}
+
+	tYMin := (object.BoundingBox[0].y - ray.origin.y) / ray.direction.y
+	tYMax := (object.BoundingBox[1].y - ray.origin.y) / ray.direction.y
+
+	if tYMin > tYMax {
+		tYMin, tYMax = tYMax, tYMin
+	}
+
+	if tMin > tYMax || tYMin > tMax {
 		return false
 	}
 
-	// Update tmin and tmax to ensure they represent the intersection
-	// distances for both x and y slabs.
-	if tymin > tmin {
-		tmin = tymin
-	}
-	if tymax < tmax {
-		tmax = tymax
+	if tYMin > tMin {
+		tMin = tYMin
 	}
 
-	// Calculate tzmin and tzmax for the z-axis.
-	tzmin := (m.boundingBox[0].z - ray.origin.z) * invDir.z
-	tzmax := (m.boundingBox[1].z - ray.origin.z) * invDir.z
-
-	// Swap tzmin and tzmax if necessary.
-	if tzmin > tzmax {
-		tzmin, tzmax = tzmax, tzmin
+	if tYMax < tMax {
+		tMax = tYMax
 	}
 
-	// Check for overlap in the x, y, and z slabs. If there's no overlap,
-	// the ray does not intersect the bounding box.
-	if (tmin > tzmax) || (tzmin > tmax) {
+	tZMin := (object.BoundingBox[0].z - ray.origin.z) / ray.direction.z
+	tZMax := (object.BoundingBox[1].z - ray.origin.z) / ray.direction.z
+
+	if tZMin > tZMax {
+		tZMin, tZMax = tZMax, tZMin
+	}
+
+	if tMin > tZMax || tZMin > tMax {
 		return false
 	}
 
-	// If we pass all checks, the ray intersects the bounding box.
-	return true
+	if tZMin > tMin {
+		tMin = tZMin
+	}
+
+	if tZMax < tMax {
+		tMax = tZMax
+	}
+
+	return tMin < math.Inf(1) && tMax > 0
+}
+
+func (object *object) ConvertToTriangles() []Triangle {
+	triangles := []Triangle{}
+	triangles = append(triangles, object.triangles...)
+	return triangles
+}
+
+
+
+
+
+func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, camera Camera, FOV float64, light Light, scaling int, samples int) {
+	aspectRatio := float64(screenWidth) / float64(screenHeight)
+	scale := math.Tan(FOV * 0.5 * math.Pi / 180.0) // Convert FOV to radians
+
+	pixelChan := make(chan Pixel, screenWidth*screenHeight)
+	rowsPerWorker := screenHeight / workerCount
+
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+
+	for i := 0; i < workerCount; i++ {
+		go func(startY int) {
+			defer wg.Done()
+			for width := 0; width < screenWidth; width += scaling {
+				for height := startY; height < startY+rowsPerWorker && height < screenHeight; height += scaling {
+					// Normalize screen coordinates to [-1, 1]
+					pixelNDCX := (float64(width) + 0.5) / float64(screenWidth)
+					pixelNDCY := (float64(height) + 0.5) / float64(screenHeight)
+
+					// Screen space coordinates [-1, 1]
+					pixelScreenX := 2.0*pixelNDCX - 1.0
+					pixelScreenY := 1.0 - 2.0*pixelNDCY
+
+					// Apply aspect ratio and FOV scale
+					pixelCameraX := pixelScreenX * aspectRatio * scale
+					pixelCameraY := pixelScreenY * scale
+
+					// Set ray direction
+					rayDirection := Vector{pixelCameraX, pixelCameraY, -1}.Normalize()
+					ray := Ray{origin: camera.Position, direction: rayDirection}
+
+					intersection := Intersection{Distance: math.MaxFloat64}
+					for _, object := range *object {
+						if object.IntersectBoundingBox(ray) {
+							for _, triangle := range object.ConvertToTriangles() {
+								tempIntersection, intersect := ray.IntersectTriangle(triangle)
+								if intersect && tempIntersection.Distance < intersection.Distance {
+									intersection = tempIntersection
+								}
+							}
+						}
+					}
+					// for _, triangle := range Triangles {
+					// 	tempIntersection, intersect := ray.IntersectTriangle(triangle)
+					// 	if intersect && tempIntersection.Distance < intersection.Distance {
+					// 		intersection = tempIntersection
+					// 	}
+					// }
+					if intersection.Distance != math.MaxFloat64 {
+						// Calculate the final color with lighting
+						Scatter := intersection.Scatter(samples, Triangles, light)
+						light := light.CalculateLighting(intersection, Triangles)
+
+						c := color.RGBA{
+							G: clampUint8(float64(Scatter.G) + float64(light.G)),
+							R: clampUint8(float64(Scatter.R) + float64(light.R)),
+							B: clampUint8(float64(Scatter.B) + float64(light.B)),
+							A: 255,
+						}
+
+						pixelChan <- Pixel{x: width, y: height, color: c}
+					}
+				}
+			}
+		}(i * rowsPerWorker)
+	}
+
+	go func() {
+		wg.Wait()
+		close(pixelChan)
+	}()
+
+	if scaling == 1 {
+		for pixel := range pixelChan {
+			screen.Set(pixel.x, pixel.y, pixel.color)
+		}
+	} else {
+		for pixel := range pixelChan {
+			vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
+		}
+	}
 }
 
 const screenWidth = 1280
@@ -663,21 +543,15 @@ func (s *Slider) Draw(screen *ebiten.Image) {
 }
 
 func (g *Game) isKeyReleased(key ebiten.Key) bool {
-	// Check if the key was previously pressed and is now released
 	return g.prevKeyStates[key] && !g.currKeyStates[key]
 }
 
 func (g *Game) updateKeyStates() {
-	// Update the current key states
+	for k := range g.currKeyStates {
+		g.prevKeyStates[k] = g.currKeyStates[k]
+	}
 	for k := range g.currKeyStates {
 		g.currKeyStates[k] = ebiten.IsKeyPressed(k)
-	}
-}
-
-func (g *Game) storePrevKeyStates() {
-	// Store the current key states as the previous key states
-	for k, v := range g.currKeyStates {
-		g.prevKeyStates[k] = v
 	}
 }
 
@@ -836,6 +710,11 @@ func (g *Game) Update() error {
 	// Update the current key states
 	g.updateKeyStates()
 
+	if g.isKeyReleased(ebiten.KeyTab) {
+		g.move = !g.move
+		println("Move:", g.move)
+	}
+
 	if g.isKeyReleased(ebiten.KeyW) {
 		if g.currentLayer < numLayers-1 {
 			g.currentLayer++
@@ -848,16 +727,37 @@ func (g *Game) Update() error {
 		}
 	}
 
+	if g.isKeyReleased(ebiten.KeyC) {
+		for i := 0; i < numLayers; i++ {
+			g.layers.layers[i].image.Clear()
+		}
+	}
+
 	if g.isKeyReleased(ebiten.KeyQ) {
 		g.brushType = (g.brushType + 1) % 2 // Toggle between 0 and 1
 	}
 
-	if g.isKeyReleased(ebiten.KeyR) {
-		g.color = color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
+	if g.isKeyReleased(ebiten.KeyCapsLock) {
+		if g.accumulate {
+			g.samples = 8
+		} else {
+			g.samples = 32 // Default samples
+		}
+		g.accumulate = !g.accumulate
+		println("Accumulate:", g.accumulate)
+		println("Samples:", g.samples)
 	}
 
-	// Store the current key states as the previous states for the next update
-	g.storePrevKeyStates()
+	if g.isKeyReleased(ebiten.KeyR) {
+		if g.render {
+			g.scaleFactor = 1
+		} else {
+			g.scaleFactor = 4
+		}
+		g.render = !g.render
+		println("Render:", g.render)
+		println("Scale Factor:", g.scaleFactor)
+	}
 
 	// increase the brush size by scrolling
 	_, scrollY := ebiten.Wheel()
@@ -896,7 +796,10 @@ func (g *Game) Update() error {
 	} else if mousePressed && g.currentTool == 1 {
 		g.layers.layers[g.currentLayer].blurLayer(mouseX, mouseY, g, &g.mask)
 	} else if mousePressed && g.currentTool == 2 {
-		g.layers.layers[g.currentLayer].edgeLayer(mouseX, mouseY, g, &g.mask, 50)
+		if g.updateFreq%10 == 0 {
+			g.layers.layers[g.currentLayer].edgeLayer(mouseX, mouseY, g, &g.mask, 50)
+		}
+		g.updateFreq++
 	}
 
 	return nil
@@ -921,17 +824,64 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	// fmt.Printf("FPS: %v", ebiten.ActualFPS())
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", ebiten.ActualFPS()))
+
+	fps := ebiten.ActualFPS()
+
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", fps))
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current Layer: %v", g.currentLayer), 0, 20)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Brush Size: %v", g.brushSize), 0, 40)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Brush Type: %v", g.brushType), 0, 60)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current Tool: %v", g.currentTool), 0, 80)
 
-	// DrawMesh(g.ray, g.meshes[0], screen, 60)
-	// DrawMesh(g.ray, g.meshes[1], screen, 60)
+	if g.render {
+		if fps < 24 {
+			g.scaleFactor += 0.1
+		} else {
+			g.scaleFactor -= 0.1
+		}
+	}
 
-	// DrawMeshMultiProcessing(g.ray, g.meshes[0], screen, 60)
-	DrawMeshMultiProcessing(g.ray, g.meshes, screen, 60)
+	// capture the previous screen
+
+	DrawRays(g.objects, g.triangles, screen, g.camera, g.FOV, g.light, int(g.scaleFactor), g.samples)
+
+	// get the mouse position
+	if g.move {
+		mouseX, mouseY := ebiten.CursorPosition()
+		g.light.Position = Vector{float64(mouseX), float64(mouseY), 200}
+		g.camera.Position = Vector{float64(mouseX), float64(mouseY), 550}
+	}
+
+	if g.accumulate {
+		g.avgScreen = averageImages(screen, g.avgScreen)
+		screen.DrawImage(g.avgScreen, nil)
+	}
+}
+
+func averageImages(img1, img2 *ebiten.Image) *ebiten.Image {
+	bounds := img1.Bounds()
+	result := ebiten.NewImage(bounds.Dx(), bounds.Dy())
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r1, g1, b1, a1 := img1.At(x, y).RGBA()
+			r2, g2, b2, a2 := img2.At(x, y).RGBA()
+
+			r := (r1 + r2) / 2
+			g := (g1 + g2) / 2
+			b := (b1 + b2) / 2
+			a := (a1 + a2) / 2
+
+			result.Set(x, y, color.RGBA{
+				uint8(r >> 8),
+				uint8(g >> 8),
+				uint8(b >> 8),
+				uint8(a >> 8),
+			})
+		}
+	}
+
+	return result
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
@@ -958,19 +908,25 @@ type Game struct {
 	Buttons       []*Button
 	currentTool   int
 	mask          Mask
-	meshes        []Mesh
-	ray           Ray
+	camera        Camera
+	FOV           float64
+	triangles     []Triangle
+	light         Light
+	scaleFactor   float64
+	objects       *[]object
+	render        bool
+	move          bool
+	avgScreen     *ebiten.Image
+	accumulate    bool
+	samples       int
+	updateFreq    int
 }
 
 func main() {
-
-	startCPUProfile()
-	defer stopCPUProfile()
-
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
-	runtime.GOMAXPROCS(numberOfThreads)
+	runtime.GOMAXPROCS(workerCount)
 
 	ebiten.SetVsyncEnabled(false)
 
@@ -996,19 +952,14 @@ func main() {
 		layers.layers[i].image.Fill(color.Transparent)
 	}
 
-	p1 := NewPolygon(Vector{0, 0, 0}, Vector{0, 1, 0}, Vector{1, 1, 1}, color.RGBA{255, 0, 0, 255})
-	p2 := NewPolygon(Vector{0, 0, 0}, Vector{1, 0, 0}, Vector{1, 1, 1}, color.RGBA{0, 255, 0, 255})
-	p3 := NewPolygon(Vector{0, 0, 0}, Vector{1, 0, 0}, Vector{1, 1, 0}, color.RGBA{0, 0, 255, 255})
-	p4 := NewPolygon(Vector{0, 0, 0}, Vector{1, 0, 0}, Vector{1, 1, 1}, color.RGBA{255, 0, 0, 255})
-
-	mesh := NewMesh([]Polygon{p1, p2, p3, p4})
-
-	p5 := NewPolygon(Vector{1, 0, 0}, Vector{0, 1, 0}, Vector{1, 1, 10}, color.RGBA{255, 0, 0, 255})
-	p6 := NewPolygon(Vector{0, 1, 10}, Vector{1, 0, 0}, Vector{1, 1, 1}, color.RGBA{0, 255, 0, 255})
-	p7 := NewPolygon(Vector{5, 1, 0}, Vector{1, 0, 0}, Vector{1, 1, 0}, color.RGBA{0, 0, 255, 255})
-	p8 := NewPolygon(Vector{1, 0, 0}, Vector{1, 0, 0}, Vector{1, 1, 1}, color.RGBA{255, 0, 0, 255})
-
-	mesh2 := NewMesh([]Polygon{p5, p6, p7, p8})
+	cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255})
+	cubeObj := CreateObject(cube1)
+	cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255})
+	cubeObj1 := CreateObject(append(cubeObj.triangles, cube2...))
+	cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255})
+	cubeObj2 := CreateObject(append(cubeObj.triangles, cube3...))
+	cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255})
+	cubeObj3 := CreateObject(append(cubeObj.triangles, cube4...))
 
 	game := &Game{
 		layers:        &layers,
@@ -1027,11 +978,20 @@ func main() {
 		currentTool: 0,
 		Buttons:     buttons,
 		mask:        Mask{},
-		meshes:      []Mesh{mesh, mesh2},
-		ray:         Ray{origin: Vector{0, 0, -3}, direction: Vector{0, 0, 0.5}},
+		camera:      Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
+		FOV:         90.0,
+		triangles:   append(append(cube1, cube2...), cube3...),
+		light:       Light{Position: Vector{0, 400, 200}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
+		scaleFactor: 4,
+		objects:     &[]object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3},
+		render:      true,
+		move:        true,
+		avgScreen:   ebiten.NewImage(screenWidth, screenHeight),
+		accumulate:  false,
+		samples:     6,
 	}
 
-	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR}
+	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock , ebiten.KeyC}
 	for _, key := range keys {
 		game.prevKeyStates[key] = false
 		game.currKeyStates[key] = false
