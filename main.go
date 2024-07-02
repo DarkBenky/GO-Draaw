@@ -17,49 +17,142 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
-	"sync"
 	"runtime"
+	"sync"
+
+	"os"
+	"runtime/pprof"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+func startCPUProfile() {
+	f, err := os.Create("cpu.prof")
+	if err != nil {
+		fmt.Println("could not create CPU profile: ", err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		fmt.Println("could not start CPU profile: ", err)
+	}
+}
+
+func stopCPUProfile() {
+	pprof.StopCPUProfile()
+}
+
 type Vector struct {
 	x, y, z float64
 }
 
+type VectorArray []Vector
+
 type Ray struct {
 	origin, direction Vector
+}
+
+type RayArray []Ray
+
+func (rays *RayArray)RaysDirNormalize() *RayArray{
+	for i := range *rays{
+		(*rays)[i].direction = (*rays)[i].direction.Normalize()
+	}
+	return rays
 }
 
 func (v Vector) Add(v2 Vector) Vector {
 	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
 }
 
+func (v *VectorArray)Add(v2 *VectorArray) *VectorArray{
+	for i := range *v{
+		(*v)[i].x += (*v2)[i].x
+		(*v)[i].y += (*v2)[i].y
+		(*v)[i].z += (*v2)[i].z
+	}
+	return v
+}
+
 func (v Vector) Sub(v2 Vector) Vector {
 	return Vector{v.x - v2.x, v.y - v2.y, v.z - v2.z}
+}
+
+func (v *VectorArray)Sub(v2 *VectorArray) *VectorArray{
+	for i := range *v{
+		(*v)[i].x -= (*v2)[i].x
+		(*v)[i].y -= (*v2)[i].y
+		(*v)[i].z -= (*v2)[i].z
+	}
+	return v
 }
 
 func (v Vector) Dot(v2 Vector) float64 {
 	return v.x*v2.x + v.y*v2.y + v.z*v2.z
 }
 
-func (v *Vector) Cross(v2 Vector) Vector {
+func (v *VectorArray)Dot(v2 *VectorArray) *VectorArray{
+	for i := range *v{
+		(*v)[i].x *= (*v2)[i].x
+		(*v)[i].y *= (*v2)[i].y
+		(*v)[i].z *= (*v2)[i].z
+	}
+	return v
+}
+
+func (v Vector) Cross(v2 Vector) Vector {
 	return Vector{v.y*v2.z - v.z*v2.y, v.z*v2.x - v.x*v2.z, v.x*v2.y - v.y*v2.x}
+}
+
+func (v *VectorArray)Cross(v2 *VectorArray) *VectorArray{
+	for i := range *v{
+		(*v)[i].x = (*v)[i].y*(*v2)[i].z - (*v)[i].z*(*v2)[i].y
+		(*v)[i].y = (*v)[i].z*(*v2)[i].x - (*v)[i].x*(*v2)[i].z
+		(*v)[i].z = (*v)[i].x*(*v2)[i].y - (*v)[i].y*(*v2)[i].x
+	}
+	return v
 }
 
 func (v *Vector) Scale(s float64) Vector {
 	return Vector{v.x * s, v.y * s, v.z * s}
 }
 
+func (v *VectorArray)Scale(s float64) *VectorArray{
+	for i := range *v{
+		(*v)[i].x *= s
+		(*v)[i].y *= s
+		(*v)[i].z *= s
+	}
+	return v
+}
+
 func (v *Vector) Magnitude() float64 {
 	return math.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
 }
 
+func (v *VectorArray)Magnitude() *VectorArray{
+	for i := range *v{
+		(*v)[i].x = math.Sqrt((*v)[i].x*(*v)[i].x + (*v)[i].y*(*v)[i].y + (*v)[i].z*(*v)[i].z)
+	}
+	return v
+}
+
 func (v Vector) Normalize() Vector {
 	mag := v.Magnitude()
-	return Vector{v.x / mag, v.y / mag, v.z / mag}
+	v.x /= mag
+	v.y /= mag
+	v.z /= mag
+	return v
+}
+
+func (v *VectorArray)Normalize() *VectorArray{
+	for i := range *v{
+		mag := (*v)[i].Magnitude()
+		(*v)[i].x /= mag
+		(*v)[i].y /= mag
+		(*v)[i].z /= mag
+	}
+	return v
 }
 
 type Object interface {
@@ -109,10 +202,10 @@ func (p Polygon) IsPointInPolygon(point Vector) bool {
 }
 
 type Intersection struct {
-	distance   float64
-	normal     Vector
-	color      color.RGBA
-	reflection Vector
+	distance          float64
+	normal            Vector
+	color             color.RGBA
+	reflection        Vector
 	intersectionPoint Point
 }
 
@@ -167,10 +260,10 @@ func (p Polygon) Intersect(ray Ray) Intersection {
 	// fmt.Println("Reflection Time: ", time.Since(start))
 
 	return Intersection{
-		distance:   t,
-		normal:     normal,
-		color:      p.color,
-		reflection: reflection,
+		distance:          t,
+		normal:            normal,
+		color:             p.color,
+		reflection:        reflection,
 		intersectionPoint: Point(P),
 	}
 }
@@ -233,7 +326,7 @@ func (p Polygon) IsRayIntersectingBoundingBox(ray Ray) bool {
 }
 
 type Mesh struct {
-	polygons []Polygon
+	polygons    []Polygon
 	boundingBox [2]Vector
 }
 
@@ -255,11 +348,10 @@ func NewMesh(polygons []Polygon) Mesh {
 		}
 	}
 	return Mesh{
-		polygons: polygons,
+		polygons:    polygons,
 		boundingBox: [2]Vector{Vector{minX, minY, minZ}, Vector{maxX, maxY, maxZ}},
 	}
 }
-
 
 func (m Mesh) Intersect(ray Ray) Intersection {
 	closestIntersection := Intersection{}
@@ -278,7 +370,6 @@ func DrawMesh(ray Ray, m Mesh, screen *ebiten.Image, fov float64) {
 	fovX := fov * math.Pi / 180.0 // Convert degrees to radians
 	fovY := float64(screenHeight) / float64(screenWidth) * fovX
 
-	
 	// Iterate over the screen pixels
 	for y := 0; y < screenHeight; y++ {
 		for x := 0; x < screenWidth; x++ {
@@ -297,7 +388,6 @@ func DrawMesh(ray Ray, m Mesh, screen *ebiten.Image, fov float64) {
 			if !isRayIntersectingMeshBoundingBox(ray, m) {
 				continue
 			}
-
 
 			// Intersect the ray with the mesh
 			intersection := m.Intersect(ray)
@@ -341,7 +431,7 @@ func DrawMeshMultiProcessing(ray Ray, mashes []Mesh, screen *ebiten.Image, fov f
 			ray.direction = ray.direction.Normalize()
 
 			// Split the rays into blocks
-			threadIndex := (y * screenWidth + x) % numberOfThreads
+			threadIndex := (y*screenWidth + x) % numberOfThreads
 			BlocksOfScreen[threadIndex] = append(BlocksOfScreen[threadIndex], ray)
 			IndicesOfScreen[threadIndex] = append(IndicesOfScreen[threadIndex], y*screenWidth+x)
 		}
@@ -391,6 +481,91 @@ func DrawMeshMultiProcessing(ray Ray, mashes []Mesh, screen *ebiten.Image, fov f
 		screen.Set(update.x, update.y, update.color)
 	}
 }
+
+
+func DrawMeshTrueMpProcessing(ray Ray, mashes []Mesh, screen *ebiten.Image, fov float64) {
+	// Calculate the field of view (FOV) in radians
+	fovX := fov * math.Pi / 180.0 // Convert degrees to radians
+	fovY := float64(screenHeight) / float64(screenWidth) * fovX
+
+	BlocksOfScreen := make([]RayArray, numberOfThreads)
+	IndicesOfScreen := make([][]int, numberOfThreads)
+
+	for i := range BlocksOfScreen {
+		BlocksOfScreen[i] = make(RayArray, 0, screenHeight*screenWidth/numberOfThreads)
+		IndicesOfScreen[i] = make([]int, 0, screenHeight*screenWidth/numberOfThreads)
+	}
+
+	// Iterate over the screen pixels
+	for y := 0; y < screenHeight; y++ {
+		for x := 0; x < screenWidth; x++ {
+			// Calculate normalized device coordinates (NDC) in range [-1, 1]
+			ndcX := (2.0 * float64(x) / float64(screenWidth)) - 1.0
+			ndcY := 1.0 - (2.0 * float64(y) / float64(screenHeight))
+
+			// Calculate direction vector based on FOV and NDC
+			ray.direction.x = ndcX * math.Tan(fovX/2.0)
+			ray.direction.y = ndcY * math.Tan(fovY/2.0)
+
+			// Split the rays into blocks
+			threadIndex := (y*screenWidth + x) % numberOfThreads
+			BlocksOfScreen[threadIndex] = append(BlocksOfScreen[threadIndex], ray)
+			IndicesOfScreen[threadIndex] = append(IndicesOfScreen[threadIndex], y*screenWidth+x)
+		}
+	}
+
+	for i := range BlocksOfScreen{
+		BlocksOfScreen[i].RaysDirNormalize()
+	}
+
+	// Normalize the direction vector
+	
+
+	// Channel to communicate pixel updates to the main thread
+	pixelUpdates := make(chan PixelUpdate, screenWidth*screenHeight)
+
+	var wg sync.WaitGroup
+
+	// Do raycasting in parallel
+	for i := 0; i < numberOfThreads; i++ {
+		wg.Add(1)
+		go func(block []Ray, indices []int) {
+			defer wg.Done()
+			for j, ray := range block {
+				for _, m := range mashes {
+					// Check if the ray intersects the bounding box of the entire mesh
+					if !isRayIntersectingMeshBoundingBox(ray, m) {
+						continue
+					}
+
+					// Intersect the ray with the mesh
+					intersection := m.Intersect(ray)
+
+					// Calculate the x and y coordinates
+					index := indices[j]
+					x := index % (screenWidth)
+					y := index / (screenWidth)
+
+					// Send the pixel update to the main thread if there's an intersection
+					if intersection.distance != -1 {
+						pixelUpdates <- PixelUpdate{x: x, y: y, color: intersection.color}
+					}
+				}
+			}
+		}(BlocksOfScreen[i], IndicesOfScreen[i])
+	}
+
+	go func() {
+		wg.Wait()
+		close(pixelUpdates)
+	}()
+
+	// Apply pixel updates to the screen in the main thread
+	for update := range pixelUpdates {
+		screen.Set(update.x, update.y, update.color)
+	}
+}
+
 
 type PixelUpdate struct {
 	x, y  int
@@ -783,17 +958,19 @@ type Game struct {
 	Buttons       []*Button
 	currentTool   int
 	mask          Mask
-	meshes          []Mesh
+	meshes        []Mesh
 	ray           Ray
 }
 
 func main() {
 
+	startCPUProfile()
+	defer stopCPUProfile()
+
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
 	runtime.GOMAXPROCS(numberOfThreads)
-
 
 	ebiten.SetVsyncEnabled(false)
 
