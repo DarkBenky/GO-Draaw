@@ -20,6 +20,9 @@ import (
 	"runtime"
 	"sync"
 
+	"gorgonia.org/gorgonia"
+	"gorgonia.org/tensor"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -55,6 +58,132 @@ func (v Vector) Normalize() Vector {
 		return Vector{0, 0, 0}
 	}
 	return Vector{v.x / magnitude, v.y / magnitude, v.z / magnitude}
+}
+
+
+type VectorG struct {
+	x, y, z *gorgonia.Node
+}
+
+func VectorToGorgonia(v Vector) VectorG {
+	return VectorG{
+		x: gorgonia.NewScalar(v.x),
+		y: gorgonia.NewScalar(v.y),
+		z: gorgonia.NewScalar(v.z),
+	}
+}
+
+// Add performs vector addition in batch mode
+func Add(v1, v2 []VectorG) []VectorG {
+	result := make([]VectorG, len(v1))
+	for i := range v1 {
+		result[i] = VectorG{
+			x: gorgonia.Must(gorgonia.Add(v1[i].x, v2[i].x)),
+			y: gorgonia.Must(gorgonia.Add(v1[i].y, v2[i].y)),
+			z: gorgonia.Must(gorgonia.Add(v1[i].z, v2[i].z)),
+		}
+	}
+	return result
+}
+
+
+// Sub performs vector subtraction in batch mode
+func Sub(v1, v2 []VectorG) []VectorG {
+	result := make([]VectorG, len(v1))
+	for i := range v1 {
+		result[i] = VectorG{
+			x: gorgonia.Must(gorgonia.Sub(v1[i].x, v2[i].x)),
+			y: gorgonia.Must(gorgonia.Sub(v1[i].y, v2[i].y)),
+			z: gorgonia.Must(gorgonia.Sub(v1[i].z, v2[i].z)),
+		}
+	}
+	return result
+}
+
+// Mul performs scalar multiplication in batch mode
+func Mul(v []VectorG, scalar float64) []VectorG {
+	result := make([]VectorG, len(v))
+	for i := range v {
+		result[i] = VectorG{
+			x: gorgonia.Must(gorgonia.Mul(v[i].x, gorgonia.NewScalar(scalar))),
+			y: gorgonia.Must(gorgonia.Mul(v[i].y, gorgonia.NewScalar(scalar))),
+			z: gorgonia.Must(gorgonia.Mul(v[i].z, gorgonia.NewScalar(scalar))),
+		}
+	}
+	return result
+}
+
+// Dot computes the dot product in batch mode
+func Dot(v1, v2 []VectorG) []float64 {
+	result := make([]float64, len(v1))
+	for i := range v1 {
+		// Compute dot product for each vector pair
+		dotProduct := gorgonia.Must(gorgonia.Add(
+			gorgonia.Must(gorgonia.Mul(v1[i].x, v2[i].x)),
+			gorgonia.Must(gorgonia.Add(
+				gorgonia.Must(gorgonia.Mul(v1[i].y, v2[i].y)),
+				gorgonia.Must(gorgonia.Mul(v1[i].z, v2[i].z)),
+			)),
+		)).Value().Data().(float64)
+
+		result[i] = dotProduct
+	}
+	return result
+}
+
+
+
+// Cross computes the cross product in batch mode
+func Cross(v1, v2 []VectorG) []VectorG {
+	result := make([]VectorG, len(v1))
+	for i := range v1 {
+		crossProductX := gorgonia.Must(gorgonia.Sub(
+			gorgonia.Must(gorgonia.Mul(v1[i].y, v2[i].z)),
+			gorgonia.Must(gorgonia.Mul(v1[i].z, v2[i].y)),
+		))
+		crossProductY := gorgonia.Must(gorgonia.Sub(
+			gorgonia.Must(gorgonia.Mul(v1[i].z, v2[i].x)),
+			gorgonia.Must(gorgonia.Mul(v1[i].x, v2[i].z)),
+		))
+		crossProductZ := gorgonia.Must(gorgonia.Sub(
+			gorgonia.Must(gorgonia.Mul(v1[i].x, v2[i].y)),
+			gorgonia.Must(gorgonia.Mul(v1[i].y, v2[i].x)),
+		))
+
+		result[i] = VectorG{
+			x: crossProductX,
+			y: crossProductY,
+			z: crossProductZ,
+		}
+	}
+	return result
+}
+
+// Normalize normalizes vectors in batch mode
+func Normalize(v []VectorG) []VectorG {
+	result := make([]VectorG, len(v))
+	for i := range v {
+		magnitude := gorgonia.Must(gorgonia.Sqrt(
+			gorgonia.Must(gorgonia.Add(
+				gorgonia.Must(gorgonia.Add(
+					gorgonia.Must(gorgonia.Pow(v[i].x, 2)),
+					gorgonia.Must(gorgonia.Pow(v[i].y, 2)),
+				)),
+				gorgonia.Must(gorgonia.Pow(v[i].z, 2)),
+			)),
+		))
+		// Divide each component by magnitude
+		normalizedX := gorgonia.Must(gorgonia.Div(v[i].x, magnitude))
+		normalizedY := gorgonia.Must(gorgonia.Div(v[i].y, magnitude))
+		normalizedZ := gorgonia.Must(gorgonia.Div(v[i].z, magnitude))
+
+		result[i] = VectorG{
+			x: normalizedX,
+			y: normalizedY,
+			z: normalizedZ,
+		}
+	}
+	return result
 }
 
 type Ray struct {
@@ -421,10 +550,6 @@ func (object *object) ConvertToTriangles() []Triangle {
 	triangles = append(triangles, object.triangles...)
 	return triangles
 }
-
-
-
-
 
 func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, camera Camera, FOV float64, light Light, scaling int, samples int) {
 	aspectRatio := float64(screenWidth) / float64(screenHeight)
@@ -991,7 +1116,7 @@ func main() {
 		samples:     6,
 	}
 
-	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock , ebiten.KeyC}
+	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC}
 	for _, key := range keys {
 		game.prevKeyStates[key] = false
 		game.currKeyStates[key] = false
