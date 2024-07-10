@@ -19,6 +19,9 @@ package main
 // Function prototypes
 void vectorAdd(float *x, float *y, float *z, float *x1, float *y1, float *z1, int n);
 void vectorSub(float *x, float *y, float *z, float *x1, float *y1, float *z1, int n);
+void vectorNormalize(float *x, float *y, float *z, int n);
+void vectorDot(float *x, float *y, float *z, float *x1, float *y1, float *z1, float *result, int n);
+void vectorCross(float *x, float *y, float *z, float *x1, float *y1, float *z1, float *cx, float *cy, float *cz, int n);
 */
 import "C"
 
@@ -71,8 +74,228 @@ func (v Vector) Normalize() Vector {
 	return Vector{v.x / magnitude, v.y / magnitude, v.z / magnitude}
 }
 
+type vectorArrayC struct {
+	x, y, z []C.float
+}
+
+type vectorArray struct {
+	vectors []Vector
+}
+
+func (va *vectorArray) toCArray() vectorArrayC {
+	x := make([]C.float, len(va.vectors))
+	y := make([]C.float, len(va.vectors))
+	z := make([]C.float, len(va.vectors))
+
+	for i, v := range va.vectors {
+		x[i] = C.float(v.x)
+		y[i] = C.float(v.y)
+		z[i] = C.float(v.z)
+	}
+
+	return vectorArrayC{x: x, y: y, z: z}
+}
+
+func (va *vectorArrayC) toVectorArray() vectorArray {
+	vectors := make([]Vector, len(va.x))
+
+	for i := range va.x {
+		vectors[i] = Vector{x: float64(va.x[i]), y: float64(va.y[i]), z: float64(va.z[i])}
+	}
+
+	return vectorArray{vectors: vectors}
+}
+
+func vectorAdd(x, y, z, x1, y1, z1 []C.float, numElements C.int) {
+	C.vectorAdd((*C.float)(&x[0]), (*C.float)(&y[0]), (*C.float)(&z[0]), (*C.float)(&x1[0]), (*C.float)(&y1[0]), (*C.float)(&z1[0]), numElements)
+}
+
+func vectorSub(x, y, z, x1, y1, z1 []C.float, numElements C.int) {
+	C.vectorSub((*C.float)(&x[0]), (*C.float)(&y[0]), (*C.float)(&z[0]), (*C.float)(&x1[0]), (*C.float)(&y1[0]), (*C.float)(&z1[0]), numElements)
+}
+
+func vectorNormalize(x, y, z []C.float, numElements C.int) {
+	C.vectorNormalize((*C.float)(&x[0]), (*C.float)(&y[0]), (*C.float)(&z[0]), numElements)
+}
+
+func vectorDot(x, y, z, x1, y1, z1 []C.float, result []C.float, numElements C.int) {
+	C.vectorDot((*C.float)(&x[0]), (*C.float)(&y[0]), (*C.float)(&z[0]), (*C.float)(&x1[0]), (*C.float)(&y1[0]), (*C.float)(&z1[0]), (*C.float)(&result[0]), numElements)
+}
+
+func vectorCross(x, y, z, x1, y1, z1, cx, cy, cz []C.float, numElements C.int) {
+	C.vectorCross((*C.float)(&x[0]), (*C.float)(&y[0]), (*C.float)(&z[0]), (*C.float)(&x1[0]), (*C.float)(&y1[0]), (*C.float)(&z1[0]), (*C.float)(&cx[0]), (*C.float)(&cy[0]), (*C.float)(&cz[0]), numElements)
+}
+
 type Ray struct {
 	origin, direction Vector
+}
+
+type RayArray struct {
+	rays []Ray
+}
+
+func (ra *RayArray) toCArray() (origin vectorArrayC, direction vectorArrayC) {
+	x := make([]C.float, len(ra.rays))
+	y := make([]C.float, len(ra.rays))
+	z := make([]C.float, len(ra.rays))
+
+	x1 := make([]C.float, len(ra.rays))
+	y1 := make([]C.float, len(ra.rays))
+	z1 := make([]C.float, len(ra.rays))
+
+	for i, r := range ra.rays {
+		x[i] = C.float(r.origin.x)
+		y[i] = C.float(r.origin.y)
+		z[i] = C.float(r.origin.z)
+
+		x1[i] = C.float(r.direction.x)
+		y1[i] = C.float(r.direction.y)
+		z1[i] = C.float(r.direction.z)
+	}
+
+	return vectorArrayC{x: x, y: y, z: z}, vectorArrayC{x: x1, y: y1, z: z1}
+}
+
+func (vecArray *vectorArray) Add(vArray vectorArray, vArray1 vectorArray) vectorArrayC {
+	x := make([]C.float, len(vArray.vectors))
+	y := make([]C.float, len(vArray.vectors))
+	z := make([]C.float, len(vArray.vectors))
+
+	x1 := make([]C.float, len(vArray1.vectors))
+	y1 := make([]C.float, len(vArray1.vectors))
+	z1 := make([]C.float, len(vArray1.vectors))
+
+	for i, v := range vArray.vectors {
+		x[i] = C.float(v.x)
+		y[i] = C.float(v.y)
+		z[i] = C.float(v.z)
+	}
+
+	for i, v := range vArray1.vectors {
+		x1[i] = C.float(v.x)
+		y1[i] = C.float(v.y)
+		z1[i] = C.float(v.z)
+	}
+
+	C.vectorAdd(&x[0], &y[0], &z[0], &x1[0], &y1[0], &z1[0], C.int(len(vArray.vectors)))
+
+	return vectorArrayC{x: x, y: y, z: z}
+}
+
+func (vecArray *vectorArray) Sub(vArray vectorArray, vArray1 vectorArray) vectorArrayC {
+	x := make([]C.float, len(vArray.vectors))
+	y := make([]C.float, len(vArray.vectors))
+	z := make([]C.float, len(vArray.vectors))
+
+	x1 := make([]C.float, len(vArray1.vectors))
+	y1 := make([]C.float, len(vArray1.vectors))
+	z1 := make([]C.float, len(vArray1.vectors))
+
+	for i, v := range vArray.vectors {
+		x[i] = C.float(v.x)
+		y[i] = C.float(v.y)
+		z[i] = C.float(v.z)
+	}
+
+	for i, v := range vArray1.vectors {
+		x1[i] = C.float(v.x)
+		y1[i] = C.float(v.y)
+		z1[i] = C.float(v.z)
+	}
+
+	C.vectorSub(&x[0], &y[0], &z[0], &x1[0], &y1[0], &z1[0], C.int(len(vArray.vectors)))
+
+	return vectorArrayC{x: x, y: y, z: z}
+}
+
+func (vecArray *vectorArray) Normalize() vectorArrayC {
+	x := make([]C.float, len(vecArray.vectors))
+	y := make([]C.float, len(vecArray.vectors))
+	z := make([]C.float, len(vecArray.vectors))
+
+	for i, v := range vecArray.vectors {
+		x[i] = C.float(v.x)
+		y[i] = C.float(v.y)
+		z[i] = C.float(v.z)
+	}
+
+	C.vectorNormalize(&x[0], &y[0], &z[0], C.int(len(vecArray.vectors)))
+
+	return vectorArrayC{x: x, y: y, z: z}
+}
+
+
+func (vecArray *vectorArray) Dot(vArray vectorArray, vArray1 vectorArray) []float64 {
+	x := make([]C.float, len(vArray.vectors))
+	y := make([]C.float, len(vArray.vectors))
+	z := make([]C.float, len(vArray.vectors))
+
+	x1 := make([]C.float, len(vArray1.vectors))
+	y1 := make([]C.float, len(vArray1.vectors))
+	z1 := make([]C.float, len(vArray1.vectors))
+
+	result := make([]C.float, len(vArray.vectors))
+
+	for i, v := range vArray.vectors {
+		x[i] = C.float(v.x)
+		y[i] = C.float(v.y)
+		z[i] = C.float(v.z)
+	}
+
+	for i, v := range vArray1.vectors {
+		x1[i] = C.float(v.x)
+		y1[i] = C.float(v.y)
+		z1[i] = C.float(v.z)
+	}
+
+	C.vectorDot(&x[0], &y[0], &z[0], &x1[0], &y1[0], &z1[0], &result[0], C.int(len(vArray.vectors)))
+
+	goResult := make([]float64, len(vArray.vectors))
+	for i := range result {
+		goResult[i] = float64(result[i])
+	}
+
+	return goResult
+}
+
+func (vecArray *vectorArray) Cross(vArray vectorArray, vArray1 vectorArray) vectorArrayC {
+	x := make([]C.float, len(vArray.vectors))
+	y := make([]C.float, len(vArray.vectors))
+	z := make([]C.float, len(vArray.vectors))
+
+	x1 := make([]C.float, len(vArray1.vectors))
+	y1 := make([]C.float, len(vArray1.vectors))
+	z1 := make([]C.float, len(vArray1.vectors))
+
+	cx := make([]C.float, len(vArray.vectors))
+	cy := make([]C.float, len(vArray.vectors))
+	cz := make([]C.float, len(vArray.vectors))
+
+	for i, v := range vArray.vectors {
+		x[i] = C.float(v.x)
+		y[i] = C.float(v.y)
+		z[i] = C.float(v.z)
+	}
+
+	for i, v := range vArray1.vectors {
+		x1[i] = C.float(v.x)
+		y1[i] = C.float(v.y)
+		z1[i] = C.float(v.z)
+	}
+
+	C.vectorCross(&x[0], &y[0], &z[0], &x1[0], &y1[0], &z1[0], &cx[0], &cy[0], &cz[0], C.int(len(vArray.vectors)))
+
+	return vectorArrayC{x: cx, y: cy, z: cz}
+}
+
+func (ra *RayArray) toVectorArray() RayArray {
+	rays := make([]Ray, len(ra.rays))
+
+	for i := range ra.rays {
+		rays[i] = Ray{origin: Vector{x: float64(ra.rays[i].origin.x), y: float64(ra.rays[i].origin.y), z: float64(ra.rays[i].origin.z)}, direction: Vector{x: float64(ra.rays[i].direction.x), y: float64(ra.rays[i].direction.y), z: float64(ra.rays[i].direction.z)}}
+	}
+
+	return RayArray{rays: rays}
 }
 
 type Triangle struct {
@@ -280,7 +503,45 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	return Intersection{}, false
 }
 
-const workerCount = 8
+func (ray *RayArray) IntersectTriangleGPU(triangle Triangle) (Intersection, bool) {
+	// if !triangle.IntersectBoundingBox(*ray) {
+	// 	return Intersection{}, false
+	// }
+
+	// to C array
+	origin, direction := ray.toCArray()
+
+	// Möller–Trumbore intersection algorithm
+	edge1 := triangle.v2.Sub(triangle.v1)
+	edge2 := triangle.v3.Sub(triangle.v1)
+	h := direction.Cross(edge2)
+	a := edge1.Dot(h)
+	if a > -0.00001 && a < 0.00001 {
+		return Intersection{}, false
+	}
+	f := 1.0 / a
+	s := ray.origin.Sub(triangle.v1)
+	u := f * s.Dot(h)
+	if u < 0.0 || u > 1.0 {
+		return Intersection{}, false
+	}
+	q := s.Cross(edge1)
+	v := f * ray.direction.Dot(q)
+	if v < 0.0 || u+v > 1.0 {
+		return Intersection{}, false
+	}
+	t := f * edge2.Dot(q)
+	if t > 0.00001 {
+		point := ray.origin.Add(ray.direction.Mul(t))
+		normal := edge1.Cross(edge2).Normalize()
+		distance := t // The distance should be the parameter t
+
+		return Intersection{PointOfIntersection: point, Color: triangle.color, Normal: normal, Direction: ray.direction, Distance: distance}, true
+	}
+	return Intersection{}, false
+}
+
+const workerCount = 4
 
 type Camera struct {
 	Position  Vector
@@ -930,10 +1191,6 @@ type Game struct {
 	accumulate    bool
 	samples       int
 	updateFreq    int
-}
-
-func vectorAdd(x, y, z, x1, y1, z1 []C.float, numElements C.int) {
-	C.vectorAdd((*C.float)(&x[0]), (*C.float)(&y[0]), (*C.float)(&z[0]), (*C.float)(&x1[0]), (*C.float)(&y1[0]), (*C.float)(&z1[0]), numElements)
 }
 
 func main() {
