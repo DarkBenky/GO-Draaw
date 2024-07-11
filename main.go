@@ -55,11 +55,36 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
+	"unsafe"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
+
+// IntersectTriangles calls the C function IntersectTriangles
+func IntersectTriangles(rays []Ray, triangles []Triangle) ([]Intersection, []bool) {
+	intersections := make([]Intersection, len(rays))
+	hits := make([]bool, len(rays))
+
+	raysC := make([]C.struct_Ray, len(rays))
+	for i, ray := range rays {
+		raysC[i] = ray.ToRayC()
+	}
+
+	trianglesC := make([]C.struct_Triangle, len(triangles))
+	for i, triangle := range triangles {
+		trianglesC[i] = triangle.ToTriangleC()
+	}
+
+	numRays := C.int(len(rays))
+	numTriangles := C.int(len(triangles))
+
+	// Call the C function
+	C.IntersectTriangles(&raysC[0], &trianglesC[0], (*C.struct_Intersection)(unsafe.Pointer(&intersections[0])), (*C.bool)(unsafe.Pointer(&hits[0])), numRays, numTriangles)
+
+	return intersections, hits
+}
 
 type Vector struct {
 	x, y, z float64
@@ -151,6 +176,21 @@ func vectorCross(x, y, z, x1, y1, z1, cx, cy, cz []C.float, numElements C.int) {
 
 type Ray struct {
 	origin, direction Vector
+}
+
+func (ray *Ray) ToRayC() C.struct_Ray {
+	var cRay C.struct_Ray
+
+	// Assign values to the C struct fields
+	cRay.origin[0] = C.float(ray.origin.x)
+	cRay.origin[1] = C.float(ray.origin.y)
+	cRay.origin[2] = C.float(ray.origin.z)
+
+	cRay.direction[0] = C.float(ray.direction.x)
+	cRay.direction[1] = C.float(ray.direction.y)
+	cRay.direction[2] = C.float(ray.direction.z)
+
+	return cRay
 }
 
 type RayArray struct {
@@ -368,6 +408,29 @@ type Triangle struct {
 	v1, v2, v3  Vector
 	color       color.RGBA
 	BoundingBox [2]Vector
+}
+
+func (triangle *Triangle) ToTriangleC() C.struct_Triangle {
+	var cTriangle C.struct_Triangle
+
+	// Assign values to the C struct fields
+	cTriangle.v1[0] = C.float(triangle.v1.x)
+	cTriangle.v1[1] = C.float(triangle.v1.y)
+	cTriangle.v1[2] = C.float(triangle.v1.z)
+
+	cTriangle.v2[0] = C.float(triangle.v2.x)
+	cTriangle.v2[1] = C.float(triangle.v2.y)
+	cTriangle.v2[2] = C.float(triangle.v2.z)
+
+	cTriangle.v3[0] = C.float(triangle.v3.x)
+	cTriangle.v3[1] = C.float(triangle.v3.y)
+	cTriangle.v3[2] = C.float(triangle.v3.z)
+
+	cTriangle.color[0] = C.float(triangle.color.R)
+	cTriangle.color[1] = C.float(triangle.color.G)
+	cTriangle.color[2] = C.float(triangle.color.B)
+
+	return cTriangle
 }
 
 func CreateCube(center Vector, size float64, color color.RGBA) []Triangle {
@@ -648,8 +711,8 @@ func CreateObject(triangles []Triangle) *object {
 	object := &object{
 		triangles: triangles,
 		BoundingBox: [2]Vector{
-			Vector{math.MaxFloat64, math.MaxFloat64, math.MaxFloat64},
-			Vector{-math.MaxFloat64, -math.MaxFloat64, -math.MaxFloat64},
+			{math.MaxFloat64, math.MaxFloat64, math.MaxFloat64},
+			{-math.MaxFloat64, -math.MaxFloat64, -math.MaxFloat64},
 		},
 	}
 	object.CalculateBoundingBox()
