@@ -55,7 +55,6 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
-	"unsafe"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -64,26 +63,53 @@ import (
 
 // IntersectTriangles calls the C function IntersectTriangles
 func IntersectTriangles(rays []Ray, triangles []Triangle) ([]Intersection, []bool) {
-	intersections := make([]Intersection, len(rays))
-	hits := make([]bool, len(rays))
+	numRays := len(rays)
+	numTriangles := len(triangles)
 
-	raysC := make([]C.struct_Ray, len(rays))
+	intersections := make([]C.struct_Intersection, numRays)
+	hits := make([]C.bool, numRays)
+
+	raysC := make([]C.struct_Ray, numRays)
 	for i, ray := range rays {
 		raysC[i] = ray.ToRayC()
 	}
 
-	trianglesC := make([]C.struct_Triangle, len(triangles))
+	trianglesC := make([]C.struct_Triangle, numTriangles)
 	for i, triangle := range triangles {
 		trianglesC[i] = triangle.ToTriangleC()
 	}
 
-	numRays := C.int(len(rays))
-	numTriangles := C.int(len(triangles))
-
 	// Call the C function
-	C.IntersectTriangles(&raysC[0], &trianglesC[0], (*C.struct_Intersection)(unsafe.Pointer(&intersections[0])), (*C.bool)(unsafe.Pointer(&hits[0])), numRays, numTriangles)
+	C.IntersectTriangles(
+		(*C.struct_Ray)(&raysC[0]),
+		(*C.struct_Triangle)(&trianglesC[0]),
+		(*C.struct_Intersection)(&intersections[0]),
+		(*C.bool)(&hits[0]),
+		C.int(numRays),
+		C.int(numTriangles),
+	)
 
-	return intersections, hits
+	// Convert C intersections to Go intersections
+	goIntersections := make([]Intersection, numRays)
+	for i, intersection := range intersections {
+		fmt.Println(intersection)
+		goIntersections[i] = Intersection{
+			PointOfIntersection: Vector{x: float64(intersection.PointOfIntersection[0]), y: float64(intersection.PointOfIntersection[1]), z: float64(intersection.PointOfIntersection[2])},
+			Color:               color.RGBA{R: uint8(intersection.Color[0]), G: uint8(intersection.Color[1]), B: uint8(intersection.Color[2]), A: uint8(255)},
+			Normal:              Vector{x: float64(intersection.Normal[0]), y: float64(intersection.Normal[1]), z: float64(intersection.Normal[2])},
+			Direction:           Vector{x: float64(intersection.Direction[0]), y: float64(intersection.Direction[1]), z: float64(intersection.Direction[2])},
+			Distance:            float64(intersection.Distance),
+		}
+	}
+
+	// Convert C bools to Go bools
+	goHits := make([]bool, numRays)
+	for i, hit := range hits {
+		fmt.Println(hit)
+		goHits[i] = bool(hit)
+	}
+
+	return goIntersections, goHits
 }
 
 type Vector struct {
@@ -871,6 +897,57 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 	}
 }
 
+func DrawRaysGPU(object *[]object, Triangles *[]Triangle, screen *ebiten.Image, camera Camera, FOV float64, light Light, scaling int, samples int) {
+	aspectRatio := float64(screenWidth) / float64(screenHeight)
+	scale := math.Tan(FOV * 0.5 * math.Pi / 180.0) // Convert FOV to radians
+
+	RaysDirection := vectorArrayC{
+		x: make([]C.float, screenWidth*screenHeight),
+		y: make([]C.float, screenWidth*screenHeight),
+		z: make([]C.float, screenWidth*screenHeight),
+	}
+
+	for width := 0; width < screenWidth; width += scaling {
+		for height := 0; height < screenHeight; height += scaling {
+			// Normalize screen coordinates to [-1, 1]
+			pixelNDCX := (float64(width) + 0.5) / float64(screenWidth)
+			pixelNDCY := (float64(height) + 0.5) / float64(screenHeight)
+
+			// Screen space coordinates [-1, 1]
+			pixelScreenX := 2.0*pixelNDCX - 1.0
+			pixelScreenY := 1.0 - 2.0*pixelNDCY
+
+			// Apply aspect ratio and FOV scale
+			pixelCameraX := pixelScreenX * aspectRatio * scale
+			pixelCameraY := pixelScreenY * scale
+
+			// Set ray direction
+			RaysDirection.x[width*screenHeight+height] = C.float(pixelCameraX)
+			RaysDirection.y[width*screenHeight+height] = C.float(pixelCameraY)
+			RaysDirection.z[width*screenHeight+height] = C.float(-1)
+		}
+	}
+
+	// Normalize the ray directions
+	RaysDirection.Normalize()
+	RaysDirArray := RaysDirection.toVectorArray()
+
+	rays := make([]Ray, screenWidth*screenHeight)
+
+	// convert Vectors to Rays
+	for i, ray := range RaysDirArray.vectors {
+		rays[i] = Ray{origin: camera.Position, direction: ray}
+	}
+
+	Intersection, hits := IntersectTriangles(rays, *Triangles)
+
+	for i, h := range hits {
+		if h {
+			screen.Set(i/screenHeight, i%screenHeight, Intersection[i].Color)
+		}
+	}
+}
+
 const screenWidth = 1280
 const screenHeight = 720
 const numLayers = 5
@@ -1203,9 +1280,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// capture the previous screen
-
-	DrawRays(g.objects, g.triangles, screen, g.camera, g.FOV, g.light, int(g.scaleFactor), g.samples)
+	// DrawRays(g.objects, g.triangles, screen, g.camera, g.FOV, g.light, int(g.scaleFactor), g.samples)
+	DrawRaysGPU(g.objects, &g.triangles, screen, g.camera, g.FOV, g.light, int(g.scaleFactor), g.samples)
 
 	// get the mouse position
 	if g.move {
@@ -1285,6 +1361,28 @@ type Game struct {
 }
 
 func main() {
+	// Example rays
+    rays := []Ray{
+        {origin: Vector{0, 0, 0}, direction: Vector{1, 0, 0}},
+        {origin: Vector{0, 1, 0}, direction: Vector{1, 1, 0}},
+    }
+
+    // Example triangles
+    triangles := []Triangle{
+        {v1: Vector{1, 0, 0}, v2: Vector{0, 1, 0}, v3: Vector{0, 0, 1}, color: color.RGBA{255, 0, 0, 255}},
+        {v1: Vector{2, 0, 0}, v2: Vector{1, 1, 0}, v3: Vector{1, 0, 1}, color: color.RGBA{0, 255, 0, 255}},
+    }
+
+    intersections, hits := IntersectTriangles(rays, triangles)
+
+    // Print results
+    for i, hit := range hits {
+        if hit {
+            fmt.Printf("Ray %d hit a triangle at %v\n", i, intersections[i].PointOfIntersection)
+        } else {
+            fmt.Printf("Ray %d did not hit any triangle\n", i)
+        }
+    }
 
 	x := []C.float{-1, 2, 4, 0, 5, 3, 6, 2, 1}
 	y := []C.float{2, 3, 1, 4, 5, 6, 7, 8, 9}

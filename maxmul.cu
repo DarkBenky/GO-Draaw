@@ -405,7 +405,7 @@ extern "C" void IntersectTriangles(Ray *rays, Triangle *triangles, Intersection 
     cudaMemcpy(gpu_rays, rays, raySize, cudaMemcpyHostToDevice);
     cudaMemcpy(gpu_triangles, triangles, triSize, cudaMemcpyHostToDevice);
 
-    int threadsPerBlock = 256;
+    int threadsPerBlock = 32;
     int blocksPerGrid = (numRays * numTriangles + threadsPerBlock - 1) / threadsPerBlock;
 
     IntersectTriangleKernel<<<blocksPerGrid, threadsPerBlock>>>(gpu_rays, gpu_triangles, gpu_intersections, gpu_hits, numRays, numTriangles);
