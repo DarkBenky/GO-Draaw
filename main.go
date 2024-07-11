@@ -15,6 +15,28 @@ package main
 /*
 #cgo LDFLAGS: -L. -lmaxmul
 #include <stdio.h>
+#include <stdbool.h>
+
+// Structures
+struct Ray {
+    float origin[3];
+    float direction[3];
+};
+
+struct Triangle {
+    float v1[3];
+    float v2[3];
+    float v3[3];
+    float color[3];
+};
+
+struct Intersection {
+    float PointOfIntersection[3];
+    float Color[3];
+    float Normal[3];
+    float Direction[3];
+    float Distance;
+};
 
 // Function prototypes
 void vectorAdd(float *x, float *y, float *z, float *x1, float *y1, float *z1, int n);
@@ -22,6 +44,7 @@ void vectorSub(float *x, float *y, float *z, float *x1, float *y1, float *z1, in
 void vectorNormalize(float *x, float *y, float *z, int n);
 void vectorDot(float *x, float *y, float *z, float *x1, float *y1, float *z1, float *result, int n);
 void vectorCross(float *x, float *y, float *z, float *x1, float *y1, float *z1, float *cx, float *cy, float *cz, int n);
+void IntersectTriangles(struct Ray *rays, struct Triangle *triangles, struct Intersection *intersections, bool *hits, int numRays, int numTriangles);
 */
 import "C"
 
@@ -156,6 +179,50 @@ func (ra *RayArray) toCArray() (origin vectorArrayC, direction vectorArrayC) {
 	return vectorArrayC{x: x, y: y, z: z}, vectorArrayC{x: x1, y: y1, z: z1}
 }
 
+func (vecArray *vectorArrayC) Add(vArray, vArray1 vectorArrayC) {
+	C.vectorAdd(&vArray.x[0], &vArray.y[0], &vArray.z[0], &vArray1.x[0], &vArray1.y[0], &vArray1.z[0], C.int(len(vArray.x)))
+
+	vecArray.x = vArray.x
+	vecArray.y = vArray.y
+	vecArray.z = vArray.z
+}
+
+func (vecArray *vectorArrayC) Sub(vArray, vArray1 vectorArrayC) {
+	C.vectorSub(&vArray.x[0], &vArray.y[0], &vArray.z[0], &vArray1.x[0], &vArray1.y[0], &vArray1.z[0], C.int(len(vArray.x)))
+
+	vecArray.x = vArray.x
+	vecArray.y = vArray.y
+	vecArray.z = vArray.z
+}
+
+func (vecArray *vectorArrayC) Normalize() {
+	C.vectorNormalize(&vecArray.x[0], &vecArray.y[0], &vecArray.z[0], C.int(len(vecArray.x)))
+}
+
+func (vecArray *vectorArrayC) Dot(vArray, vArray1 vectorArrayC) []float64 {
+	result := make([]C.float, len(vArray.x))
+	C.vectorDot(&vArray.x[0], &vArray.y[0], &vArray.z[0], &vArray1.x[0], &vArray1.y[0], &vArray1.z[0], &result[0], C.int(len(vArray.x)))
+
+	goResult := make([]float64, len(result))
+	for i := range result {
+		goResult[i] = float64(result[i])
+	}
+
+	return goResult
+}
+
+func (vecArray *vectorArrayC) Cross(vArray, vArray1 vectorArrayC) {
+	cx := make([]C.float, len(vArray.x))
+	cy := make([]C.float, len(vArray.y))
+	cz := make([]C.float, len(vArray.z))
+
+	C.vectorCross(&vArray.x[0], &vArray.y[0], &vArray.z[0], &vArray1.x[0], &vArray1.y[0], &vArray1.z[0], &cx[0], &cy[0], &cz[0], C.int(len(vArray.x)))
+
+	vecArray.x = cx
+	vecArray.y = cy
+	vecArray.z = cz
+}
+
 func (vecArray *vectorArray) Add(vArray vectorArray, vArray1 vectorArray) vectorArrayC {
 	x := make([]C.float, len(vArray.vectors))
 	y := make([]C.float, len(vArray.vectors))
@@ -223,7 +290,6 @@ func (vecArray *vectorArray) Normalize() vectorArrayC {
 
 	return vectorArrayC{x: x, y: y, z: z}
 }
-
 
 func (vecArray *vectorArray) Dot(vArray vectorArray, vArray1 vectorArray) []float64 {
 	x := make([]C.float, len(vArray.vectors))
@@ -477,44 +543,6 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	edge1 := triangle.v2.Sub(triangle.v1)
 	edge2 := triangle.v3.Sub(triangle.v1)
 	h := ray.direction.Cross(edge2)
-	a := edge1.Dot(h)
-	if a > -0.00001 && a < 0.00001 {
-		return Intersection{}, false
-	}
-	f := 1.0 / a
-	s := ray.origin.Sub(triangle.v1)
-	u := f * s.Dot(h)
-	if u < 0.0 || u > 1.0 {
-		return Intersection{}, false
-	}
-	q := s.Cross(edge1)
-	v := f * ray.direction.Dot(q)
-	if v < 0.0 || u+v > 1.0 {
-		return Intersection{}, false
-	}
-	t := f * edge2.Dot(q)
-	if t > 0.00001 {
-		point := ray.origin.Add(ray.direction.Mul(t))
-		normal := edge1.Cross(edge2).Normalize()
-		distance := t // The distance should be the parameter t
-
-		return Intersection{PointOfIntersection: point, Color: triangle.color, Normal: normal, Direction: ray.direction, Distance: distance}, true
-	}
-	return Intersection{}, false
-}
-
-func (ray *RayArray) IntersectTriangleGPU(triangle Triangle) (Intersection, bool) {
-	// if !triangle.IntersectBoundingBox(*ray) {
-	// 	return Intersection{}, false
-	// }
-
-	// to C array
-	origin, direction := ray.toCArray()
-
-	// Möller–Trumbore intersection algorithm
-	edge1 := triangle.v2.Sub(triangle.v1)
-	edge2 := triangle.v3.Sub(triangle.v1)
-	h := direction.Cross(edge2)
 	a := edge1.Dot(h)
 	if a > -0.00001 && a < 0.00001 {
 		return Intersection{}, false
