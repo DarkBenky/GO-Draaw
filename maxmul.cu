@@ -97,7 +97,7 @@ extern "C" {
         cudaMemcpy(gpu_y, y, memSize, cudaMemcpyHostToDevice);
         cudaMemcpy(gpu_z, z, memSize, cudaMemcpyHostToDevice);
 
-        int threadsPerBlock = 256;
+        int threadsPerBlock = 2048;
         int blocksPerGrid = (numElements + threadsPerBlock - 1) / threadsPerBlock;
 
         Normalize<<<blocksPerGrid, threadsPerBlock>>>(gpu_x, gpu_y, gpu_z, numElements);
@@ -132,7 +132,7 @@ extern "C" {
 
         cudaMemset(gpu_result, 0, sizeof(float));
 
-        int threadsPerBlock = 256;
+        int threadsPerBlock = 2048;
         int blocksPerGrid = (numElements + threadsPerBlock - 1) / threadsPerBlock;
 
         vecDot<<<blocksPerGrid, threadsPerBlock>>>(gpu_x, gpu_y, gpu_z, gpu_x1, gpu_y1, gpu_z1, gpu_result, numElements);
@@ -169,7 +169,7 @@ extern "C" {
         cudaMemcpy(gpu_y1, y1, memSize, cudaMemcpyHostToDevice);
         cudaMemcpy(gpu_z1, z1, memSize, cudaMemcpyHostToDevice);
 
-        int threadsPerBlock = 256;
+        int threadsPerBlock = 2048;
         int blocksPerGrid = (numElements + threadsPerBlock - 1) / threadsPerBlock;
 
         vecCross<<<blocksPerGrid, threadsPerBlock>>>(gpu_x, gpu_y, gpu_z, gpu_x1, gpu_y1, gpu_z1, gpu_cx, gpu_cy, gpu_cz, numElements);
@@ -210,7 +210,7 @@ extern "C" {
         cudaMemcpy(gpu_z1, z1, memSize, cudaMemcpyHostToDevice);
 
         // Calculate grid and block dimensions
-        int threadsPerBlock = 32;
+        int threadsPerBlock = 2048;
         int blocksPerGrid = (numElements + threadsPerBlock - 1) / threadsPerBlock;
 
         // Launch the vector addition kernel
@@ -259,7 +259,7 @@ extern "C" {
         cudaMemcpy(gpu_z1, z1, memSize, cudaMemcpyHostToDevice);
 
         // Calculate grid and block dimensions
-        int threadsPerBlock = 32;
+        int threadsPerBlock = 2048;
         int blocksPerGrid = (numElements + threadsPerBlock - 1) / threadsPerBlock;
 
         // Launch the vector subtraction kernel
@@ -405,7 +405,7 @@ extern "C" void IntersectTriangles(Ray *rays, Triangle *triangles, Intersection 
     cudaMemcpy(gpu_rays, rays, raySize, cudaMemcpyHostToDevice);
     cudaMemcpy(gpu_triangles, triangles, triSize, cudaMemcpyHostToDevice);
 
-    int threadsPerBlock = 32;
+    int threadsPerBlock = 256;
     int blocksPerGrid = (numRays * numTriangles + threadsPerBlock - 1) / threadsPerBlock;
 
     IntersectTriangleKernel<<<blocksPerGrid, threadsPerBlock>>>(gpu_rays, gpu_triangles, gpu_intersections, gpu_hits, numRays, numTriangles);

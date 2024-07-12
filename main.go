@@ -55,6 +55,7 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -92,7 +93,7 @@ func IntersectTriangles(rays []Ray, triangles []Triangle) ([]Intersection, []boo
 	// Convert C intersections to Go intersections
 	goIntersections := make([]Intersection, numRays)
 	for i, intersection := range intersections {
-		fmt.Println(intersection)
+		// fmt.Println(intersection)
 		goIntersections[i] = Intersection{
 			PointOfIntersection: Vector{x: float64(intersection.PointOfIntersection[0]), y: float64(intersection.PointOfIntersection[1]), z: float64(intersection.PointOfIntersection[2])},
 			Color:               color.RGBA{R: uint8(intersection.Color[0]), G: uint8(intersection.Color[1]), B: uint8(intersection.Color[2]), A: uint8(255)},
@@ -105,7 +106,7 @@ func IntersectTriangles(rays []Ray, triangles []Triangle) ([]Intersection, []boo
 	// Convert C bools to Go bools
 	goHits := make([]bool, numRays)
 	for i, hit := range hits {
-		fmt.Println(hit)
+		// fmt.Println(hit)
 		goHits[i] = bool(hit)
 	}
 
@@ -897,7 +898,9 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 	}
 }
 
-func DrawRaysGPU(object *[]object, Triangles *[]Triangle, screen *ebiten.Image, camera Camera, FOV float64, light Light, scaling int, samples int) {
+func DrawRaysGPU(objects *[]object, Triangles *[]Triangle, screen *ebiten.Image, camera Camera, FOV float64, light Light, scaling int, samples int) {
+	start := time.Now()
+
 	aspectRatio := float64(screenWidth) / float64(screenHeight)
 	scale := math.Tan(FOV * 0.5 * math.Pi / 180.0) // Convert FOV to radians
 
@@ -907,11 +910,15 @@ func DrawRaysGPU(object *[]object, Triangles *[]Triangle, screen *ebiten.Image, 
 		z: make([]C.float, screenWidth*screenHeight),
 	}
 
+	// Precompute some values to avoid recalculating them in the loop
+	invScreenWidth := 1.0 / float64(screenWidth)
+	invScreenHeight := 1.0 / float64(screenHeight)
+
 	for width := 0; width < screenWidth; width += scaling {
 		for height := 0; height < screenHeight; height += scaling {
 			// Normalize screen coordinates to [-1, 1]
-			pixelNDCX := (float64(width) + 0.5) / float64(screenWidth)
-			pixelNDCY := (float64(height) + 0.5) / float64(screenHeight)
+			pixelNDCX := (float64(width) + 0.5) * invScreenWidth
+			pixelNDCY := (float64(height) + 0.5) * invScreenHeight
 
 			// Screen space coordinates [-1, 1]
 			pixelScreenX := 2.0*pixelNDCX - 1.0
@@ -922,30 +929,47 @@ func DrawRaysGPU(object *[]object, Triangles *[]Triangle, screen *ebiten.Image, 
 			pixelCameraY := pixelScreenY * scale
 
 			// Set ray direction
-			RaysDirection.x[width*screenHeight+height] = C.float(pixelCameraX)
-			RaysDirection.y[width*screenHeight+height] = C.float(pixelCameraY)
-			RaysDirection.z[width*screenHeight+height] = C.float(-1)
+			idx := (width * screenHeight) + height
+			RaysDirection.x[idx] = C.float(pixelCameraX)
+			RaysDirection.y[idx] = C.float(pixelCameraY)
+			RaysDirection.z[idx] = C.float(-1)
 		}
 	}
 
-	// Normalize the ray directions
+	fmt.Printf("Ray direction computation took %v\n", time.Since(start))
+
 	RaysDirection.Normalize()
 	RaysDirArray := RaysDirection.toVectorArray()
 
 	rays := make([]Ray, screenWidth*screenHeight)
 
-	// convert Vectors to Rays
+	// Convert Vectors to Rays
 	for i, ray := range RaysDirArray.vectors {
 		rays[i] = Ray{origin: camera.Position, direction: ray}
 	}
 
-	Intersection, hits := IntersectTriangles(rays, *Triangles)
+	fmt.Printf("Ray conversion took %v\n", time.Since(start))
 
-	for i, h := range hits {
-		if h {
-			screen.Set(i/screenHeight, i%screenHeight, Intersection[i].Color)
+	// Using parallel processing for intersection testing
+	triStart := time.Now()
+	for _, t := range *Triangles {
+		check_triangle := []Triangle{t}
+		start := time.Now()
+		_, hits := IntersectTriangles(rays, check_triangle)
+		fmt.Printf("Intersection testing took %v\n", time.Since(start))
+		start = time.Now()
+		for i, h := range hits {
+			if h {
+				x := i / screenHeight
+				y := i % screenHeight
+				vector.DrawFilledRect(screen, float32(x), float32(y), float32(scaling), float32(scaling), t.color, true)
+			}
 		}
+		fmt.Printf("Drawing took %v\n", time.Since(start))
 	}
+	fmt.Printf("Triangle intersection and drawing took %v\n", time.Since(triStart))
+
+	fmt.Printf("Total processing took %v\n", time.Since(start))
 }
 
 const screenWidth = 1280
@@ -1362,27 +1386,27 @@ type Game struct {
 
 func main() {
 	// Example rays
-    rays := []Ray{
-        {origin: Vector{0, 0, 0}, direction: Vector{1, 0, 0}},
-        {origin: Vector{0, 1, 0}, direction: Vector{1, 1, 0}},
-    }
+	rays := []Ray{
+		{origin: Vector{0, 0, 0}, direction: Vector{1, 0, 0}},
+		{origin: Vector{0, 1, 0}, direction: Vector{1, 1, 0}},
+	}
 
-    // Example triangles
-    triangles := []Triangle{
-        {v1: Vector{1, 0, 0}, v2: Vector{0, 1, 0}, v3: Vector{0, 0, 1}, color: color.RGBA{255, 0, 0, 255}},
-        {v1: Vector{2, 0, 0}, v2: Vector{1, 1, 0}, v3: Vector{1, 0, 1}, color: color.RGBA{0, 255, 0, 255}},
-    }
+	// Example triangles
+	triangles := []Triangle{
+		{v1: Vector{1, 0, 0}, v2: Vector{0, 1, 0}, v3: Vector{0, 0, 1}, color: color.RGBA{255, 0, 0, 255}},
+		{v1: Vector{2, 0, 0}, v2: Vector{1, 1, 0}, v3: Vector{1, 0, 1}, color: color.RGBA{0, 255, 0, 255}},
+	}
 
-    intersections, hits := IntersectTriangles(rays, triangles)
+	intersections, hits := IntersectTriangles(rays, triangles)
 
-    // Print results
-    for i, hit := range hits {
-        if hit {
-            fmt.Printf("Ray %d hit a triangle at %v\n", i, intersections[i].PointOfIntersection)
-        } else {
-            fmt.Printf("Ray %d did not hit any triangle\n", i)
-        }
-    }
+	// Print results
+	for i, hit := range hits {
+		if hit {
+			fmt.Printf("Ray %d hit a triangle at %v\n", i, intersections[i].PointOfIntersection)
+		} else {
+			fmt.Printf("Ray %d did not hit any triangle\n", i)
+		}
+	}
 
 	x := []C.float{-1, 2, 4, 0, 5, 3, 6, 2, 1}
 	y := []C.float{2, 3, 1, 4, 5, 6, 7, 8, 9}
@@ -1457,7 +1481,7 @@ func main() {
 		FOV:         90.0,
 		triangles:   append(append(cube1, cube2...), cube3...),
 		light:       Light{Position: Vector{0, 400, 200}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor: 4,
+		scaleFactor: 16,
 		objects:     &[]object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3},
 		render:      true,
 		move:        true,
