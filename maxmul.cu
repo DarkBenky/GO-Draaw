@@ -3,6 +3,8 @@
 
 // Define a small constant for floating-point comparisons
 #define EPSILON 0.00001f
+// Define an invalid distance value for rays to infinity
+#define INVALID_DISTANCE 0.0f
 
 #define CUDA_CALL(x) do { if((x) != cudaSuccess) { \
     printf("Error at %s:%d\n",__FILE__,__LINE__); \
@@ -300,36 +302,24 @@ struct Triangle {
     float v1[3];
     float v2[3];
     float v3[3];
-    float color[3];
 };
 
-// Structure to represent an intersection
-struct Intersection {
-    float PointOfIntersection[3];
-    float Color[3];
-    float Normal[3];
-    float Direction[3];
-    float Distance;
-};
 
-// CUDA kernel to perform ray-triangle intersection test
-__global__ void IntersectTriangleKernel(Ray *rays, Triangle *triangles, Intersection *intersections, bool *hits, int numRays, int numTriangles) {
+// CUDA kernel to test ray-triangle intersections
+__global__ void IntersectTriangleKernel(Ray *rays, Triangle *triangle, bool *hits, float *distances, int numRays) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (idx < numRays * numTriangles) {
-        int rayIdx = idx / numTriangles;
-        int triIdx = idx % numTriangles;
-
-        Ray ray = rays[rayIdx];
-        Triangle triangle = triangles[triIdx];
+    if (idx < numRays) {
+        Ray ray = rays[idx];
+        Triangle tri = *triangle;
 
         // Implement the Möller–Trumbore intersection algorithm
         float edge1[3], edge2[3], h[3], s[3], q[3];
         float a, f, u, v, t;
 
         for (int i = 0; i < 3; ++i) {
-            edge1[i] = triangle.v2[i] - triangle.v1[i];
-            edge2[i] = triangle.v3[i] - triangle.v1[i];
+            edge1[i] = tri.v2[i] - tri.v1[i];
+            edge2[i] = tri.v3[i] - tri.v1[i];
         }
 
         // Cross product of ray direction and edge2
@@ -341,19 +331,21 @@ __global__ void IntersectTriangleKernel(Ray *rays, Triangle *triangles, Intersec
 
         if (a > -EPSILON && a < EPSILON) {
             hits[idx] = false;
+            distances[idx] = INVALID_DISTANCE;
             return;
         }
 
         f = 1.0f / a;
 
         for (int i = 0; i < 3; ++i) {
-            s[i] = ray.origin[i] - triangle.v1[i];
+            s[i] = ray.origin[i] - tri.v1[i];
         }
 
         u = f * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2]);
 
         if (u < 0.0f || u > 1.0f) {
             hits[idx] = false;
+            distances[idx] = INVALID_DISTANCE;
             return;
         }
 
@@ -365,55 +357,61 @@ __global__ void IntersectTriangleKernel(Ray *rays, Triangle *triangles, Intersec
 
         if (v < 0.0f || u + v > 1.0f) {
             hits[idx] = false;
+            distances[idx] = INVALID_DISTANCE;
             return;
         }
 
         t = f * (edge2[0] * q[0] + edge2[1] * q[1] + edge2[2] * q[2]);
 
-        if (t > 0.00001) {
-            for (int i = 0; i < 3; ++i) {
-                intersections[idx].PointOfIntersection[i] = ray.origin[i] + ray.direction[i] * t;
-                intersections[idx].Color[i] = triangle.color[i];
-                intersections[idx].Normal[i] = edge1[(i+1)%3] * edge2[(i+2)%3] - edge1[(i+2)%3] * edge2[(i+1)%3];
-                intersections[idx].Direction[i] = ray.direction[i];
-            }
-
-            intersections[idx].Distance = t;
+        if (t > EPSILON) {
             hits[idx] = true;
+            distances[idx] = t;
+            return;
         } else {
             hits[idx] = false;
+            distances[idx] = INVALID_DISTANCE;
+            return;
         }
     }
 }
 
-// Function to call the CUDA kernel for intersection tests
-extern "C" void IntersectTriangles(Ray *rays, Triangle *triangles, Intersection *intersections, bool *hits, int numRays, int numTriangles) {
+extern "C" void IntersectTriangles(Ray *rays, Triangle *triangle, bool *hits, float *distances, int numRays) {
     Ray *gpu_rays;
-    Triangle *gpu_triangles;
-    Intersection *gpu_intersections;
+    Triangle *gpu_triangle;
     bool *gpu_hits;
+    float *gpu_distances;
     int raySize = numRays * sizeof(Ray);
-    int triSize = numTriangles * sizeof(Triangle);
-    int intSize = numRays * numTriangles * sizeof(Intersection);
-    int boolSize = numRays * numTriangles * sizeof(bool);
+    int triangleSize = sizeof(Triangle);
+    int boolSize = numRays * sizeof(bool);
+    int floatSize = numRays * sizeof(float);
 
     cudaMalloc((void**)&gpu_rays, raySize);
-    cudaMalloc((void**)&gpu_triangles, triSize);
-    cudaMalloc((void**)&gpu_intersections, intSize);
+    cudaMalloc((void**)&gpu_triangle, triangleSize);
     cudaMalloc((void**)&gpu_hits, boolSize);
+    cudaMalloc((void**)&gpu_distances, floatSize);
 
     cudaMemcpy(gpu_rays, rays, raySize, cudaMemcpyHostToDevice);
-    cudaMemcpy(gpu_triangles, triangles, triSize, cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_triangle, triangle, triangleSize, cudaMemcpyHostToDevice);
 
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (numRays * numTriangles + threadsPerBlock - 1) / threadsPerBlock;
+    int threadsPerBlock = 128;
+    int blocksPerGrid = (numRays + threadsPerBlock - 1) / threadsPerBlock;
 
-    IntersectTriangleKernel<<<blocksPerGrid, threadsPerBlock>>>(gpu_rays, gpu_triangles, gpu_intersections, gpu_hits, numRays, numTriangles);
-    cudaMemcpy(intersections, gpu_intersections, intSize, cudaMemcpyDeviceToHost);
+    IntersectTriangleKernel<<<blocksPerGrid, threadsPerBlock>>>(gpu_rays, gpu_triangle, gpu_hits, gpu_distances, numRays);
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA error: %s\n", cudaGetErrorString(err));
+    }
+
     cudaMemcpy(hits, gpu_hits, boolSize, cudaMemcpyDeviceToHost);
+    cudaMemcpy(distances, gpu_distances, floatSize, cudaMemcpyDeviceToHost);
 
     cudaFree(gpu_rays);
-    cudaFree(gpu_triangles);
-    cudaFree(gpu_intersections);
+    cudaFree(gpu_triangle);
     cudaFree(gpu_hits);
+    cudaFree(gpu_distances);
 }
+
+
+
+)
