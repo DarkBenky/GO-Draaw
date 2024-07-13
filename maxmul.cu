@@ -295,6 +295,7 @@ extern "C" {
 struct Ray {
     float origin[3];
     float direction[3];
+    int x, y;
 };
 
 // Structure to represent a triangle
@@ -302,116 +303,121 @@ struct Triangle {
     float v1[3];
     float v2[3];
     float v3[3];
+    float color[3];
 };
 
 
-// CUDA kernel to test ray-triangle intersections
-__global__ void IntersectTriangleKernel(Ray *rays, Triangle *triangle, bool *hits, float *distances, int numRays) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+// Structure to represent an intersection result
+struct IntersectionResult {
+    float intersectionPoint[3];
+    float triangleColor[3];
+    float distance;
+    int x, y;
+};
 
-    if (idx < numRays) {
-        Ray ray = rays[idx];
-        Triangle tri = *triangle;
 
-        // Implement the Möller–Trumbore intersection algorithm
-        float edge1[3], edge2[3], h[3], s[3], q[3];
-        float a, f, u, v, t;
+__global__ void IntersectTrianglesKernel(Ray *rays, Triangle *triangles, int numTriangles, IntersectionResult *results, int numRays) {
+    int rayIdx = blockIdx.x * blockDim.x + threadIdx.x;
 
-        for (int i = 0; i < 3; ++i) {
-            edge1[i] = tri.v2[i] - tri.v1[i];
-            edge2[i] = tri.v3[i] - tri.v1[i];
+    if (rayIdx < numRays) {
+        Ray ray = rays[rayIdx];
+        IntersectionResult closestIntersection;
+        closestIntersection.distance = INFINITY;
+
+        for (int triIdx = 0; triIdx < numTriangles; ++triIdx) {
+            Triangle tri = triangles[triIdx];
+
+            // Implement the Möller–Trumbore intersection algorithm
+            float edge1[3], edge2[3], h[3], s[3], q[3];
+            float a, f, u, v, t;
+
+            for (int i = 0; i < 3; ++i) {
+                edge1[i] = tri.v2[i] - tri.v1[i];
+                edge2[i] = tri.v3[i] - tri.v1[i];
+            }
+
+            // Cross product of ray direction and edge2
+            h[0] = ray.direction[1] * edge2[2] - ray.direction[2] * edge2[1];
+            h[1] = ray.direction[2] * edge2[0] - ray.direction[0] * edge2[2];
+            h[2] = ray.direction[0] * edge2[1] - ray.direction[1] * edge2[0];
+
+            a = edge1[0] * h[0] + edge1[1] * h[1] + edge1[2] * h[2];
+
+            if (a > -EPSILON && a < EPSILON) {
+                continue;
+            }
+
+            f = 1.0f / a;
+
+            for (int i = 0; i < 3; ++i) {
+                s[i] = ray.origin[i] - tri.v1[i];
+            }
+
+            u = f * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2]);
+
+            if (u < 0.0f || u > 1.0f) {
+                continue;
+            }
+
+            q[0] = s[1] * edge1[2] - s[2] * edge1[1];
+            q[1] = s[2] * edge1[0] - s[0] * edge1[2];
+            q[2] = s[0] * edge1[1] - s[1] * edge1[0];
+
+            v = f * (ray.direction[0] * q[0] + ray.direction[1] * q[1] + ray.direction[2] * q[2]);
+
+            if (v < 0.0f || u + v > 1.0f) {
+                continue;
+            }
+
+            t = f * (edge2[0] * q[0] + edge2[1] * q[1] + edge2[2] * q[2]);
+
+            if (t > EPSILON && t < closestIntersection.distance) {
+                closestIntersection.distance = t;
+                closestIntersection.intersectionPoint[0] = ray.origin[0] + t * ray.direction[0];
+                closestIntersection.intersectionPoint[1] = ray.origin[1] + t * ray.direction[1];
+                closestIntersection.intersectionPoint[2] = ray.origin[2] + t * ray.direction[2];
+                closestIntersection.triangleColor[0] = tri.color[0];
+                closestIntersection.triangleColor[1] = tri.color[1];
+                closestIntersection.triangleColor[2] = tri.color[2];
+                closestIntersection.x = ray.x;
+                closestIntersection.y = ray.y;
+            }
         }
 
-        // Cross product of ray direction and edge2
-        h[0] = ray.direction[1] * edge2[2] - ray.direction[2] * edge2[1];
-        h[1] = ray.direction[2] * edge2[0] - ray.direction[0] * edge2[2];
-        h[2] = ray.direction[0] * edge2[1] - ray.direction[1] * edge2[0];
-
-        a = edge1[0] * h[0] + edge1[1] * h[1] + edge1[2] * h[2];
-
-        if (a > -EPSILON && a < EPSILON) {
-            hits[idx] = false;
-            distances[idx] = INVALID_DISTANCE;
-            return;
-        }
-
-        f = 1.0f / a;
-
-        for (int i = 0; i < 3; ++i) {
-            s[i] = ray.origin[i] - tri.v1[i];
-        }
-
-        u = f * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2]);
-
-        if (u < 0.0f || u > 1.0f) {
-            hits[idx] = false;
-            distances[idx] = INVALID_DISTANCE;
-            return;
-        }
-
-        q[0] = s[1] * edge1[2] - s[2] * edge1[1];
-        q[1] = s[2] * edge1[0] - s[0] * edge1[2];
-        q[2] = s[0] * edge1[1] - s[1] * edge1[0];
-
-        v = f * (ray.direction[0] * q[0] + ray.direction[1] * q[1] + ray.direction[2] * q[2]);
-
-        if (v < 0.0f || u + v > 1.0f) {
-            hits[idx] = false;
-            distances[idx] = INVALID_DISTANCE;
-            return;
-        }
-
-        t = f * (edge2[0] * q[0] + edge2[1] * q[1] + edge2[2] * q[2]);
-
-        if (t > EPSILON) {
-            hits[idx] = true;
-            distances[idx] = t;
-            return;
-        } else {
-            hits[idx] = false;
-            distances[idx] = INVALID_DISTANCE;
-            return;
-        }
+        results[rayIdx] = closestIntersection;
     }
 }
 
-extern "C" void IntersectTriangles(Ray *rays, Triangle *triangle, bool *hits, float *distances, int numRays) {
+
+extern "C" void IntersectTriangles(Ray *rays, Triangle *triangles, IntersectionResult *results, int numRays, int numTriangles) {
     Ray *gpu_rays;
-    Triangle *gpu_triangle;
-    bool *gpu_hits;
-    float *gpu_distances;
+    Triangle *gpu_triangles;
+    IntersectionResult *gpu_results;
     int raySize = numRays * sizeof(Ray);
-    int triangleSize = sizeof(Triangle);
-    int boolSize = numRays * sizeof(bool);
-    int floatSize = numRays * sizeof(float);
+    int triangleSize = numTriangles * sizeof(Triangle);
+    int resultsSize = numRays * sizeof(IntersectionResult);
 
     cudaMalloc((void**)&gpu_rays, raySize);
-    cudaMalloc((void**)&gpu_triangle, triangleSize);
-    cudaMalloc((void**)&gpu_hits, boolSize);
-    cudaMalloc((void**)&gpu_distances, floatSize);
+    cudaMalloc((void**)&gpu_triangles, triangleSize);
+    cudaMalloc((void**)&gpu_results, resultsSize);
 
     cudaMemcpy(gpu_rays, rays, raySize, cudaMemcpyHostToDevice);
-    cudaMemcpy(gpu_triangle, triangle, triangleSize, cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_triangles, triangles, triangleSize, cudaMemcpyHostToDevice);
 
-    int threadsPerBlock = 128;
+    int threadsPerBlock = 256;
     int blocksPerGrid = (numRays + threadsPerBlock - 1) / threadsPerBlock;
 
-    IntersectTriangleKernel<<<blocksPerGrid, threadsPerBlock>>>(gpu_rays, gpu_triangle, gpu_hits, gpu_distances, numRays);
+    IntersectTrianglesKernel<<<blocksPerGrid, threadsPerBlock>>>(gpu_rays, gpu_triangles, numTriangles, gpu_results, numRays);
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("CUDA error: %s\n", cudaGetErrorString(err));
     }
 
-    cudaMemcpy(hits, gpu_hits, boolSize, cudaMemcpyDeviceToHost);
-    cudaMemcpy(distances, gpu_distances, floatSize, cudaMemcpyDeviceToHost);
+    cudaMemcpy(results, gpu_results, resultsSize, cudaMemcpyDeviceToHost);
 
     cudaFree(gpu_rays);
-    cudaFree(gpu_triangle);
-    cudaFree(gpu_hits);
-    cudaFree(gpu_distances);
+    cudaFree(gpu_triangles);
+    cudaFree(gpu_results);
 }
 
-
-
-)

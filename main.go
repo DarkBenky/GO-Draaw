@@ -16,17 +16,27 @@ package main
 #cgo LDFLAGS: -L. -lmaxmul
 #include <stdio.h>
 #include <stdbool.h>
+#include <cuda.h>
 
 // Structures
 struct Ray {
     float origin[3];
     float direction[3];
+	int x,y;
 };
 
 struct Triangle {
     float v1[3];
     float v2[3];
     float v3[3];
+	float color[3];
+};
+
+struct IntersectionResult {
+    float intersectionPoint[3];
+    float triangleColor[3];
+    float distance;
+	int x,y;
 };
 
 // Function prototypes
@@ -35,7 +45,7 @@ void vectorSub(float *x, float *y, float *z, float *x1, float *y1, float *z1, in
 void vectorNormalize(float *x, float *y, float *z, int n);
 void vectorDot(float *x, float *y, float *z, float *x1, float *y1, float *z1, float *result, int n);
 void vectorCross(float *x, float *y, float *z, float *x1, float *y1, float *z1, float *cx, float *cy, float *cz, int n);
-void IntersectTriangles(struct Ray *rays, struct Triangle *triangle, bool *hits, float *distance, int numRays);
+void IntersectTriangles(struct Ray *rays, struct Triangle *triangles, int numTriangles, struct IntersectionResult *results, int numRays);
 */
 import "C"
 
@@ -54,29 +64,42 @@ import (
 )
 
 // IntersectTriangles calls the C function IntersectTriangles
-func IntersectTriangles(rays []Ray, triangle Triangle) ([]bool, []float64) {
+func IntersectTriangles(rays []Ray, triangle []Triangle) []Intersection {
 	numRays := len(rays)
-
-	hits := make([]C.bool, numRays)
-	distances := make([]C.float, numRays)
+	numTriangles := len(triangle)
 
 	raysC := make([]C.struct_Ray, numRays)
 	for i, ray := range rays {
 		raysC[i] = ray.ToRayC()
 	}
 
-	triangleC := triangle.ToTriangleC()
-
-	C.IntersectTriangles(&raysC[0], &triangleC, &hits[0], &distances[0], C.int(numRays))
-
-	goHits := make([]bool, numRays)
-	goDistances := make([]float64, numRays)
-	for i, hit := range hits {
-		goHits[i] = bool(hit)
-		goDistances[i] = float64(distances[i])
+	trianglesC := make([]C.struct_Triangle, len(triangle))
+	for i, tri := range triangle {
+		trianglesC[i] = tri.ToTriangleC()
 	}
 
-	return goHits, goDistances
+	IntersectC := make([]C.struct_IntersectionResult, numRays)
+
+	C.IntersectTriangles(&raysC[0], &trianglesC[0], C.int(numTriangles), &IntersectC[0], C.int(numRays))
+
+	intersections := make([]Intersection, numRays)
+	for i, intersect := range IntersectC {
+		intersections[i] = Intersection{
+			PointOfIntersection: Vector{
+				x: float64(intersect.intersectionPoint[0]),
+				y: float64(intersect.intersectionPoint[1]),
+				z: float64(intersect.intersectionPoint[2]),
+			},
+			Color: color.RGBA{
+				R: uint8(intersect.triangleColor[0]),
+				G: uint8(intersect.triangleColor[1]),
+				B: uint8(intersect.triangleColor[2]),
+				A: 255,
+			},
+			Distance: float64(intersect.distance),
+		}
+	}
+	return intersections
 }
 
 type Vector struct {
@@ -418,6 +441,10 @@ func (triangle *Triangle) ToTriangleC() C.struct_Triangle {
 	cTriangle.v3[0] = C.float(triangle.v3.x)
 	cTriangle.v3[1] = C.float(triangle.v3.y)
 	cTriangle.v3[2] = C.float(triangle.v3.z)
+
+	cTriangle.color[0] = C.float(triangle.color.R)
+	cTriangle.color[1] = C.float(triangle.color.G)
+	cTriangle.color[2] = C.float(triangle.color.B)
 
 	return cTriangle
 }
