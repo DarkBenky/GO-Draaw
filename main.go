@@ -65,9 +65,10 @@ type Triangle struct {
 	v1, v2, v3  Vector
 	color       color.RGBA
 	BoundingBox [2]Vector
+	reflection  float64
 }
 
-func CreateCube(center Vector, size float64, color color.RGBA) []Triangle {
+func CreateCube(center Vector, size float64, color color.RGBA, refection float64) []Triangle {
 	halfSize := size / 2
 
 	vertices := [8]Vector{
@@ -82,23 +83,23 @@ func CreateCube(center Vector, size float64, color color.RGBA) []Triangle {
 	}
 
 	return []Triangle{
-		NewTriangle(vertices[0], vertices[1], vertices[2], color), // Front face
-		NewTriangle(vertices[0], vertices[2], vertices[3], color),
+		NewTriangle(vertices[0], vertices[1], vertices[2], color, refection), // Front face
+		NewTriangle(vertices[0], vertices[2], vertices[3], color, refection),
 
-		NewTriangle(vertices[4], vertices[5], vertices[6], color), // Back face
-		NewTriangle(vertices[4], vertices[6], vertices[7], color),
+		NewTriangle(vertices[4], vertices[5], vertices[6], color, refection), // Back face
+		NewTriangle(vertices[4], vertices[6], vertices[7], color, refection),
 
-		NewTriangle(vertices[0], vertices[1], vertices[5], color), // Bottom face
-		NewTriangle(vertices[0], vertices[5], vertices[4], color),
+		NewTriangle(vertices[0], vertices[1], vertices[5], color, refection), // Bottom face
+		NewTriangle(vertices[0], vertices[5], vertices[4], color, refection),
 
-		NewTriangle(vertices[2], vertices[3], vertices[7], color), // Top face
-		NewTriangle(vertices[2], vertices[7], vertices[6], color),
+		NewTriangle(vertices[2], vertices[3], vertices[7], color, refection), // Top face
+		NewTriangle(vertices[2], vertices[7], vertices[6], color, refection),
 
-		NewTriangle(vertices[1], vertices[2], vertices[6], color), // Right face
-		NewTriangle(vertices[1], vertices[6], vertices[5], color),
+		NewTriangle(vertices[1], vertices[2], vertices[6], color, refection), // Right face
+		NewTriangle(vertices[1], vertices[6], vertices[5], color, refection),
 
-		NewTriangle(vertices[0], vertices[3], vertices[7], color), // Left face
-		NewTriangle(vertices[0], vertices[7], vertices[4], color),
+		NewTriangle(vertices[0], vertices[3], vertices[7], color, refection), // Left face
+		NewTriangle(vertices[0], vertices[7], vertices[4], color, refection),
 	}
 }
 
@@ -107,8 +108,8 @@ func (triangle *Triangle) CalculateBoundingBox() {
 	triangle.BoundingBox[1] = Vector{math.Max(triangle.v1.x, math.Max(triangle.v2.x, triangle.v3.x)), math.Max(triangle.v1.y, math.Max(triangle.v2.y, triangle.v3.y)), math.Max(triangle.v1.z, math.Max(triangle.v2.z, triangle.v3.z))}
 }
 
-func NewTriangle(v1, v2, v3 Vector, color color.RGBA) Triangle {
-	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color}
+func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float64) Triangle {
+	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection}
 	triangle.CalculateBoundingBox()
 	return triangle
 }
@@ -168,6 +169,7 @@ type Intersection struct {
 	Normal              Vector
 	Direction           Vector
 	Distance            float64
+	reflection          float64
 }
 
 type Light struct {
@@ -261,7 +263,7 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 		normal := edge1.Cross(edge2).Normalize()
 		distance := t // The distance should be the parameter t
 
-		return Intersection{PointOfIntersection: point, Color: triangle.color, Normal: normal, Direction: ray.direction, Distance: distance}, true
+		return Intersection{PointOfIntersection: point, Color: triangle.color, Normal: normal, Direction: ray.direction, Distance: distance, reflection: triangle.reflection}, true
 	}
 	return Intersection{}, false
 }
@@ -278,8 +280,26 @@ type Pixel struct {
 	color color.RGBA
 }
 
-func (intersection *Intersection) Scatter(samples int, triangles []Triangle, light Light) color.RGBA {
+func (intersection *Intersection) Scatter(samples int, light Light, o *[]object) color.RGBA {
 	var finalColor color.RGBA64
+
+	//  Calculate the direct reflection
+	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+	reflectDir := intersection.Normal.Mul(2 * lightDir.Dot(intersection.Normal)).Sub(lightDir).Normalize()
+	reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
+
+	// Find intersection with scene
+	reflectedIntersection := Intersection{Distance: math.MaxFloat64}
+	for _, object := range *o {
+		if object.IntersectBoundingBox(reflectRay) {
+			for _, triangle := range object.ConvertToTriangles() {
+				tempIntersection, intersect := reflectRay.IntersectTriangle(triangle)
+				if intersect && tempIntersection.Distance < reflectedIntersection.Distance {
+					reflectedIntersection = tempIntersection
+				}
+			}
+		}
+	}
 
 	for i := 0; i < samples; i++ {
 		// Generate random direction in hemisphere around the normal (cosine-weighted distribution)
@@ -310,10 +330,21 @@ func (intersection *Intersection) Scatter(samples int, triangles []Triangle, lig
 
 		// Find intersection with scene
 		scatteredIntersection := Intersection{Distance: math.MaxFloat64}
-		for _, triangle := range triangles {
-			tempIntersection, intersect := ray.IntersectTriangle(triangle)
-			if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
-				scatteredIntersection = tempIntersection
+		// for _, triangle := range triangles {
+		// 	tempIntersection, intersect := ray.IntersectTriangle(triangle)
+		// 	if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
+		// 		scatteredIntersection = tempIntersection
+		// 	}
+		// }
+
+		for _, object := range *o {
+			if object.IntersectBoundingBox(ray) {
+				for _, triangle := range object.ConvertToTriangles() {
+					tempIntersection, intersect := ray.IntersectTriangle(triangle)
+					if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
+						scatteredIntersection = tempIntersection
+					}
+				}
 			}
 		}
 
@@ -333,7 +364,14 @@ func (intersection *Intersection) Scatter(samples int, triangles []Triangle, lig
 		finalColor.A = 255 // Ensure alpha remains fully opaque
 	}
 
-	return color.RGBA{uint8(finalColor.R), uint8(finalColor.G), uint8(finalColor.B), uint8(finalColor.A)}
+	//  mix the direct reflection with the scattered color
+	rationScatterToDirect := 1 - intersection.reflection
+
+	return color.RGBA{
+		clampUint8(float64(finalColor.R)*rationScatterToDirect + float64(reflectedIntersection.Color.R)*intersection.reflection),
+		clampUint8(float64(finalColor.G)*rationScatterToDirect + float64(reflectedIntersection.Color.G)*intersection.reflection),
+		clampUint8(float64(finalColor.B)*rationScatterToDirect + float64(reflectedIntersection.Color.B)*intersection.reflection),
+		uint8(finalColor.A)}
 }
 
 type object struct {
@@ -422,10 +460,6 @@ func (object *object) ConvertToTriangles() []Triangle {
 	return triangles
 }
 
-
-
-
-
 func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, camera Camera, FOV float64, light Light, scaling int, samples int) {
 	aspectRatio := float64(screenWidth) / float64(screenHeight)
 	scale := math.Tan(FOV * 0.5 * math.Pi / 180.0) // Convert FOV to radians
@@ -476,7 +510,7 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 					// }
 					if intersection.Distance != math.MaxFloat64 {
 						// Calculate the final color with lighting
-						Scatter := intersection.Scatter(samples, Triangles, light)
+						Scatter := intersection.Scatter(samples, light, object)
 						light := light.CalculateLighting(intersection, Triangles)
 
 						c := color.RGBA{
@@ -739,7 +773,7 @@ func (g *Game) Update() error {
 
 	if g.isKeyReleased(ebiten.KeyCapsLock) {
 		if g.accumulate {
-			g.samples = 8
+			g.samples = 4
 		} else {
 			g.samples = 32 // Default samples
 		}
@@ -752,7 +786,7 @@ func (g *Game) Update() error {
 		if g.render {
 			g.scaleFactor = 1
 		} else {
-			g.scaleFactor = 4
+			g.scaleFactor = 8
 		}
 		g.render = !g.render
 		println("Render:", g.render)
@@ -835,9 +869,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	if g.render {
 		if fps < 24 {
-			g.scaleFactor += 0.1
+			g.scaleFactor += 0.05
 		} else {
-			g.scaleFactor -= 0.1
+			g.scaleFactor -= 0.05
 		}
 	}
 
@@ -861,6 +895,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 func averageImages(img1, img2 *ebiten.Image) *ebiten.Image {
 	bounds := img1.Bounds()
 	result := ebiten.NewImage(bounds.Dx(), bounds.Dy())
+	resultPix := make([]byte, bounds.Dx() * bounds.Dy() * 4)
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
@@ -872,15 +907,22 @@ func averageImages(img1, img2 *ebiten.Image) *ebiten.Image {
 			b := (b1 + b2) / 2
 			a := (a1 + a2) / 2
 
-			result.Set(x, y, color.RGBA{
-				uint8(r >> 8),
-				uint8(g >> 8),
-				uint8(b >> 8),
-				uint8(a >> 8),
-			})
+			// result.Set(x, y, color.RGBA{
+			// 	uint8(r >> 8),
+			// 	uint8(g >> 8),
+			// 	uint8(b >> 8),
+			// 	uint8(a >> 8),
+			// })
+
+			i := (y * bounds.Dx() + x) * 4
+			resultPix[i] = uint8(r >> 8)
+			resultPix[i+1] = uint8(g >> 8)
+			resultPix[i+2] = uint8(b >> 8)
+			resultPix[i+3] = uint8(a >> 8)
 		}
 	}
 
+	result.WritePixels(resultPix)
 	return result
 }
 
@@ -952,14 +994,23 @@ func main() {
 		layers.layers[i].image.Fill(color.Transparent)
 	}
 
-	cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255})
+	cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255}, 0.5)
 	cubeObj := CreateObject(cube1)
-	cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255})
-	cubeObj1 := CreateObject(append(cubeObj.triangles, cube2...))
-	cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255})
-	cubeObj2 := CreateObject(append(cubeObj.triangles, cube3...))
-	cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255})
-	cubeObj3 := CreateObject(append(cubeObj.triangles, cube4...))
+	cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255}, 0.1)
+	cubeObj1 := CreateObject(cube2)
+	cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255}, 0.9)
+	cubeObj2 := CreateObject(cube3)
+	cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255}, 1.0)
+	cubeObj3 := CreateObject(cube4)
+	cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
+	cubeObj4 := CreateObject(cube5)
+
+	objects := []object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4}
+
+	t := []Triangle{}
+	for _, object := range objects {
+		t = append(t, object.ConvertToTriangles()...)
+	}
 
 	game := &Game{
 		layers:        &layers,
@@ -980,18 +1031,18 @@ func main() {
 		mask:        Mask{},
 		camera:      Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
 		FOV:         90.0,
-		triangles:   append(append(cube1, cube2...), cube3...),
+		triangles:   t,
 		light:       Light{Position: Vector{0, 400, 200}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor: 4,
-		objects:     &[]object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3},
-		render:      true,
+		scaleFactor: 16,
+		objects:     &objects,
+		render:      false,
 		move:        true,
 		avgScreen:   ebiten.NewImage(screenWidth, screenHeight),
 		accumulate:  false,
-		samples:     6,
+		samples:     2,
 	}
 
-	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock , ebiten.KeyC}
+	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC}
 	for _, key := range keys {
 		game.prevKeyStates[key] = false
 		game.currKeyStates[key] = false
