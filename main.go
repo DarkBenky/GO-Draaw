@@ -10,6 +10,8 @@
 // TODO [High]: Implement the fill tool
 // TODO [High]: Implement the line tool
 
+// FIXME : Gpu implementation of ray tracing is in different order of values
+
 package main
 
 /*
@@ -22,21 +24,32 @@ package main
 struct Ray {
     float origin[3];
     float direction[3];
-	int x,y;
+    int x;
+    int y;
 };
 
 struct Triangle {
     float v1[3];
     float v2[3];
     float v3[3];
-	float color[3];
+    float color[3];
+    float boundingBox[6];
 };
+
+struct Object {
+    struct Triangle *triangles;
+    int numTriangles;
+    float boundingBox[6];
+	char padding[4];
+};
+// padding 4bytes to make the size of the struct 40 bytes
 
 struct IntersectionResult {
     float intersectionPoint[3];
     float triangleColor[3];
     float distance;
-	int x,y;
+    int x;
+    int y;
 };
 
 // Function prototypes
@@ -45,7 +58,7 @@ void vectorSub(float *x, float *y, float *z, float *x1, float *y1, float *z1, in
 void vectorNormalize(float *x, float *y, float *z, int n);
 void vectorDot(float *x, float *y, float *z, float *x1, float *y1, float *z1, float *result, int n);
 void vectorCross(float *x, float *y, float *z, float *x1, float *y1, float *z1, float *cx, float *cy, float *cz, int n);
-void IntersectTriangles(struct Ray *rays, struct Triangle *triangles, int numTriangles, struct IntersectionResult *results, int numRays);
+void IntersectTriangles(struct Ray *rays, struct Object *objects , struct IntersectionResult *results, int numRays, int numObjects);
 */
 import "C"
 
@@ -63,24 +76,51 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// IntersectTriangles calls the C function IntersectTriangles
-func IntersectTriangles(rays []Ray, triangle []Triangle) []Intersection {
+// Convert Object to C.struct_Object
+func (o object) ToObjectC() C.struct_Object {
+	trianglesC := make([]C.struct_Triangle, len(o.triangles))
+	for i, tri := range o.triangles {
+		trianglesC[i] = tri.ToTriangleC()
+	}
+	return C.struct_Object{
+		triangles:    &trianglesC[0],
+		numTriangles: C.int(len(o.triangles)),
+		boundingBox: [6]C.float{
+			C.float(o.BoundingBox[0].x), C.float(o.BoundingBox[0].y), C.float(o.BoundingBox[0].z),
+			C.float(o.BoundingBox[1].x), C.float(o.BoundingBox[1].y), C.float(o.BoundingBox[1].z),
+		},
+	}
+}
+
+func IntersectTriangles(rays []Ray, objects []object) []Intersection {
+	// Lock OS thread to ensure Go pointers are not moved by GC during C call
+    runtime.LockOSThread()
+    defer runtime.UnlockOSThread()
+
+
 	numRays := len(rays)
-	numTriangles := len(triangle)
+	numObjects := len(objects)
 
 	raysC := make([]C.struct_Ray, numRays)
 	for i, ray := range rays {
 		raysC[i] = ray.ToRayC()
 	}
 
-	trianglesC := make([]C.struct_Triangle, len(triangle))
-	for i, tri := range triangle {
-		trianglesC[i] = tri.ToTriangleC()
+	objectsC := make([]C.struct_Object, numObjects)
+	for i, obj := range objects {
+		objectsC[i] = obj.ToObjectC()
 	}
 
 	IntersectC := make([]C.struct_IntersectionResult, numRays)
 
-	C.IntersectTriangles(&raysC[0], &trianglesC[0], C.int(numTriangles), &IntersectC[0], C.int(numRays))
+	fmt.Printf("Rays: %v\n", raysC[0])
+	for i, obj := range objectsC {
+		fmt.Printf("Object %d: %v\n", i, obj)
+	}
+	// fmt.Printf("Intersections: %v\n", IntersectC)
+
+	
+	C.IntersectTriangles(&raysC[0], &objectsC[0], &IntersectC[0], C.int(numRays), C.int(numObjects))
 
 	intersections := make([]Intersection, numRays)
 	for i, intersect := range IntersectC {
@@ -94,11 +134,15 @@ func IntersectTriangles(rays []Ray, triangle []Triangle) []Intersection {
 				R: uint8(intersect.triangleColor[0]),
 				G: uint8(intersect.triangleColor[1]),
 				B: uint8(intersect.triangleColor[2]),
-				A: 255,
+				A: 255, // Assuming alpha is always 255
 			},
-			Distance: float64(intersect.distance),
+			Distance:  float64(intersect.distance),
+			Direction: rays[i].direction,
+			x_screen:  int(intersect.x),
+			y_screen:  int(intersect.y),
 		}
 	}
+
 	return intersections
 }
 
@@ -192,6 +236,7 @@ func vectorCross(x, y, z, x1, y1, z1, cx, cy, cz []C.float, numElements C.int) {
 
 type Ray struct {
 	origin, direction Vector
+	x, y              int
 }
 
 func (ray *Ray) ToRayC() C.struct_Ray {
@@ -205,6 +250,9 @@ func (ray *Ray) ToRayC() C.struct_Ray {
 	cRay.direction[0] = C.float(ray.direction.x)
 	cRay.direction[1] = C.float(ray.direction.y)
 	cRay.direction[2] = C.float(ray.direction.z)
+
+	cRay.x = C.int(ray.x)
+	cRay.y = C.int(ray.y)
 
 	return cRay
 }
@@ -446,6 +494,16 @@ func (triangle *Triangle) ToTriangleC() C.struct_Triangle {
 	cTriangle.color[1] = C.float(triangle.color.G)
 	cTriangle.color[2] = C.float(triangle.color.B)
 
+	// Calculate bounding box
+	triangle.CalculateBoundingBox()
+
+	cTriangle.boundingBox[0] = C.float(triangle.BoundingBox[0].x)
+	cTriangle.boundingBox[1] = C.float(triangle.BoundingBox[0].y)
+	cTriangle.boundingBox[2] = C.float(triangle.BoundingBox[0].z)
+	cTriangle.boundingBox[3] = C.float(triangle.BoundingBox[1].x)
+	cTriangle.boundingBox[4] = C.float(triangle.BoundingBox[1].y)
+	cTriangle.boundingBox[5] = C.float(triangle.BoundingBox[1].z)
+
 	return cTriangle
 }
 
@@ -550,6 +608,7 @@ type Intersection struct {
 	Normal              Vector
 	Direction           Vector
 	Distance            float64
+	x_screen, y_screen  int
 }
 
 type Light struct {
@@ -936,72 +995,48 @@ func DrawRaysGPU(objects *[]object, Triangles *[]Triangle, screen *ebiten.Image,
 
 	fmt.Printf("Ray direction computation took %v\n", time.Since(start))
 
-	// RaysDirection.Normalize()
+	RaysDirection.Normalize()
 	RaysDirArray := RaysDirection.toVectorArray()
 
 	rays := make([]Ray, screenWidth*screenHeight)
 
 	// Convert Vectors to Rays
 	for i, ray := range RaysDirArray.vectors {
-		rays[i] = Ray{origin: camera.Position, direction: ray}
+		// calculate the screen coordinates of the pixel
+		x := i / screenHeight
+		y := i % screenHeight
+		rays[i] = Ray{origin: camera.Position, direction: ray, x: x, y: y}
 	}
 
-	var wg sync.WaitGroup
+	intersections := IntersectTriangles(rays, *objects)
 
-	// Channel to receive pixels
-	closestPixels := make(map[PixelKey]*Pixel3D)
-	var mutex sync.Mutex
-
-	// Create a map to track closest pixels by (x, y) coordinates
-
-	// Using parallel processing for intersection testing
 	triStart := time.Now()
 	// Assuming Triangles is a pointer to a slice of Triangle
-	for _, t := range *Triangles {
-		wg.Add(1)
-		go func(triangle Triangle) {
-			defer wg.Done() // Ensure wg.Done() is deferred and called exactly once
-
-			hits, distances := IntersectTriangles(rays, triangle)
-			for i, h := range hits {
-				if h {
-					x := float64(i / screenHeight)
-					y := float64(i % screenHeight)
-
-					key := PixelKey{X: int(x), Y: int(y)}
-
-					mutex.Lock()
-					if pixel, ok := closestPixels[key]; ok {
-						if distances[i] < pixel.distance {
-							closestPixels[key] = &Pixel3D{x: x, y: y, distance: distances[i], color: triangle.color}
-						}
-					} else {
-						closestPixels[key] = &Pixel3D{x: x, y: y, distance: distances[i], color: triangle.color}
-					}
-					mutex.Unlock()
-				}
-			}
-		}(t)
-	}
-
-	wg.Wait()
 
 	fmt.Printf("Triangle intersection took %v\n", time.Since(triStart))
 
-	start = time.Now()
+	for _, intersection := range intersections {
+		if intersection.Distance != 0.0 {
+			// Calculate the final color with lighting
+			Scatter := intersection.Scatter(samples, *Triangles, light)
+			light := light.CalculateLighting(intersection, *Triangles)
 
-	// Draw the pixels
-	for _, pixel := range closestPixels {
-		wg.Add(1)
-		go func(p *Pixel3D) {
-			defer wg.Done()
-			mutex.Lock()
-			screen.Set(int(p.x), int(p.y), p.color)
-			mutex.Unlock()
-		}(pixel)
+			c := color.RGBA{
+				G: clampUint8(float64(Scatter.G) + float64(light.G)),
+				R: clampUint8(float64(Scatter.R) + float64(light.R)),
+				B: clampUint8(float64(Scatter.B) + float64(light.B)),
+				A: 255,
+			}
+
+			if scaling == 1 {
+				screen.Set(int(intersection.x_screen), int(intersection.y_screen), c)
+			} else {
+				vector.DrawFilledRect(screen, float32(intersection.x_screen), float32(intersection.y_screen), float32(scaling), float32(scaling), c, true)
+			}
+		}
 	}
 
-	wg.Wait()
+	start = time.Now()
 
 	fmt.Printf("Drawing took %v\n", time.Since(start))
 
@@ -1466,11 +1501,16 @@ func main() {
 	cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255})
 	cubeObj := CreateObject(cube1)
 	cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255})
-	cubeObj1 := CreateObject(append(cubeObj.triangles, cube2...))
+	cubeObj1 := CreateObject(cube2)
 	cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255})
-	cubeObj2 := CreateObject(append(cubeObj.triangles, cube3...))
+	cubeObj2 := CreateObject(cube3)
 	cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255})
-	cubeObj3 := CreateObject(append(cubeObj.triangles, cube4...))
+	cubeObj3 := CreateObject(cube4)
+
+	Triangles := []Triangle{}
+	for _, cube := range []*object{cubeObj, cubeObj1, cubeObj2, cubeObj3} {
+		Triangles = append(Triangles, cube.triangles...)
+	}
 
 	game := &Game{
 		layers:        &layers,
@@ -1491,7 +1531,7 @@ func main() {
 		mask:        Mask{},
 		camera:      Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
 		FOV:         90.0,
-		triangles:   append(append(cube1, cube2...), cube3...),
+		triangles:   Triangles,
 		light:       Light{Position: Vector{0, 400, 200}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
 		scaleFactor: 1,
 		objects:     &[]object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3},
