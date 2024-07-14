@@ -13,17 +13,88 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"image/color"
+	"log"
 	"math"
 	"math/rand"
+	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
+
+func LoadOBJ(filename string) (object, error) {
+	var obj object
+
+	file, err := os.Open(filename)
+	if err != nil {
+		return obj, err
+	}
+	defer file.Close()
+
+	var vertices []Vector
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+
+		if len(fields) == 0 || strings.HasPrefix(line, "#") {
+			continue // Skip empty lines and comments
+		}
+
+		switch fields[0] {
+		case "v":
+			// Vertex definition
+			x, _ := strconv.ParseFloat(fields[1], 64)
+			y, _ := strconv.ParseFloat(fields[2], 64)
+			z, _ := strconv.ParseFloat(fields[3], 64)
+			vertices = append(vertices, Vector{x, y, z})
+
+		case "f":
+			// Face (triangle) definition
+			if len(fields) < 4 {
+				continue // Skip lines without enough vertices
+			}
+
+			var v1, v2, v3 Vector
+			v1Index, _ := strconv.Atoi(fields[1])
+			v2Index, _ := strconv.Atoi(fields[2])
+			v3Index, _ := strconv.Atoi(fields[3])
+
+			if v1Index > 0 && v1Index <= len(vertices) {
+				v1 = vertices[v1Index-1]
+			}
+			if v2Index > 0 && v2Index <= len(vertices) {
+				v2 = vertices[v2Index-1]
+			}
+			if v3Index > 0 && v3Index <= len(vertices) {
+				v3 = vertices[v3Index-1]
+			}
+
+			// Add triangle to object
+			obj.triangles = append(obj.triangles, NewTriangle(v1, v2, v3, color.RGBA{255, 255, 255, 255}, 0.0))
+
+			// Other cases can be added as needed (e.g., parsing materials, normals, etc.)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return obj, err
+	}
+
+	// Calculate bounding box for the object
+	obj.CalculateBoundingBox()
+
+	return obj, nil
+}
 
 type Vector struct {
 	x, y, z float64
@@ -895,7 +966,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 func averageImages(img1, img2 *ebiten.Image) *ebiten.Image {
 	bounds := img1.Bounds()
 	result := ebiten.NewImage(bounds.Dx(), bounds.Dy())
-	resultPix := make([]byte, bounds.Dx() * bounds.Dy() * 4)
+	resultPix := make([]byte, bounds.Dx()*bounds.Dy()*4)
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
@@ -914,7 +985,7 @@ func averageImages(img1, img2 *ebiten.Image) *ebiten.Image {
 			// 	uint8(a >> 8),
 			// })
 
-			i := (y * bounds.Dx() + x) * 4
+			i := (y*bounds.Dx() + x) * 4
 			resultPix[i] = uint8(r >> 8)
 			resultPix[i+1] = uint8(g >> 8)
 			resultPix[i+2] = uint8(b >> 8)
@@ -1005,7 +1076,12 @@ func main() {
 	cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
 	cubeObj4 := CreateObject(cube5)
 
-	objects := []object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4}
+	obj, err := LoadOBJ("test.obj")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	objects := []object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4, obj}
 
 	t := []Triangle{}
 	for _, object := range objects {
