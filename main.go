@@ -1,3 +1,6 @@
+// TODO [High]: Use Vector 32
+
+
 // FIXME[High]: UI elements merge into one layer and then draw on the screen
 // : Implement the blur function [DONE]
 // TODO [High]: Implement the increase contrast function
@@ -24,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -100,9 +104,18 @@ type Vector struct {
 	x, y, z float64
 }
 
+type Vector32 struct {
+	x, y, z float32
+}
+
 func (v Vector) Add(v2 Vector) Vector {
 	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
 }
+
+func (v Vector32) Add(v2 Vector32) Vector32 {
+	return Vector32{v.x + v2.x, v.y + v2.y, v.z + v2.z}
+}
+
 
 func (v Vector) Sub(v2 Vector) Vector {
 	return Vector{v.x - v2.x, v.y - v2.y, v.z - v2.z}
@@ -1036,6 +1049,26 @@ type Game struct {
 }
 
 func main() {
+
+	testVec := Vector{0.1, 0.2, 0.3}
+
+	start := time.Now()
+	v := Vector{1, 2, 3}
+	for i := 0; i < 10000000000; i++ {
+		v = v.Add(testVec)
+	}
+	fmt.Println(v, time.Since(start), "Vector Classic Calculation")
+
+
+	v32 := Vector32{1, 2, 3}
+	testVec32 := Vector32{0.1, 0.2, 0.3}
+
+	start = time.Now()
+	for i := 0; i < 10000000000; i++ {
+		v32 = v32.Add(testVec32)
+	}
+	fmt.Println(v, time.Since(start), "Vector SIMD Calculation")
+
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
