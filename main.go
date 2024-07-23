@@ -1,6 +1,5 @@
 // TODO [High]: Use Vector 32
 
-
 // FIXME[High]: UI elements merge into one layer and then draw on the screen
 // : Implement the blur function [DONE]
 // TODO [High]: Implement the increase contrast function
@@ -20,14 +19,14 @@ import (
 	"fmt"
 	"image/color"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/chewxy/math32"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -57,10 +56,10 @@ func LoadOBJ(filename string) (object, error) {
 		switch fields[0] {
 		case "v":
 			// Vertex definition
-			x, _ := strconv.ParseFloat(fields[1], 64)
+			x, _ := (strconv.ParseFloat(fields[1], 64))
 			y, _ := strconv.ParseFloat(fields[2], 64)
 			z, _ := strconv.ParseFloat(fields[3], 64)
-			vertices = append(vertices, Vector{x, y, z})
+			vertices = append(vertices, Vector{float32(x), float32(y), float32(z)})
 
 		case "f":
 			// Face (triangle) definition
@@ -101,31 +100,26 @@ func LoadOBJ(filename string) (object, error) {
 }
 
 type Vector struct {
-	x, y, z float64
-}
-
-type Vector32 struct {
 	x, y, z float32
 }
+
+// type Vector64 struct {
+// 	x, y, z float64
+// }
 
 func (v Vector) Add(v2 Vector) Vector {
 	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
 }
 
-func (v Vector32) Add(v2 Vector32) Vector32 {
-	return Vector32{v.x + v2.x, v.y + v2.y, v.z + v2.z}
-}
-
-
 func (v Vector) Sub(v2 Vector) Vector {
 	return Vector{v.x - v2.x, v.y - v2.y, v.z - v2.z}
 }
 
-func (v Vector) Mul(scalar float64) Vector {
+func (v Vector) Mul(scalar float32) Vector {
 	return Vector{v.x * scalar, v.y * scalar, v.z * scalar}
 }
 
-func (v Vector) Dot(v2 Vector) float64 {
+func (v Vector) Dot(v2 Vector) float32 {
 	return v.x*v2.x + v.y*v2.y + v.z*v2.z
 }
 
@@ -134,7 +128,7 @@ func (v Vector) Cross(v2 Vector) Vector {
 }
 
 func (v Vector) Normalize() Vector {
-	magnitude := math.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
+	magnitude := math32.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
 	if magnitude == 0 {
 		return Vector{0, 0, 0}
 	}
@@ -149,10 +143,10 @@ type Triangle struct {
 	v1, v2, v3  Vector
 	color       color.RGBA
 	BoundingBox [2]Vector
-	reflection  float64
+	reflection  float32
 }
 
-func CreateCube(center Vector, size float64, color color.RGBA, refection float64) []Triangle {
+func CreateCube(center Vector, size float32, color color.RGBA, refection float32) []Triangle {
 	halfSize := size / 2
 
 	vertices := [8]Vector{
@@ -188,11 +182,20 @@ func CreateCube(center Vector, size float64, color color.RGBA, refection float64
 }
 
 func (triangle *Triangle) CalculateBoundingBox() {
-	triangle.BoundingBox[0] = Vector{math.Min(triangle.v1.x, math.Min(triangle.v2.x, triangle.v3.x)), math.Min(triangle.v1.y, math.Min(triangle.v2.y, triangle.v3.y)), math.Min(triangle.v1.z, math.Min(triangle.v2.z, triangle.v3.z))}
-	triangle.BoundingBox[1] = Vector{math.Max(triangle.v1.x, math.Max(triangle.v2.x, triangle.v3.x)), math.Max(triangle.v1.y, math.Max(triangle.v2.y, triangle.v3.y)), math.Max(triangle.v1.z, math.Max(triangle.v2.z, triangle.v3.z))}
+	// Compute the minimum and maximum coordinates using float32 functions
+	minX := math32.Min(triangle.v1.x, math32.Min(triangle.v2.x, triangle.v3.x))
+	minY := math32.Min(triangle.v1.y, math32.Min(triangle.v2.y, triangle.v3.y))
+	minZ := math32.Min(triangle.v1.z, math32.Min(triangle.v2.z, triangle.v3.z))
+	maxX := math32.Max(triangle.v1.x, math32.Max(triangle.v2.x, triangle.v3.x))
+	maxY := math32.Max(triangle.v1.y, math32.Max(triangle.v2.y, triangle.v3.y))
+	maxZ := math32.Max(triangle.v1.z, math32.Max(triangle.v2.z, triangle.v3.z))
+
+	// Set the BoundingBox with computed min and max values
+	triangle.BoundingBox[0] = Vector{minX, minY, minZ}
+	triangle.BoundingBox[1] = Vector{maxX, maxY, maxZ}
 }
 
-func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float64) Triangle {
+func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32) Triangle {
 	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection}
 	triangle.CalculateBoundingBox()
 	return triangle
@@ -252,14 +255,14 @@ type Intersection struct {
 	Color               color.RGBA
 	Normal              Vector
 	Direction           Vector
-	Distance            float64
-	reflection          float64
+	Distance            float32
+	reflection          float32
 }
 
 type Light struct {
 	Position  Vector
 	Color     color.RGBA
-	intensity float64
+	intensity float32
 }
 
 func (light *Light) CalculateLighting(intersection Intersection, triangles []Triangle) color.RGBA {
@@ -291,11 +294,11 @@ func (light *Light) CalculateLighting(intersection Intersection, triangles []Tri
 
 	// Calculate diffuse lighting
 
-	lightIntensity := light.intensity * math.Max(0.0, lightDir.Dot(intersection.Normal))
+	lightIntensity := light.intensity * math32.Max(0.0, lightDir.Dot(intersection.Normal))
 	finalColor := color.RGBA{
-		clampUint8(float64(ambientColor.R) + lightIntensity*float64(intersection.Color.R)),
-		clampUint8(float64(ambientColor.G) + lightIntensity*float64(intersection.Color.G)),
-		clampUint8(float64(ambientColor.B) + lightIntensity*float64(intersection.Color.B)),
+		clampUint8(float32(ambientColor.R) + lightIntensity*float32(intersection.Color.R)),
+		clampUint8(float32(ambientColor.G) + lightIntensity*float32(intersection.Color.G)),
+		clampUint8(float32(ambientColor.B) + lightIntensity*float32(intersection.Color.B)),
 		ambientColor.A,
 	}
 
@@ -307,7 +310,7 @@ func (light *Light) CalculateLighting(intersection Intersection, triangles []Tri
 }
 
 // Helper function to clamp a float64 value to uint8 range
-func clampUint8(value float64) uint8 {
+func clampUint8(value float32) uint8 {
 	if value < 0 {
 		return 0
 	}
@@ -373,7 +376,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, o *[]object)
 	reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 
 	// Find intersection with scene
-	reflectedIntersection := Intersection{Distance: math.MaxFloat64}
+	reflectedIntersection := Intersection{Distance: math32.MaxFloat32}
 	for _, object := range *o {
 		if object.IntersectBoundingBox(reflectRay) {
 			for _, triangle := range object.ConvertToTriangles() {
@@ -387,15 +390,15 @@ func (intersection *Intersection) Scatter(samples int, light Light, o *[]object)
 
 	for i := 0; i < samples; i++ {
 		// Generate random direction in hemisphere around the normal (cosine-weighted distribution)
-		u := rand.Float64()
-		v := rand.Float64()
-		r := math.Sqrt(u)
-		theta := 2 * math.Pi * v
+		u := rand.Float32()
+		v := rand.Float32()
+		r := math32.Sqrt(u)
+		theta := 2 * math32.Pi * v
 
 		// Construct local coordinate system
 		w := intersection.Normal
 		var uVec, vVec Vector
-		if math.Abs(w.x) > 0.1 {
+		if math32.Abs(w.x) > 0.1 {
 			uVec = Vector{0.0, 1.0, 0.0}
 		} else {
 			uVec = Vector{1.0, 0.0, 0.0}
@@ -404,7 +407,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, o *[]object)
 		vVec = w.Cross(uVec)
 
 		// Calculate direction in local coordinates
-		directionLocal := uVec.Mul(r * math.Cos(theta)).Add(vVec.Mul(r * math.Sin(theta))).Add(w.Mul(math.Sqrt(1 - u)))
+		directionLocal := uVec.Mul(float32(r * math32.Cos(theta))).Add(vVec.Mul(float32(r * math32.Sin(theta)))).Add(w.Mul(float32(math32.Sqrt(1 - u))))
 
 		// Transform direction to global coordinates
 		direction := directionLocal.Normalize()
@@ -413,7 +416,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, o *[]object)
 		ray := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: direction}
 
 		// Find intersection with scene
-		scatteredIntersection := Intersection{Distance: math.MaxFloat64}
+		scatteredIntersection := Intersection{Distance: math32.MaxFloat32}
 		// for _, triangle := range triangles {
 		// 	tempIntersection, intersect := ray.IntersectTriangle(triangle)
 		// 	if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
@@ -432,7 +435,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, o *[]object)
 			}
 		}
 
-		if scatteredIntersection.Distance != math.MaxFloat64 {
+		if scatteredIntersection.Distance != math32.MaxFloat32 {
 			finalColor.R += uint16(scatteredIntersection.Color.R)
 			finalColor.G += uint16(scatteredIntersection.Color.G)
 			finalColor.B += uint16(scatteredIntersection.Color.B)
@@ -452,9 +455,9 @@ func (intersection *Intersection) Scatter(samples int, light Light, o *[]object)
 	rationScatterToDirect := 1 - intersection.reflection
 
 	return color.RGBA{
-		clampUint8(float64(finalColor.R)*rationScatterToDirect + float64(reflectedIntersection.Color.R)*intersection.reflection),
-		clampUint8(float64(finalColor.G)*rationScatterToDirect + float64(reflectedIntersection.Color.G)*intersection.reflection),
-		clampUint8(float64(finalColor.B)*rationScatterToDirect + float64(reflectedIntersection.Color.B)*intersection.reflection),
+		clampUint8(float32(finalColor.R)*rationScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection),
+		clampUint8(float32(finalColor.G)*rationScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection),
+		clampUint8(float32(finalColor.B)*rationScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection),
 		uint8(finalColor.A)}
 }
 
@@ -467,8 +470,8 @@ func CreateObject(triangles []Triangle) *object {
 	object := &object{
 		triangles: triangles,
 		BoundingBox: [2]Vector{
-			Vector{math.MaxFloat64, math.MaxFloat64, math.MaxFloat64},
-			Vector{-math.MaxFloat64, -math.MaxFloat64, -math.MaxFloat64},
+			Vector{math32.MaxFloat32, math32.MaxFloat32, math32.MaxFloat32},
+			Vector{-math32.MaxFloat32, -math32.MaxFloat32, -math32.MaxFloat32},
 		},
 	}
 	object.CalculateBoundingBox()
@@ -478,14 +481,14 @@ func CreateObject(triangles []Triangle) *object {
 func (object *object) CalculateBoundingBox() {
 	for _, triangle := range object.triangles {
 		// Update minimum coordinates (BoundingBox[0])
-		object.BoundingBox[0].x = math.Min(object.BoundingBox[0].x, triangle.BoundingBox[0].x)
-		object.BoundingBox[0].y = math.Min(object.BoundingBox[0].y, triangle.BoundingBox[0].y)
-		object.BoundingBox[0].z = math.Min(object.BoundingBox[0].z, triangle.BoundingBox[0].z)
+		object.BoundingBox[0].x = math32.Min(object.BoundingBox[0].x, triangle.BoundingBox[0].x)
+		object.BoundingBox[0].y = math32.Min(object.BoundingBox[0].y, triangle.BoundingBox[0].y)
+		object.BoundingBox[0].z = math32.Min(object.BoundingBox[0].z, triangle.BoundingBox[0].z)
 
 		// Update maximum coordinates (BoundingBox[1])
-		object.BoundingBox[1].x = math.Max(object.BoundingBox[1].x, triangle.BoundingBox[1].x)
-		object.BoundingBox[1].y = math.Max(object.BoundingBox[1].y, triangle.BoundingBox[1].y)
-		object.BoundingBox[1].z = math.Max(object.BoundingBox[1].z, triangle.BoundingBox[1].z)
+		object.BoundingBox[1].x = math32.Max(object.BoundingBox[1].x, triangle.BoundingBox[1].x)
+		object.BoundingBox[1].y = math32.Max(object.BoundingBox[1].y, triangle.BoundingBox[1].y)
+		object.BoundingBox[1].z = math32.Max(object.BoundingBox[1].z, triangle.BoundingBox[1].z)
 	}
 }
 
@@ -535,7 +538,7 @@ func (object *object) IntersectBoundingBox(ray Ray) bool {
 		tMax = tZMax
 	}
 
-	return tMin < math.Inf(1) && tMax > 0
+	return tMin < math32.Inf(1) && tMax > 0
 }
 
 func (object *object) ConvertToTriangles() []Triangle {
@@ -544,9 +547,9 @@ func (object *object) ConvertToTriangles() []Triangle {
 	return triangles
 }
 
-func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, camera Camera, FOV float64, light Light, scaling int, samples int) {
-	aspectRatio := float64(screenWidth) / float64(screenHeight)
-	scale := math.Tan(FOV * 0.5 * math.Pi / 180.0) // Convert FOV to radians
+func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, camera Camera, FOV float32, light Light, scaling int, samples int) {
+	aspectRatio := float32(screenWidth) / float32(screenHeight)
+	scale := math32.Tan(FOV * 0.5 * math32.Pi / 180.0) // Convert FOV to radians
 
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	rowsPerWorker := screenHeight / workerCount
@@ -560,8 +563,8 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 			for width := 0; width < screenWidth; width += scaling {
 				for height := startY; height < startY+rowsPerWorker && height < screenHeight; height += scaling {
 					// Normalize screen coordinates to [-1, 1]
-					pixelNDCX := (float64(width) + 0.5) / float64(screenWidth)
-					pixelNDCY := (float64(height) + 0.5) / float64(screenHeight)
+					pixelNDCX := (float32(width) + 0.5) / float32(screenWidth)
+					pixelNDCY := (float32(height) + 0.5) / float32(screenHeight)
 
 					// Screen space coordinates [-1, 1]
 					pixelScreenX := 2.0*pixelNDCX - 1.0
@@ -575,7 +578,7 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 					rayDirection := Vector{pixelCameraX, pixelCameraY, -1}.Normalize()
 					ray := Ray{origin: camera.Position, direction: rayDirection}
 
-					intersection := Intersection{Distance: math.MaxFloat64}
+					intersection := Intersection{Distance: math32.MaxFloat32}
 					for _, object := range *object {
 						if object.IntersectBoundingBox(ray) {
 							for _, triangle := range object.ConvertToTriangles() {
@@ -592,15 +595,15 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 					// 		intersection = tempIntersection
 					// 	}
 					// }
-					if intersection.Distance != math.MaxFloat64 {
+					if intersection.Distance != math32.MaxFloat32 {
 						// Calculate the final color with lighting
 						Scatter := intersection.Scatter(samples, light, object)
 						light := light.CalculateLighting(intersection, Triangles)
 
 						c := color.RGBA{
-							G: clampUint8(float64(Scatter.G) + float64(light.G)),
-							R: clampUint8(float64(Scatter.R) + float64(light.R)),
-							B: clampUint8(float64(Scatter.B) + float64(light.B)),
+							G: clampUint8(float32(Scatter.G) + float32(light.G)),
+							R: clampUint8(float32(Scatter.R) + float32(light.R)),
+							B: clampUint8(float32(Scatter.B) + float32(light.B)),
 							A: 255,
 						}
 
@@ -627,8 +630,8 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 	}
 }
 
-const screenWidth = 1280
-const screenHeight = 720
+const screenWidth = 1920
+const screenHeight = 1020
 const numLayers = 5
 
 type Button struct {
@@ -753,15 +756,15 @@ func (layer *Layer) edgeLayer(x int, y int, game *Game, mask *Mask, threshold in
 			}
 
 			// Calculate the gradient magnitude
-			gradientR := math.Sqrt(float64(gxR*gxR + gyR*gyR))
-			gradientG := math.Sqrt(float64(gxG*gxG + gyG*gyG))
-			gradientB := math.Sqrt(float64(gxB*gxB + gyB*gyB))
+			gradientR := math32.Sqrt(float32(gxR*gxR + gyR*gyR))
+			gradientG := math32.Sqrt(float32(gxG*gxG + gyG*gyG))
+			gradientB := math32.Sqrt(float32(gxB*gxB + gyB*gyB))
 
 			// Average the gradient magnitude
 			gradient := (gradientR + gradientG + gradientB) / 3
 
 			// Apply the threshold
-			if gradient > float64(threshold) {
+			if gradient > float32(threshold) {
 				temp[h][w] = edgeColor
 			} else {
 				temp[h][w] = mask.mask[h][w]
@@ -830,6 +833,7 @@ func (g *Game) Update() error {
 
 	if g.isKeyReleased(ebiten.KeyTab) {
 		g.move = !g.move
+		g.samples = 16
 		println("Move:", g.move)
 	}
 
@@ -877,6 +881,14 @@ func (g *Game) Update() error {
 		println("Scale Factor:", g.scaleFactor)
 	}
 
+	if g.isKeyReleased(ebiten.KeyT) {
+		g.scaleFactor = 2
+		g.scaleFactor = 4
+		println("Render:", g.render)
+		println("Scale Factor:", g.scaleFactor)
+	}
+
+
 	// increase the brush size by scrolling
 	_, scrollY := ebiten.Wheel()
 	if scrollY > 0 {
@@ -920,6 +932,14 @@ func (g *Game) Update() error {
 		g.updateFreq++
 	}
 
+	if g.render {
+		if ebiten.ActualFPS() < 60 {
+			g.scaleFactor += 0.025
+		} else {
+			g.scaleFactor -= 0.025
+		}
+	}
+
 	return nil
 }
 
@@ -951,14 +971,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Brush Type: %v", g.brushType), 0, 60)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current Tool: %v", g.currentTool), 0, 80)
 
-	if g.render {
-		if fps < 24 {
-			g.scaleFactor += 0.05
-		} else {
-			g.scaleFactor -= 0.05
-		}
-	}
-
 	// capture the previous screen
 
 	DrawRays(g.objects, g.triangles, screen, g.camera, g.FOV, g.light, int(g.scaleFactor), g.samples)
@@ -966,8 +978,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// get the mouse position
 	if g.move {
 		mouseX, mouseY := ebiten.CursorPosition()
-		g.light.Position = Vector{float64(mouseX), float64(mouseY), 200}
-		g.camera.Position = Vector{float64(mouseX), float64(mouseY), 550}
+		g.light.Position = Vector{float32(mouseX), float32(mouseY), 200}
+		g.camera.Position = Vector{float32(mouseX), float32(mouseY), 550}
 	}
 
 	if g.accumulate {
@@ -1011,7 +1023,7 @@ func averageImages(img1, img2 *ebiten.Image) *ebiten.Image {
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return 1280, 720
+	return 1920, 1020
 }
 
 type Layer struct {
@@ -1035,10 +1047,10 @@ type Game struct {
 	currentTool   int
 	mask          Mask
 	camera        Camera
-	FOV           float64
+	FOV           float32
 	triangles     []Triangle
 	light         Light
-	scaleFactor   float64
+	scaleFactor   float32
 	objects       *[]object
 	render        bool
 	move          bool
@@ -1049,26 +1061,6 @@ type Game struct {
 }
 
 func main() {
-
-	testVec := Vector{0.1, 0.2, 0.3}
-
-	start := time.Now()
-	v := Vector{1, 2, 3}
-	for i := 0; i < 10000000000; i++ {
-		v = v.Add(testVec)
-	}
-	fmt.Println(v, time.Since(start), "Vector Classic Calculation")
-
-
-	v32 := Vector32{1, 2, 3}
-	testVec32 := Vector32{0.1, 0.2, 0.3}
-
-	start = time.Now()
-	for i := 0; i < 10000000000; i++ {
-		v32 = v32.Add(testVec32)
-	}
-	fmt.Println(v, time.Since(start), "Vector SIMD Calculation")
-
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
@@ -1142,7 +1134,7 @@ func main() {
 		FOV:         90.0,
 		triangles:   t,
 		light:       Light{Position: Vector{0, 400, 200}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor: 16,
+		scaleFactor: 1,
 		objects:     &objects,
 		render:      false,
 		move:        true,
@@ -1151,7 +1143,7 @@ func main() {
 		samples:     2,
 	}
 
-	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC}
+	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC , ebiten.KeyT}
 	for _, key := range keys {
 		game.prevKeyStates[key] = false
 		game.currKeyStates[key] = false
