@@ -195,7 +195,7 @@ function handleMouseWheel(evt) {
 	else
 		delta = evt.detail / -9; // Mozilla
 
-	var z = Math.pow(1 + zoomScale, delta);
+	var z = math32.pow(1 + zoomScale, delta);
 
 	var g = getRoot(svgDoc);
 	
@@ -569,7 +569,7 @@ function handleMouseUp(evt) {
 <!-- N57 -->
 <g id="node57" class="node">
 <title>N57</title>
-<g id="a_node57"><a xlink:title="math.Tan (1.72s)">
+<g id="a_node57"><a xlink:title="math32.Tan (1.72s)">
 <polygon fill="#edebe8" stroke="#b2a692" points="1724,-1583.5 1631,-1583.5 1631,-1535.5 1724,-1535.5 1724,-1583.5"/>
 <text text-anchor="middle" x="1677.5" y="-1572.3" font-family="Times,serif" font-size="9.00">math</text>
 <text text-anchor="middle" x="1677.5" y="-1562.3" font-family="Times,serif" font-size="9.00">Tan</text>
@@ -581,12 +581,12 @@ function handleMouseUp(evt) {
 <!-- N2&#45;&gt;N57 -->
 <g id="edge32" class="edge">
 <title>N2&#45;&gt;N57</title>
-<g id="a_edge32"><a xlink:title="main.DrawMeshMultiProcessing &#45;&gt; math.Tan (1.72s)">
+<g id="a_edge32"><a xlink:title="main.DrawMeshMultiProcessing &#45;&gt; math32.Tan (1.72s)">
 <path fill="none" stroke="#b2a692" d="M1525.53,-1675.2C1544.79,-1667.97 1564.24,-1659.27 1581.5,-1649 1607.52,-1633.51 1632.53,-1610.08 1650.49,-1591.23"/>
 <polygon fill="#b2a692" stroke="#b2a692" points="1653.23,-1593.42 1657.5,-1583.72 1648.12,-1588.64 1653.23,-1593.42"/>
 </a>
 </g>
-<g id="a_edge32&#45;label"><a xlink:title="main.DrawMeshMultiProcessing &#45;&gt; math.Tan (1.72s)">
+<g id="a_edge32&#45;label"><a xlink:title="main.DrawMeshMultiProcessing &#45;&gt; math32.Tan (1.72s)">
 <text text-anchor="middle" x="1649" y="-1637.8" font-family="Times,serif" font-size="14.00"> 1.72s</text>
 <text text-anchor="middle" x="1649" y="-1622.8" font-family="Times,serif" font-size="14.00"> (inline)</text>
 </a>
@@ -1488,7 +1488,7 @@ function handleMouseUp(evt) {
 <!-- N22 -->
 <g id="node22" class="node">
 <title>N22</title>
-<g id="a_node22"><a xlink:title="math.tan (1.71s)">
+<g id="a_node22"><a xlink:title="math32.tan (1.71s)">
 <polygon fill="#edebe8" stroke="#b2a693" points="1748,-1456 1607,-1456 1607,-1380 1748,-1380 1748,-1456"/>
 <text text-anchor="middle" x="1677.5" y="-1440" font-family="Times,serif" font-size="15.00">math</text>
 <text text-anchor="middle" x="1677.5" y="-1423" font-family="Times,serif" font-size="15.00">tan</text>
@@ -2106,12 +2106,12 @@ function handleMouseUp(evt) {
 <!-- N57&#45;&gt;N22 -->
 <g id="edge33" class="edge">
 <title>N57&#45;&gt;N22</title>
-<g id="a_edge33"><a xlink:title="math.Tan &#45;&gt; math.tan (1.71s)">
+<g id="a_edge33"><a xlink:title="math32.Tan &#45;&gt; math32.tan (1.71s)">
 <path fill="none" stroke="#b2a693" d="M1677.5,-1535.46C1677.5,-1516.72 1677.5,-1489.66 1677.5,-1466.33"/>
 <polygon fill="#b2a693" stroke="#b2a693" points="1681,-1466.26 1677.5,-1456.26 1674,-1466.26 1681,-1466.26"/>
 </a>
 </g>
-<g id="a_edge33&#45;label"><a xlink:title="math.Tan &#45;&gt; math.tan (1.71s)">
+<g id="a_edge33&#45;label"><a xlink:title="math32.Tan &#45;&gt; math32.tan (1.71s)">
 <text text-anchor="middle" x="1699.5" y="-1488.8" font-family="Times,serif" font-size="14.00"> 1.71s</text>
 </a>
 </g>
