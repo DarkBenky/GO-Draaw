@@ -19,12 +19,14 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/chewxy/math32"
 
@@ -888,7 +890,6 @@ func (g *Game) Update() error {
 		println("Scale Factor:", g.scaleFactor)
 	}
 
-
 	// increase the brush size by scrolling
 	_, scrollY := ebiten.Wheel()
 	if scrollY > 0 {
@@ -1061,6 +1062,25 @@ type Game struct {
 }
 
 func main() {
+
+	start := time.Now()
+	for i := 0; i < 100_000_000; i++ {
+		k := float32(i)
+		math32.Sqrt(k)
+		math32.Sin(k)
+	}
+
+	fmt.Println("Time taken Math 32:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 100_000_000; i++ {
+		t := float64(i)
+		math.Sqrt(t)
+		math.Sin(t)
+	}
+
+	fmt.Println("Time taken Math Classic :", time.Since(start))
+
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
@@ -1143,7 +1163,7 @@ func main() {
 		samples:     2,
 	}
 
-	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC , ebiten.KeyT}
+	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC, ebiten.KeyT}
 	for _, key := range keys {
 		game.prevKeyStates[key] = false
 		game.currKeyStates[key] = false
