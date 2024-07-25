@@ -37,6 +37,7 @@ const screenWidth = 800
 const screenHeight = 600
 const numLayers = 5
 const FOV = 90
+const workerCount = 8
 
 func LoadOBJ(filename string) (object, error) {
 	var obj object
@@ -60,37 +61,55 @@ func LoadOBJ(filename string) (object, error) {
 
 		switch fields[0] {
 		case "v":
-			// Vertex definition
-			x, _ := (strconv.ParseFloat(fields[1], 64))
-			y, _ := strconv.ParseFloat(fields[2], 64)
-			z, _ := strconv.ParseFloat(fields[3], 64)
+			if len(fields) < 4 {
+				continue // Ensure there are enough fields for vertex coordinates
+			}
+			x, err1 := strconv.ParseFloat(fields[1], 64)
+			y, err2 := strconv.ParseFloat(fields[2], 64)
+			z, err3 := strconv.ParseFloat(fields[3], 64)
+			if err1 != nil || err2 != nil || err3 != nil {
+				continue // Skip malformed vertex lines
+			}
 			vertices = append(vertices, Vector{float32(x), float32(y), float32(z)})
 
 		case "f":
-			// Face (triangle) definition
 			if len(fields) < 4 {
 				continue // Skip lines without enough vertices
 			}
 
-			var v1, v2, v3 Vector
-			v1Index, _ := strconv.Atoi(fields[1])
-			v2Index, _ := strconv.Atoi(fields[2])
-			v3Index, _ := strconv.Atoi(fields[3])
-
-			if v1Index > 0 && v1Index <= len(vertices) {
-				v1 = vertices[v1Index-1]
+			var indices []int
+			for i := 1; i < len(fields); i++ {
+				parts := strings.Split(fields[i], "/")
+				if len(parts) == 0 {
+					continue // Skip malformed face definitions
+				}
+				index, err := strconv.ParseInt(parts[0], 10, 64)
+				if err != nil {
+					continue // Skip malformed face definitions
+				}
+				if index < 0 {
+					index = int64(len(vertices)) + index + 1
+				}
+				if index <= 0 || index > int64(len(vertices)) {
+					continue // Skip invalid indices
+				}
+				indices = append(indices, int(index)-1)
 			}
-			if v2Index > 0 && v2Index <= len(vertices) {
-				v2 = vertices[v2Index-1]
-			}
-			if v3Index > 0 && v3Index <= len(vertices) {
-				v3 = vertices[v3Index-1]
-			}
 
-			// Add triangle to object
-			obj.triangles = append(obj.triangles, NewTriangle(v1, v2, v3, color.RGBA{255, 255, 255, 255}, 0.0))
-
-			// Other cases can be added as needed (e.g., parsing materials, normals, etc.)
+			if len(indices) >= 3 {
+				for i := 1; i < len(indices)-1; i++ {
+					triangle := Triangle{
+						v1: vertices[indices[0]],
+						v2: vertices[indices[i]],
+						v3: vertices[indices[i+1]],
+						color: color.RGBA{255, 125, 155, 255},
+						reflection: 0.25,
+					}
+					// Assuming CalculateBoundingBox is a method of Triangle
+					triangle.CalculateBoundingBox()
+					obj.triangles = append(obj.triangles, triangle)
+				}
+			}
 		}
 	}
 
@@ -98,7 +117,7 @@ func LoadOBJ(filename string) (object, error) {
 		return obj, err
 	}
 
-	// Calculate bounding box for the object
+	// Assuming CalculateBoundingBox is a method of Object
 	obj.CalculateBoundingBox()
 
 	return obj, nil
@@ -107,10 +126,6 @@ func LoadOBJ(filename string) (object, error) {
 type Vector struct {
 	x, y, z float32
 }
-
-// type Vector64 struct {
-// 	x, y, z float64
-// }
 
 func (v Vector) Add(v2 Vector) Vector {
 	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
@@ -150,6 +165,51 @@ type Triangle struct {
 	BoundingBox [2]Vector
 	reflection  float32
 }
+
+func (triangle *Triangle) Rotate(xAngle, yAngle, zAngle float32) {
+	// Rotation matrices
+	rotationMatrixX := [3][3]float32{
+		{1, 0, 0},
+		{0, math32.Cos(xAngle), -math32.Sin(xAngle)},
+		{0, math32.Sin(xAngle), math32.Cos(xAngle)},
+	}
+
+	rotationMatrixY := [3][3]float32{
+		{math32.Cos(yAngle), 0, math32.Sin(yAngle)},
+		{0, 1, 0},
+		{-math32.Sin(yAngle), 0, math32.Cos(yAngle)},
+	}
+
+	rotationMatrixZ := [3][3]float32{
+		{math32.Cos(zAngle), -math32.Sin(zAngle), 0},
+		{math32.Sin(zAngle), math32.Cos(zAngle), 0},
+		{0, 0, 1},
+	}
+
+	// Apply the rotation matrices to each vertex
+	triangle.v1 = rotateVector(triangle.v1, rotationMatrixX, rotationMatrixY, rotationMatrixZ)
+	triangle.v2 = rotateVector(triangle.v2, rotationMatrixX, rotationMatrixY, rotationMatrixZ)
+	triangle.v3 = rotateVector(triangle.v3, rotationMatrixX, rotationMatrixY, rotationMatrixZ)
+
+	// Recalculate the bounding box
+	triangle.CalculateBoundingBox()
+}
+
+func rotateVector(v Vector, rotationMatrixX, rotationMatrixY, rotationMatrixZ [3][3]float32) Vector {
+	v = applyRotationMatrix(v, rotationMatrixX)
+	v = applyRotationMatrix(v, rotationMatrixY)
+	v = applyRotationMatrix(v, rotationMatrixZ)
+	return v
+}
+
+func applyRotationMatrix(v Vector, matrix [3][3]float32) Vector {
+	return Vector{
+		x: matrix[0][0]*v.x + matrix[0][1]*v.y + matrix[0][2]*v.z,
+		y: matrix[1][0]*v.x + matrix[1][1]*v.y + matrix[1][2]*v.z,
+		z: matrix[2][0]*v.x + matrix[2][1]*v.y + matrix[2][2]*v.z,
+	}
+}
+
 
 func CreateCube(center Vector, size float32, color color.RGBA, refection float32) []Triangle {
 	halfSize := size / 2
@@ -204,6 +264,11 @@ func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32) Triang
 	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection}
 	triangle.CalculateBoundingBox()
 	return triangle
+}
+
+func (t *Triangle)CheckDirection (ray Ray) bool {
+	normal := t.v2.Sub(t.v1).Cross(t.v3.Sub(t.v1)).Normalize()
+	return ray.direction.Dot(normal) < 0
 }
 
 func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
@@ -360,7 +425,6 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	return Intersection{}, false
 }
 
-const workerCount = 8
 
 type Camera struct {
 	Position  Vector
@@ -371,6 +435,7 @@ type Pixel struct {
 	x, y  int
 	color color.RGBA
 }
+
 
 func (intersection *Intersection) Scatter(samples int, light Light, o *[]object) color.RGBA {
 	var finalColor color.RGBA64
@@ -470,6 +535,34 @@ type object struct {
 	triangles   []Triangle
 	BoundingBox [2]Vector
 }
+
+func (object *object)Move(v Vector) {
+	for i := range object.triangles {
+		object.triangles[i].v1 = object.triangles[i].v1.Add(v)
+		object.triangles[i].v2 = object.triangles[i].v2.Add(v)
+		object.triangles[i].v3 = object.triangles[i].v3.Add(v)
+		object.triangles[i].CalculateBoundingBox()
+	}
+	object.CalculateBoundingBox()
+}
+
+func (object *object)Rotate(xAngle float32, yAngle float32, zAngle float32) {
+	for i := range object.triangles {
+		object.triangles[i].Rotate(xAngle, yAngle, zAngle)
+		object.triangles[i].CalculateBoundingBox()
+	}
+	object.CalculateBoundingBox()
+}
+
+func (object *object)Scale(scalar float32) {
+	for i := range object.triangles {
+		object.triangles[i].v1 = object.triangles[i].v1.Mul(scalar)
+		object.triangles[i].v2 = object.triangles[i].v2.Mul(scalar)
+		object.triangles[i].v3 = object.triangles[i].v3.Mul(scalar)
+		object.triangles[i].CalculateBoundingBox()
+	}
+	object.CalculateBoundingBox()
+}		
 
 func CreateObject(triangles []Triangle) *object {
 	object := &object{
@@ -847,7 +940,7 @@ func (g *Game) Update() error {
 
 	if g.isKeyReleased(ebiten.KeyTab) {
 		g.move = !g.move
-		g.samples = 16
+		g.samples = 8
 		println("Move:", g.move)
 	}
 
@@ -875,9 +968,9 @@ func (g *Game) Update() error {
 
 	if g.isKeyReleased(ebiten.KeyCapsLock) {
 		if g.accumulate {
-			g.samples = 4
+			g.samples = 2
 		} else {
-			g.samples = 32 // Default samples
+			g.samples = 16 // Default samples
 		}
 		g.accumulate = !g.accumulate
 		println("Accumulate:", g.accumulate)
@@ -888,7 +981,7 @@ func (g *Game) Update() error {
 		if g.render {
 			g.scaleFactor = 1
 		} else {
-			g.scaleFactor = 8
+			g.scaleFactor = 16
 		}
 		g.render = !g.render
 		println("Render:", g.render)
@@ -897,7 +990,7 @@ func (g *Game) Update() error {
 
 	if g.isKeyReleased(ebiten.KeyT) {
 		g.scaleFactor = 2
-		g.scaleFactor = 4
+		g.scaleFactor = 2
 		println("Render:", g.render)
 		println("Scale Factor:", g.scaleFactor)
 	}
@@ -947,9 +1040,9 @@ func (g *Game) Update() error {
 
 	if g.render {
 		if ebiten.ActualFPS() < 60 {
-			g.scaleFactor += 0.025
+			g.scaleFactor += 0.1
 		} else {
-			g.scaleFactor -= 0.025
+			g.scaleFactor -= 0.1
 		}
 	}
 
@@ -992,7 +1085,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.move {
 		mouseX, mouseY := ebiten.CursorPosition()
 		g.light.Position = Vector{float32(mouseX), float32(mouseY), 200}
-		g.camera.Position = Vector{float32(mouseX), float32(mouseY), 550}
+		g.camera.Position = Vector{float32(mouseX), 0 , g.camera.Position.z + (float32(mouseY-400) * 0.01)}
 	}
 
 	if g.accumulate {
@@ -1123,23 +1216,26 @@ func main() {
 		layers.layers[i].image.Fill(color.Transparent)
 	}
 
-	cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255}, 0.5)
-	cubeObj := CreateObject(cube1)
-	cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255}, 0.1)
-	cubeObj1 := CreateObject(cube2)
-	cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255}, 0.9)
-	cubeObj2 := CreateObject(cube3)
-	cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255}, 1.0)
-	cubeObj3 := CreateObject(cube4)
-	cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
-	cubeObj4 := CreateObject(cube5)
+	// cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255}, 0.5)
+	// cubeObj := CreateObject(cube1)
+	// cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255}, 0.1)
+	// cubeObj1 := CreateObject(cube2)
+	// cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255}, 0.9)
+	// cubeObj2 := CreateObject(cube3)
+	// cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255}, 1.0)
+	// cubeObj3 := CreateObject(cube4)
+	// cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
+	// cubeObj4 := CreateObject(cube5)
 
-	obj, err := LoadOBJ("test.obj")
+	obj, err := LoadOBJ("Room.obj")
+	obj.Scale(60)
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	objects := []object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4, obj}
+	// objects := []object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4, obj}
+	objects := []object{obj}
 
 	t := []Triangle{}
 	for _, object := range objects {
@@ -1165,8 +1261,8 @@ func main() {
 		mask:                   Mask{},
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
 		triangles:              t,
-		light:                  Light{Position: Vector{0, 400, 200}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor:            1,
+		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
+		scaleFactor:            8,
 		objects:                &objects,
 		render:                 false,
 		move:                   true,
