@@ -19,14 +19,12 @@ import (
 	"fmt"
 	"image/color"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/chewxy/math32"
 
@@ -34,6 +32,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
+
+const screenWidth = 800
+const screenHeight = 600
+const numLayers = 5
+const FOV = 90
 
 func LoadOBJ(filename string) (object, error) {
 	var obj object
@@ -472,8 +475,8 @@ func CreateObject(triangles []Triangle) *object {
 	object := &object{
 		triangles: triangles,
 		BoundingBox: [2]Vector{
-			Vector{math32.MaxFloat32, math32.MaxFloat32, math32.MaxFloat32},
-			Vector{-math32.MaxFloat32, -math32.MaxFloat32, -math32.MaxFloat32},
+			{math32.MaxFloat32, math32.MaxFloat32, math32.MaxFloat32},
+			{-math32.MaxFloat32, -math32.MaxFloat32, -math32.MaxFloat32},
 		},
 	}
 	object.CalculateBoundingBox()
@@ -549,10 +552,34 @@ func (object *object) ConvertToTriangles() []Triangle {
 	return triangles
 }
 
-func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, camera Camera, FOV float32, light Light, scaling int, samples int) {
+func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32) [][]Vector {
 	aspectRatio := float32(screenWidth) / float32(screenHeight)
 	scale := math32.Tan(FOV * 0.5 * math32.Pi / 180.0) // Convert FOV to radians
 
+	screenSpaceCoordinates := make([][]Vector, screenWidth)
+	for width := 0; width < screenWidth; width++ {
+		screenSpaceCoordinates[width] = make([]Vector, screenHeight)
+		for height := 0; height < screenHeight; height++ {
+			// Normalize screen coordinates to [-1, 1]
+			pixelNDCX := (float32(width) + 0.5) / float32(screenWidth)
+			pixelNDCY := (float32(height) + 0.5) / float32(screenHeight)
+
+			// Screen space coordinates [-1, 1]
+			pixelScreenX := 2.0*pixelNDCX - 1.0
+			pixelScreenY := 1.0 - 2.0*pixelNDCY
+
+			// Apply aspect ratio and FOV scale
+			pixelCameraX := pixelScreenX * aspectRatio * scale
+			pixelCameraY := pixelScreenY * scale
+
+			screenSpaceCoordinates[width][height] = Vector{pixelCameraX, pixelCameraY, -1}
+		}
+	}
+
+	return screenSpaceCoordinates
+}
+
+func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, offScreen *ebiten.Image , camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	rowsPerWorker := screenHeight / workerCount
 
@@ -564,20 +591,8 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 			defer wg.Done()
 			for width := 0; width < screenWidth; width += scaling {
 				for height := startY; height < startY+rowsPerWorker && height < screenHeight; height += scaling {
-					// Normalize screen coordinates to [-1, 1]
-					pixelNDCX := (float32(width) + 0.5) / float32(screenWidth)
-					pixelNDCY := (float32(height) + 0.5) / float32(screenHeight)
-
-					// Screen space coordinates [-1, 1]
-					pixelScreenX := 2.0*pixelNDCX - 1.0
-					pixelScreenY := 1.0 - 2.0*pixelNDCY
-
-					// Apply aspect ratio and FOV scale
-					pixelCameraX := pixelScreenX * aspectRatio * scale
-					pixelCameraY := pixelScreenY * scale
-
-					// Set ray direction
-					rayDirection := Vector{pixelCameraX, pixelCameraY, -1}.Normalize()
+					// Use precomputed screen space coordinates
+					rayDirection := screenSpaceCoordinates[width][height].Normalize()
 					ray := Ray{origin: camera.Position, direction: rayDirection}
 
 					intersection := Intersection{Distance: math32.MaxFloat32}
@@ -632,9 +647,6 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, came
 	}
 }
 
-const screenWidth = 1920
-const screenHeight = 1020
-const numLayers = 5
 
 type Button struct {
 	x, y, w, h  int
@@ -974,7 +986,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// capture the previous screen
 
-	DrawRays(g.objects, g.triangles, screen, g.camera, g.FOV, g.light, int(g.scaleFactor), g.samples)
+	DrawRays(g.objects, g.triangles, screen, g.offScreen, g.camera, g.light, int(g.scaleFactor), g.samples , g.screenSpaceCoordinates)
 
 	// get the mouse position
 	if g.move {
@@ -1024,7 +1036,7 @@ func averageImages(img1, img2 *ebiten.Image) *ebiten.Image {
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return 1920, 1020
+	return 800, 600
 }
 
 type Layer struct {
@@ -1036,50 +1048,51 @@ type Layers struct {
 }
 
 type Game struct {
-	layers        *Layers
-	currentLayer  int
-	brushSize     float32
-	brushType     int
-	prevKeyStates map[ebiten.Key]bool
-	currKeyStates map[ebiten.Key]bool
-	color         color.RGBA
-	sliders       [4]*Slider
-	Buttons       []*Button
-	currentTool   int
-	mask          Mask
-	camera        Camera
-	FOV           float32
-	triangles     []Triangle
-	light         Light
-	scaleFactor   float32
-	objects       *[]object
-	render        bool
-	move          bool
-	avgScreen     *ebiten.Image
-	accumulate    bool
-	samples       int
-	updateFreq    int
+	layers                 *Layers
+	currentLayer           int
+	brushSize              float32
+	brushType              int
+	prevKeyStates          map[ebiten.Key]bool
+	currKeyStates          map[ebiten.Key]bool
+	color                  color.RGBA
+	sliders                [4]*Slider
+	Buttons                []*Button
+	currentTool            int
+	mask                   Mask
+	camera                 Camera
+	triangles              []Triangle
+	light                  Light
+	scaleFactor            float32
+	objects                *[]object
+	render                 bool
+	move                   bool
+	avgScreen              *ebiten.Image
+	accumulate             bool
+	samples                int
+	updateFreq             int
+	screenSpaceCoordinates [][]Vector
+	offScreen			  *ebiten.Image
 }
 
 func main() {
 
-	start := time.Now()
-	for i := 0; i < 100_000_000; i++ {
-		k := float32(i)
-		math32.Sqrt(k)
-		math32.Sin(k)
-	}
+	// start := time.Now()
+	// for i := 0; i < 100_000_000; i++ {
+	// 	k := float32(i)
+	// 	math32.Sqrt(k)
+	// 	math32.Sin(k)
+	// }
 
-	fmt.Println("Time taken Math 32:", time.Since(start))
+	// fmt.Println("Time taken Math 32:", time.Since(start))
 
-	start = time.Now()
-	for i := 0; i < 100_000_000; i++ {
-		t := float64(i)
-		math.Sqrt(t)
-		math.Sin(t)
-	}
+	// start = time.Now()
+	// for i := 0; i < 100_000_000; i++ {
+	// 	t := float64(i)
+	// 	math.Sqrt(t)
+	// 	math.Sin(t)
+	// }
 
-	fmt.Println("Time taken Math Classic :", time.Since(start))
+	// fmt.Println("Time taken Math Classic :", time.Since(start))
 
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
@@ -1147,20 +1160,21 @@ func main() {
 			{x: 50, y: 410, w: 200, h: 20, color: color.RGBA{0, 0, 255, 255}},
 			{x: 50, y: 440, w: 200, h: 20, color: color.RGBA{0, 0, 0, 255}}, // Alpha slider
 		},
-		currentTool: 0,
-		Buttons:     buttons,
-		mask:        Mask{},
-		camera:      Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
-		FOV:         90.0,
-		triangles:   t,
-		light:       Light{Position: Vector{0, 400, 200}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor: 1,
-		objects:     &objects,
-		render:      false,
-		move:        true,
-		avgScreen:   ebiten.NewImage(screenWidth, screenHeight),
-		accumulate:  false,
-		samples:     2,
+		currentTool:            0,
+		Buttons:                buttons,
+		mask:                   Mask{},
+		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
+		triangles:              t,
+		light:                  Light{Position: Vector{0, 400, 200}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
+		scaleFactor:            1,
+		objects:                &objects,
+		render:                 false,
+		move:                   true,
+		avgScreen:              ebiten.NewImage(screenWidth, screenHeight),
+		accumulate:             false,
+		samples:                2,
+		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
+		offScreen : ebiten.NewImage(screenWidth, screenHeight),
 	}
 
 	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC, ebiten.KeyT}
