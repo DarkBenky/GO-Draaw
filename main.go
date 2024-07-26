@@ -22,6 +22,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,10 +100,10 @@ func LoadOBJ(filename string) (object, error) {
 			if len(indices) >= 3 {
 				for i := 1; i < len(indices)-1; i++ {
 					triangle := Triangle{
-						v1: vertices[indices[0]],
-						v2: vertices[indices[i]],
-						v3: vertices[indices[i+1]],
-						color: color.RGBA{255, 125, 155, 255},
+						v1:         vertices[indices[0]],
+						v2:         vertices[indices[i]],
+						v3:         vertices[indices[i+1]],
+						color:      color.RGBA{255, 125, 155, 255},
 						reflection: 0.25,
 					}
 					// Assuming CalculateBoundingBox is a method of Triangle
@@ -166,6 +167,45 @@ type Triangle struct {
 	reflection  float32
 }
 
+func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
+	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
+
+	tmin := (BoundingBox[0].x - ray.origin.x) * invDir.x
+	tmax := (BoundingBox[1].x - ray.origin.x) * invDir.x
+	if tmin > tmax {
+		tmin, tmax = tmax, tmin
+	}
+
+	tymin := (BoundingBox[0].y - ray.origin.y) * invDir.y
+	tymax := (BoundingBox[1].y - ray.origin.y) * invDir.y
+	if tymin > tymax {
+		tymin, tymax = tymax, tymin
+	}
+
+	if (tmin > tymax) || (tymin > tmax) {
+		return false
+	}
+
+	if tymin > tmin {
+		tmin = tymin
+	}
+	if tymax < tmax {
+		tmax = tymax
+	}
+
+	tzmin := (BoundingBox[0].z - ray.origin.z) * invDir.z
+	tzmax := (BoundingBox[1].z - ray.origin.z) * invDir.z
+	if tzmin > tzmax {
+		tzmin, tzmax = tzmax, tzmin
+	}
+
+	if (tmin > tzmax) || (tzmin > tmax) {
+		return false
+	}
+
+	return true
+}
+
 func (triangle *Triangle) Rotate(xAngle, yAngle, zAngle float32) {
 	// Rotation matrices
 	rotationMatrixX := [3][3]float32{
@@ -209,7 +249,6 @@ func applyRotationMatrix(v Vector, matrix [3][3]float32) Vector {
 		z: matrix[2][0]*v.x + matrix[2][1]*v.y + matrix[2][2]*v.z,
 	}
 }
-
 
 func CreateCube(center Vector, size float32, color color.RGBA, refection float32) []Triangle {
 	halfSize := size / 2
@@ -264,11 +303,6 @@ func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32) Triang
 	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection}
 	triangle.CalculateBoundingBox()
 	return triangle
-}
-
-func (t *Triangle)CheckDirection (ray Ray) bool {
-	normal := t.v2.Sub(t.v1).Cross(t.v3.Sub(t.v1)).Normalize()
-	return ray.direction.Dot(normal) < 0
 }
 
 func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
@@ -390,6 +424,45 @@ func clampUint8(value float32) uint8 {
 	return uint8(value)
 }
 
+
+func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
+	if !BoundingBoxCollision(&nodeBVH.BoundingBox, ray) {
+		return Intersection{}, false
+	}
+
+	if nodeBVH.Triangles != nil {
+		intersection := Intersection{Distance: math32.MaxFloat32}
+		for _, triangle := range nodeBVH.Triangles {
+			tempIntersection, intersect := ray.IntersectTriangle(triangle)
+			if intersect && tempIntersection.Distance < intersection.Distance {
+				intersection = tempIntersection
+			}
+		}
+		return intersection, intersection.Distance != math32.MaxFloat32
+	}
+
+	leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
+	rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
+
+	if leftIntersect && rightIntersect {
+		if leftIntersection.Distance < rightIntersection.Distance {
+			return leftIntersection, true
+		}
+		return rightIntersection, true
+	}
+
+	if leftIntersect {
+		return leftIntersection, true
+	}
+
+	if rightIntersect {
+		return rightIntersection, true
+	}
+
+	return Intersection{}, false
+}
+
+
 func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	if !triangle.IntersectBoundingBox(*ray) {
 		return Intersection{}, false
@@ -425,7 +498,6 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	return Intersection{}, false
 }
 
-
 type Camera struct {
 	Position  Vector
 	Direction Vector
@@ -435,7 +507,6 @@ type Pixel struct {
 	x, y  int
 	color color.RGBA
 }
-
 
 func (intersection *Intersection) Scatter(samples int, light Light, o *[]object) color.RGBA {
 	var finalColor color.RGBA64
@@ -536,7 +607,85 @@ type object struct {
 	BoundingBox [2]Vector
 }
 
-func (object *object)Move(v Vector) {
+type BVHNode struct {
+	Left, Right *BVHNode
+	BoundingBox [2]Vector
+	Triangles   []Triangle
+}
+
+func (object *object) BuildBVH() *BVHNode {
+	return buildBVHNode(object.triangles)
+}
+
+func buildBVHNode(triangles []Triangle) *BVHNode {
+	if len(triangles) == 0 {
+		return nil
+	}
+
+	// Calculate the bounding box of the node
+	boundingBox := [2]Vector{
+		{math32.MaxFloat32, math32.MaxFloat32, math32.MaxFloat32},
+		{-math32.MaxFloat32, -math32.MaxFloat32, -math32.MaxFloat32},
+	}
+
+	for _, triangle := range triangles {
+		boundingBox[0].x = math32.Min(boundingBox[0].x, triangle.BoundingBox[0].x)
+		boundingBox[0].y = math32.Min(boundingBox[0].y, triangle.BoundingBox[0].y)
+		boundingBox[0].z = math32.Min(boundingBox[0].z, triangle.BoundingBox[0].z)
+
+		boundingBox[1].x = math32.Max(boundingBox[1].x, triangle.BoundingBox[1].x)
+		boundingBox[1].y = math32.Max(boundingBox[1].y, triangle.BoundingBox[1].y)
+		boundingBox[1].z = math32.Max(boundingBox[1].z, triangle.BoundingBox[1].z)
+	}
+
+	// Split the triangles into two groups along the longest axis
+	longestAxis := 0
+	longestAxisLength := boundingBox[1].x - boundingBox[0].x
+	if boundingBox[1].y-boundingBox[0].y > longestAxisLength {
+		longestAxis = 1
+		longestAxisLength = boundingBox[1].y - boundingBox[0].y
+	}
+	if boundingBox[1].z-boundingBox[0].z > longestAxisLength {
+		longestAxis = 2
+	}
+
+	// Sort the triangles along the longest axis
+	switch longestAxis {
+	case 0:
+		sort.Slice(triangles, func(i, j int) bool {
+			return triangles[i].BoundingBox[0].x < triangles[j].BoundingBox[0].x
+		})
+	case 1:
+		sort.Slice(triangles, func(i, j int) bool {
+			return triangles[i].BoundingBox[0].y < triangles[j].BoundingBox[0].y
+		})
+	case 2:
+		sort.Slice(triangles, func(i, j int) bool {
+			return triangles[i].BoundingBox[0].z < triangles[j].BoundingBox[0].z
+		})
+	}
+
+	// Create the BVH node
+	node := &BVHNode{BoundingBox: boundingBox}
+
+	if len(triangles) == 1 {
+		node.Triangles = triangles
+	}
+
+	if len(triangles) == 2 {
+		node.Left = buildBVHNode(triangles[:1])
+		node.Right = buildBVHNode(triangles[1:])
+	}
+
+	if len(triangles) > 2 {
+		node.Left = buildBVHNode(triangles[:len(triangles)/2])
+		node.Right = buildBVHNode(triangles[len(triangles)/2:])
+	}
+
+	return node
+}
+
+func (object *object) Move(v Vector) {
 	for i := range object.triangles {
 		object.triangles[i].v1 = object.triangles[i].v1.Add(v)
 		object.triangles[i].v2 = object.triangles[i].v2.Add(v)
@@ -546,7 +695,7 @@ func (object *object)Move(v Vector) {
 	object.CalculateBoundingBox()
 }
 
-func (object *object)Rotate(xAngle float32, yAngle float32, zAngle float32) {
+func (object *object) Rotate(xAngle float32, yAngle float32, zAngle float32) {
 	for i := range object.triangles {
 		object.triangles[i].Rotate(xAngle, yAngle, zAngle)
 		object.triangles[i].CalculateBoundingBox()
@@ -554,7 +703,7 @@ func (object *object)Rotate(xAngle float32, yAngle float32, zAngle float32) {
 	object.CalculateBoundingBox()
 }
 
-func (object *object)Scale(scalar float32) {
+func (object *object) Scale(scalar float32) {
 	for i := range object.triangles {
 		object.triangles[i].v1 = object.triangles[i].v1.Mul(scalar)
 		object.triangles[i].v2 = object.triangles[i].v2.Mul(scalar)
@@ -562,7 +711,7 @@ func (object *object)Scale(scalar float32) {
 		object.triangles[i].CalculateBoundingBox()
 	}
 	object.CalculateBoundingBox()
-}		
+}
 
 func CreateObject(triangles []Triangle) *object {
 	object := &object{
@@ -672,7 +821,7 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
-func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, offScreen *ebiten.Image , camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
+func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, offScreen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	rowsPerWorker := screenHeight / workerCount
 
@@ -739,7 +888,6 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, offS
 		}
 	}
 }
-
 
 type Button struct {
 	x, y, w, h  int
@@ -1079,13 +1227,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// capture the previous screen
 
-	DrawRays(g.objects, g.triangles, screen, g.offScreen, g.camera, g.light, int(g.scaleFactor), g.samples , g.screenSpaceCoordinates)
+	DrawRays(g.objects, g.triangles, screen, g.offScreen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates)
 
 	// get the mouse position
 	if g.move {
 		mouseX, mouseY := ebiten.CursorPosition()
 		g.light.Position = Vector{float32(mouseX), float32(mouseY), 200}
-		g.camera.Position = Vector{float32(mouseX), 0 , g.camera.Position.z + (float32(mouseY-400) * 0.01)}
+		g.camera.Position = Vector{float32(mouseX), 0, g.camera.Position.z + (float32(mouseY-400) * 0.01)}
 	}
 
 	if g.accumulate {
@@ -1164,7 +1312,7 @@ type Game struct {
 	samples                int
 	updateFreq             int
 	screenSpaceCoordinates [][]Vector
-	offScreen			  *ebiten.Image
+	offScreen              *ebiten.Image
 }
 
 func main() {
@@ -1224,11 +1372,17 @@ func main() {
 	// cubeObj2 := CreateObject(cube3)
 	// cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255}, 1.0)
 	// cubeObj3 := CreateObject(cube4)
-	// cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
-	// cubeObj4 := CreateObject(cube5)
+	cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
+	cubeObj4 := CreateObject(cube5)
+
+	bvh_cube := cubeObj4.BuildBVH()
+	fmt.Println(bvh_cube)
 
 	obj, err := LoadOBJ("Room.obj")
 	obj.Scale(60)
+
+	bvh := obj.BuildBVH()
+	fmt.Println(bvh)
 
 	if err != nil {
 		log.Fatal(err)
@@ -1270,7 +1424,7 @@ func main() {
 		accumulate:             false,
 		samples:                2,
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
-		offScreen : ebiten.NewImage(screenWidth, screenHeight),
+		offScreen:              ebiten.NewImage(screenWidth, screenHeight),
 	}
 
 	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC, ebiten.KeyT}
