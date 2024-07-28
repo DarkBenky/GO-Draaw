@@ -1390,11 +1390,11 @@ func main() {
 	// cubeObj2 := CreateObject(cube3)
 	// cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255}, 1.0)
 	// cubeObj3 := CreateObject(cube4)
-	cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
-	cubeObj4 := CreateObject(cube5)
+	// cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
+	// cubeObj4 := CreateObject(cube5)
 
-	bvh_cube := cubeObj4.BuildBVH()
-	fmt.Println(bvh_cube)
+	// bvh_cube := cubeObj4.BuildBVH()
+	// fmt.Println(bvh_cube)
 
 	obj, err := LoadOBJ("Room.obj")
 	obj.Scale(60)
