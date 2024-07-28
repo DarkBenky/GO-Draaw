@@ -369,18 +369,22 @@ type Light struct {
 	intensity float32
 }
 
-func (light *Light) CalculateLighting(intersection Intersection, triangles []Triangle) color.RGBA {
+func (light *Light) CalculateLighting(intersection Intersection , bvh *BVHNode) color.RGBA {
 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
 	shadowRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: lightDir}
 
 	// Check if the point is in shadow
 	inShadow := false
-	for _, triangle := range triangles {
-		if _, intersect := shadowRay.IntersectTriangle(triangle); intersect {
-			inShadow = true
-			break
-		}
+	// for _, triangle := range triangles {
+	// 	if _, intersect := shadowRay.IntersectTriangle(triangle); intersect {
+	// 		inShadow = true
+	// 		break
+	// 	}
+	// }
+	if _, intersect := shadowRay.IntersectBVH(bvh); intersect {
+		inShadow = true
 	}
+
 
 	// Ambient light contribution
 	ambientFactor := 0.3 // Adjust ambient factor as needed
@@ -424,7 +428,6 @@ func clampUint8(value float32) uint8 {
 	return uint8(value)
 }
 
-
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 	if !BoundingBoxCollision(&nodeBVH.BoundingBox, ray) {
 		return Intersection{}, false
@@ -461,7 +464,6 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 
 	return Intersection{}, false
 }
-
 
 func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	if !triangle.IntersectBoundingBox(*ray) {
@@ -508,7 +510,7 @@ type Pixel struct {
 	color color.RGBA
 }
 
-func (intersection *Intersection) Scatter(samples int, light Light, o *[]object) color.RGBA {
+func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode) color.RGBA {
 	var finalColor color.RGBA64
 
 	//  Calculate the direct reflection
@@ -518,16 +520,21 @@ func (intersection *Intersection) Scatter(samples int, light Light, o *[]object)
 
 	// Find intersection with scene
 	reflectedIntersection := Intersection{Distance: math32.MaxFloat32}
-	for _, object := range *o {
-		if object.IntersectBoundingBox(reflectRay) {
-			for _, triangle := range object.ConvertToTriangles() {
-				tempIntersection, intersect := reflectRay.IntersectTriangle(triangle)
-				if intersect && tempIntersection.Distance < reflectedIntersection.Distance {
-					reflectedIntersection = tempIntersection
-				}
-			}
-		}
+	tempIntersection, intersect := reflectRay.IntersectBVH(bvh)
+	if intersect {
+		reflectedIntersection = tempIntersection
 	}
+
+	// for _, object := range *o {
+	// 	if object.IntersectBoundingBox(reflectRay) {
+	// 		for _, triangle := range object.ConvertToTriangles() {
+	// 			tempIntersection, intersect := reflectRay.IntersectTriangle(triangle)
+	// 			if intersect && tempIntersection.Distance < reflectedIntersection.Distance {
+	// 				reflectedIntersection = tempIntersection
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	for i := 0; i < samples; i++ {
 		// Generate random direction in hemisphere around the normal (cosine-weighted distribution)
@@ -565,15 +572,20 @@ func (intersection *Intersection) Scatter(samples int, light Light, o *[]object)
 		// 	}
 		// }
 
-		for _, object := range *o {
-			if object.IntersectBoundingBox(ray) {
-				for _, triangle := range object.ConvertToTriangles() {
-					tempIntersection, intersect := ray.IntersectTriangle(triangle)
-					if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
-						scatteredIntersection = tempIntersection
-					}
-				}
-			}
+		// for _, object := range *o {
+		// 	if object.IntersectBoundingBox(ray) {
+		// 		for _, triangle := range object.ConvertToTriangles() {
+		// 			tempIntersection, intersect := ray.IntersectTriangle(triangle)
+		// 			if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
+		// 				scatteredIntersection = tempIntersection
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+		bvhIntersection, intersect := ray.IntersectBVH(bvh)
+		if intersect {
+			scatteredIntersection = bvhIntersection
 		}
 
 		if scatteredIntersection.Distance != math32.MaxFloat32 {
@@ -821,7 +833,7 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
-func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, offScreen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
+func DrawRays(bvh *BVHNode, screen *ebiten.Image, offScreen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	rowsPerWorker := screenHeight / workerCount
 
@@ -838,26 +850,31 @@ func DrawRays(object *[]object, Triangles []Triangle, screen *ebiten.Image, offS
 					ray := Ray{origin: camera.Position, direction: rayDirection}
 
 					intersection := Intersection{Distance: math32.MaxFloat32}
-					for _, object := range *object {
-						if object.IntersectBoundingBox(ray) {
-							for _, triangle := range object.ConvertToTriangles() {
-								tempIntersection, intersect := ray.IntersectTriangle(triangle)
-								if intersect && tempIntersection.Distance < intersection.Distance {
-									intersection = tempIntersection
-								}
-							}
-						}
-					}
+
+					// Find intersection with scene
+					intersection, intersect := ray.IntersectBVH(bvh)
+
+					// for _, object := range *object {
+					// 	if object.IntersectBoundingBox(ray) {
+					// 		for _, triangle := range object.ConvertToTriangles() {
+					// 			tempIntersection, intersect := ray.IntersectTriangle(triangle)
+					// 			if intersect && tempIntersection.Distance < intersection.Distance {
+					// 				intersection = tempIntersection
+					// 			}
+					// 		}
+					// 	}
+					// }
 					// for _, triangle := range Triangles {
 					// 	tempIntersection, intersect := ray.IntersectTriangle(triangle)
 					// 	if intersect && tempIntersection.Distance < intersection.Distance {
 					// 		intersection = tempIntersection
 					// 	}
 					// }
-					if intersection.Distance != math32.MaxFloat32 {
+
+					if intersection.Distance != math32.MaxFloat32 && intersect {
 						// Calculate the final color with lighting
-						Scatter := intersection.Scatter(samples, light, object)
-						light := light.CalculateLighting(intersection, Triangles)
+						Scatter := intersection.Scatter(samples, light, bvh)
+						light := light.CalculateLighting(intersection, bvh)
 
 						c := color.RGBA{
 							G: clampUint8(float32(Scatter.G) + float32(light.G)),
@@ -1227,7 +1244,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// capture the previous screen
 
-	DrawRays(g.objects, g.triangles, screen, g.offScreen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates)
+	DrawRays(g.BVHobjects, screen, g.offScreen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates)
 
 	// get the mouse position
 	if g.move {
@@ -1313,6 +1330,7 @@ type Game struct {
 	updateFreq             int
 	screenSpaceCoordinates [][]Vector
 	offScreen              *ebiten.Image
+	BVHobjects             *BVHNode
 }
 
 func main() {
@@ -1425,6 +1443,7 @@ func main() {
 		samples:                2,
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
 		offScreen:              ebiten.NewImage(screenWidth, screenHeight),
+		BVHobjects:             bvh,
 	}
 
 	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC, ebiten.KeyT}
