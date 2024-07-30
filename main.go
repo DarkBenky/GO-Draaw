@@ -37,7 +37,7 @@ const screenWidth = 800
 const screenHeight = 600
 const numLayers = 5
 const FOV = 90
-const workerCount = 8
+const workerCount = 4
 
 func LoadOBJ(filename string) (object, error) {
 	var obj object
@@ -102,7 +102,7 @@ func LoadOBJ(filename string) (object, error) {
 						v1:         vertices[indices[0]],
 						v2:         vertices[indices[i]],
 						v3:         vertices[indices[i+1]],
-						color:      color.RGBA{255, 125, 155, 255},
+						color:      color.RGBA{255, 125, 0, 255},
 						reflection: 0.25,
 					}
 					// Assuming CalculateBoundingBox is a method of Triangle
@@ -1405,7 +1405,9 @@ func main() {
 	}
 	obj.Scale(60)
 
-	bvh := ConvertObjectsToBVH([]object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4, obj})
+	bvh := ConvertObjectsToBVH([]object{obj})
+	
+	fmt.Println("Number of Triangles:", len(obj.triangles)+ len(cubeObj.triangles) + len(cubeObj1.triangles) + len(cubeObj2.triangles) + len(cubeObj3.triangles) + len(cubeObj4.triangles))
 
 	// bvh := obj.BuildBVH()
 	// fmt.Println(bvh)
