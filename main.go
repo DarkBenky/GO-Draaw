@@ -18,7 +18,6 @@ import (
 	"bufio"
 	"fmt"
 	"image/color"
-	"log"
 	"math/rand"
 	"os"
 	"runtime"
@@ -369,7 +368,7 @@ type Light struct {
 	intensity float32
 }
 
-func (light *Light) CalculateLighting(intersection Intersection , bvh *BVHNode) color.RGBA {
+func (light *Light) CalculateLighting(intersection Intersection, bvh *BVHNode) color.RGBA {
 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
 	shadowRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: lightDir}
 
@@ -384,7 +383,6 @@ func (light *Light) CalculateLighting(intersection Intersection , bvh *BVHNode) 
 	if _, intersect := shadowRay.IntersectBVH(bvh); intersect {
 		inShadow = true
 	}
-
 
 	// Ambient light contribution
 	ambientFactor := 0.3 // Adjust ambient factor as needed
@@ -619,6 +617,14 @@ type object struct {
 	BoundingBox [2]Vector
 }
 
+func ConvertObjectsToBVH(objects []object) *BVHNode {
+	triangles := []Triangle{}
+	for _, object := range objects {
+		triangles = append(triangles, object.triangles...)
+	}
+	return buildBVHNode(triangles)
+}
+
 type BVHNode struct {
 	Left, Right *BVHNode
 	BoundingBox [2]Vector
@@ -833,7 +839,7 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
-func DrawRays(bvh *BVHNode, screen *ebiten.Image, offScreen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
+func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	rowsPerWorker := screenHeight / workerCount
 
@@ -1244,7 +1250,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// capture the previous screen
 
-	DrawRays(g.BVHobjects, screen, g.offScreen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates)
+	DrawRays(g.BVHobjects, screen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates)
 
 	// get the mouse position
 	if g.move {
@@ -1306,22 +1312,22 @@ type Layers struct {
 }
 
 type Game struct {
-	layers                 *Layers
-	currentLayer           int
-	brushSize              float32
-	brushType              int
-	prevKeyStates          map[ebiten.Key]bool
-	currKeyStates          map[ebiten.Key]bool
-	color                  color.RGBA
-	sliders                [4]*Slider
-	Buttons                []*Button
-	currentTool            int
-	mask                   Mask
-	camera                 Camera
-	triangles              []Triangle
-	light                  Light
-	scaleFactor            float32
-	objects                *[]object
+	layers        *Layers
+	currentLayer  int
+	brushSize     float32
+	brushType     int
+	prevKeyStates map[ebiten.Key]bool
+	currKeyStates map[ebiten.Key]bool
+	color         color.RGBA
+	sliders       [4]*Slider
+	Buttons       []*Button
+	currentTool   int
+	mask          Mask
+	camera        Camera
+	// triangles              []Triangle
+	light       Light
+	scaleFactor float32
+	// objects                *[]object
 	render                 bool
 	move                   bool
 	avgScreen              *ebiten.Image
@@ -1329,8 +1335,8 @@ type Game struct {
 	samples                int
 	updateFreq             int
 	screenSpaceCoordinates [][]Vector
-	offScreen              *ebiten.Image
-	BVHobjects             *BVHNode
+	// offScreen              *ebiten.Image
+	BVHobjects *BVHNode
 }
 
 func main() {
@@ -1382,37 +1388,35 @@ func main() {
 		layers.layers[i].image.Fill(color.Transparent)
 	}
 
-	// cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255}, 0.5)
-	// cubeObj := CreateObject(cube1)
-	// cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255}, 0.1)
-	// cubeObj1 := CreateObject(cube2)
-	// cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255}, 0.9)
-	// cubeObj2 := CreateObject(cube3)
-	// cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255}, 1.0)
-	// cubeObj3 := CreateObject(cube4)
-	// cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
-	// cubeObj4 := CreateObject(cube5)
-
-	// bvh_cube := cubeObj4.BuildBVH()
-	// fmt.Println(bvh_cube)
+	cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255}, 0.5)
+	cubeObj := CreateObject(cube1)
+	cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255}, 0.1)
+	cubeObj1 := CreateObject(cube2)
+	cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255}, 0.9)
+	cubeObj2 := CreateObject(cube3)
+	cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255}, 1.0)
+	cubeObj3 := CreateObject(cube4)
+	cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
+	cubeObj4 := CreateObject(cube5)
 
 	obj, err := LoadOBJ("Room.obj")
+	if err != nil {
+		panic(err)
+	}
 	obj.Scale(60)
 
-	bvh := obj.BuildBVH()
-	fmt.Println(bvh)
+	bvh := ConvertObjectsToBVH([]object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4, obj})
 
-	if err != nil {
-		log.Fatal(err)
-	}
+	// bvh := obj.BuildBVH()
+	// fmt.Println(bvh)
 
 	// objects := []object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4, obj}
-	objects := []object{obj}
+	// objects := []object{obj}
 
-	t := []Triangle{}
-	for _, object := range objects {
-		t = append(t, object.ConvertToTriangles()...)
-	}
+	// t := []Triangle{}
+	// for _, object := range objects {
+	// 	t = append(t, object.ConvertToTriangles()...)
+	// }
 
 	game := &Game{
 		layers:        &layers,
@@ -1432,17 +1436,14 @@ func main() {
 		Buttons:                buttons,
 		mask:                   Mask{},
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
-		triangles:              t,
 		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor:            8,
-		objects:                &objects,
+		scaleFactor:            2,
 		render:                 false,
 		move:                   true,
 		avgScreen:              ebiten.NewImage(screenWidth, screenHeight),
 		accumulate:             false,
 		samples:                2,
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
-		offScreen:              ebiten.NewImage(screenWidth, screenHeight),
 		BVHobjects:             bvh,
 	}
 
