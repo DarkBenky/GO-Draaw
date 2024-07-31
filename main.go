@@ -427,13 +427,13 @@ func clampUint8(value float32) uint8 {
 }
 
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
-	if !BoundingBoxCollision(&nodeBVH.BoundingBox, ray) {
+	if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
 		return Intersection{}, false
 	}
 
 	if nodeBVH.Triangles != nil {
 		intersection := Intersection{Distance: math32.MaxFloat32}
-		for _, triangle := range nodeBVH.Triangles {
+		for _, triangle := range *nodeBVH.Triangles {
 			tempIntersection, intersect := ray.IntersectTriangle(triangle)
 			if intersect && tempIntersection.Distance < intersection.Distance {
 				intersection = tempIntersection
@@ -627,8 +627,8 @@ func ConvertObjectsToBVH(objects []object) *BVHNode {
 
 type BVHNode struct {
 	Left, Right *BVHNode
-	BoundingBox [2]Vector
-	Triangles   []Triangle
+	BoundingBox *[2]Vector
+	Triangles   *[]Triangle
 }
 
 func (object *object) BuildBVH() *BVHNode {
@@ -684,10 +684,10 @@ func buildBVHNode(triangles []Triangle) *BVHNode {
 	}
 
 	// Create the BVH node
-	node := &BVHNode{BoundingBox: boundingBox}
+	node := &BVHNode{BoundingBox: &boundingBox}
 
 	if len(triangles) == 1 {
-		node.Triangles = triangles
+		node.Triangles = &triangles
 	}
 
 	if len(triangles) == 2 {
@@ -1110,8 +1110,13 @@ func (g *Game) Update() error {
 	g.updateKeyStates()
 
 	if g.isKeyReleased(ebiten.KeyTab) {
+		if (!g.move) {
+			g.samples = 2
+		} else {
+			g.samples = 64
+		}
 		g.move = !g.move
-		g.samples = 8
+		println("Samples:", g.samples)
 		println("Move:", g.move)
 	}
 
@@ -1141,7 +1146,7 @@ func (g *Game) Update() error {
 		if g.accumulate {
 			g.samples = 2
 		} else {
-			g.samples = 16 // Default samples
+			g.samples = 64
 		}
 		g.accumulate = !g.accumulate
 		println("Accumulate:", g.accumulate)
@@ -1405,6 +1410,7 @@ func main() {
 	}
 	obj.Scale(60)
 
+	// bvh := ConvertObjectsToBVH([]object{obj, *cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4})
 	bvh := ConvertObjectsToBVH([]object{obj})
 	
 	fmt.Println("Number of Triangles:", len(obj.triangles)+ len(cubeObj.triangles) + len(cubeObj1.triangles) + len(cubeObj2.triangles) + len(cubeObj3.triangles) + len(cubeObj4.triangles))
