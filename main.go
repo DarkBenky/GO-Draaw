@@ -39,8 +39,69 @@ const numLayers = 5
 const FOV = 90
 const workerCount = 4
 
+type Material struct {
+	name  string
+	color color.RGBA
+}
+
+func LoadMTL(filename string) (map[string]Material, error) {
+	materials := make(map[string]Material)
+
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var currentMaterial string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+
+		if len(fields) == 0 || strings.HasPrefix(line, "#") {
+			continue // Skip empty lines and comments
+		}
+
+		switch fields[0] {
+		case "newmtl":
+			if len(fields) < 2 {
+				continue // Skip malformed material names
+			}
+			currentMaterial = fields[1]
+			materials[currentMaterial] = Material{name: currentMaterial}
+
+		case "Kd": // Diffuse color
+			if len(fields) < 4 || currentMaterial == "" {
+				continue // Skip if no material is currently being defined
+			}
+			r, err1 := strconv.ParseFloat(fields[1], 32)
+			g, err2 := strconv.ParseFloat(fields[2], 32)
+			b, err3 := strconv.ParseFloat(fields[3], 32)
+			if err1 != nil || err2 != nil || err3 != nil {
+				continue // Skip malformed color definitions
+			}
+			mat := materials[currentMaterial]
+			mat.color = color.RGBA{
+				R: uint8(r * 255),
+				G: uint8(g * 255),
+				B: uint8(b * 255),
+				A: 255,
+			}
+			materials[currentMaterial] = mat
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return materials, nil
+}
+
 func LoadOBJ(filename string) (object, error) {
 	var obj object
+	obj.materials = make(map[string]Material)
 
 	file, err := os.Open(filename)
 	if err != nil {
@@ -49,6 +110,7 @@ func LoadOBJ(filename string) (object, error) {
 	defer file.Close()
 
 	var vertices []Vector
+	var currentMaterial string
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
@@ -71,6 +133,26 @@ func LoadOBJ(filename string) (object, error) {
 				continue // Skip malformed vertex lines
 			}
 			vertices = append(vertices, Vector{float32(x), float32(y), float32(z)})
+
+		case "usemtl":
+			if len(fields) < 2 {
+				continue // Skip malformed usemtl lines
+			}
+			currentMaterial = fields[1]
+
+		case "mtllib":
+			if len(fields) < 2 {
+				continue // Skip malformed mtllib lines
+			}
+			mtlFilename := fields[1]
+			materials, err := LoadMTL(mtlFilename)
+			if err != nil {
+				return obj, err
+			}
+			// Merge the loaded materials into the object's materials map
+			for name, mat := range materials {
+				obj.materials[name] = mat
+			}
 
 		case "f":
 			if len(fields) < 4 {
@@ -102,10 +184,16 @@ func LoadOBJ(filename string) (object, error) {
 						v1:         vertices[indices[0]],
 						v2:         vertices[indices[i]],
 						v3:         vertices[indices[i+1]],
-						color:      color.RGBA{255, 125, 0, 255},
 						reflection: 0.25,
 					}
-					// Assuming CalculateBoundingBox is a method of Triangle
+
+					// Apply the current material color if available
+					if mat, exists := obj.materials[currentMaterial]; exists {
+						triangle.color = mat.color
+					} else {
+						triangle.color = color.RGBA{255, 125, 0, 255} // Default color
+					}
+
 					triangle.CalculateBoundingBox()
 					obj.triangles = append(obj.triangles, triangle)
 				}
@@ -117,7 +205,6 @@ func LoadOBJ(filename string) (object, error) {
 		return obj, err
 	}
 
-	// Assuming CalculateBoundingBox is a method of Object
 	obj.CalculateBoundingBox()
 
 	return obj, nil
@@ -125,6 +212,10 @@ func LoadOBJ(filename string) (object, error) {
 
 type Vector struct {
 	x, y, z float32
+}
+
+func (v Vector) Length() float32 {
+	return math32.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
 }
 
 func (v Vector) Add(v2 Vector) Vector {
@@ -166,7 +257,59 @@ type Triangle struct {
 	reflection  float32
 }
 
+// SetColor sets the color of the triangle
+func (t *Triangle) SetColor(c color.RGBA) {
+	t.color = c
+}
+
+// Global variables to track cumulative time and number of calls
+// var cumulativeTime time.Duration
+// var cumulativeTimeV2 time.Duration
+// var callCount int
+
 func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
+
+	// start := time.Now()
+
+	// Calculate the center of the bounding box
+	// center := Vector{
+	// 	x: (BoundingBox[0].x + BoundingBox[1].x) / 2,
+	// 	y: (BoundingBox[0].y + BoundingBox[1].y) / 2,
+	// 	z: (BoundingBox[0].z + BoundingBox[1].z) / 2,
+	// }
+
+	// // Calculate the radius of the bounding sphere
+	// radius := Vector{
+	// 	x: BoundingBox[1].x - center.x,
+	// 	y: BoundingBox[1].y - center.y,
+	// 	z: BoundingBox[1].z - center.z,
+	// }.Length()
+
+	// // Perform ray-sphere intersection test
+	// oc := ray.origin.Sub(center)
+	// a := ray.direction.Dot(ray.direction)
+	// b := 2.0 * oc.Dot(ray.direction)
+	// c := oc.Dot(oc) - radius*radius
+	// discriminant := b*b - 4*a*c
+
+	// Calculate time taken for this function call
+	// elapsed := time.Since(start)
+
+	// Update cumulative time and call count
+	// cumulativeTime += elapsed
+	// callCount++
+
+	// Calculate the average time
+	// averageTime := cumulativeTime / time.Duration(callCount)
+
+	// Log the average time and discriminant
+	// fmt.Println("Time taken for BoundingBoxCollision:", elapsed, "Discriminant:", discriminant)
+	// fmt.Println("Average Time taken for BoundingBoxCollision:", averageTime)
+
+	// return discriminant > 0
+
+	// start = time.Now()
+
 	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
 
 	tmin := (BoundingBox[0].x - ray.origin.x) * invDir.x
@@ -182,6 +325,8 @@ func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
 	}
 
 	if (tmin > tymax) || (tymin > tmax) {
+		// cumulativeTimeV2 += time.Since(start)
+		// fmt.Println("Time taken for BoundingBoxCollision v1 average", cumulativeTimeV2/time.Duration(callCount), "Discriminant", false)
 		return false
 	}
 
@@ -199,9 +344,13 @@ func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
 	}
 
 	if (tmin > tzmax) || (tzmin > tmax) {
+		// cumulativeTimeV2 += time.Since(start)
+		// fmt.Println("Time taken for BoundingBoxCollision v1 average", cumulativeTimeV2/time.Duration(callCount), "Discriminant", false)
 		return false
 	}
 
+	// cumulativeTimeV2 += time.Since(start)
+	// fmt.Println("Time taken for BoundingBoxCollision v1 average", cumulativeTimeV2/time.Duration(callCount), "Discriminant", false)
 	return true
 }
 
@@ -615,6 +764,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 type object struct {
 	triangles   []Triangle
 	BoundingBox [2]Vector
+	materials map[string]Material
 }
 
 func ConvertObjectsToBVH(objects []object) *BVHNode {
@@ -1110,7 +1260,7 @@ func (g *Game) Update() error {
 	g.updateKeyStates()
 
 	if g.isKeyReleased(ebiten.KeyTab) {
-		if (!g.move) {
+		if !g.move {
 			g.samples = 2
 		} else {
 			g.samples = 64
@@ -1412,8 +1562,8 @@ func main() {
 
 	// bvh := ConvertObjectsToBVH([]object{obj, *cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4})
 	bvh := ConvertObjectsToBVH([]object{obj})
-	
-	fmt.Println("Number of Triangles:", len(obj.triangles)+ len(cubeObj.triangles) + len(cubeObj1.triangles) + len(cubeObj2.triangles) + len(cubeObj3.triangles) + len(cubeObj4.triangles))
+
+	fmt.Println("Number of Triangles:", len(obj.triangles)+len(cubeObj.triangles)+len(cubeObj1.triangles)+len(cubeObj2.triangles)+len(cubeObj3.triangles)+len(cubeObj4.triangles))
 
 	// bvh := obj.BuildBVH()
 	// fmt.Println(bvh)
