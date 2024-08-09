@@ -38,7 +38,6 @@ import (
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
-const workerCount = 4
 
 type Material struct {
 	name  string
@@ -190,6 +189,7 @@ func LoadOBJ(filename string) (object, error) {
 
 					// Apply the current material color if available
 					if mat, exists := obj.materials[currentMaterial]; exists {
+						mat.color.A = uint8(255 * 0.40)
 						triangle.color = mat.color
 					} else {
 						triangle.color = color.RGBA{255, 125, 0, 255} // Default color
@@ -258,59 +258,12 @@ type Triangle struct {
 	reflection  float32
 }
 
-// SetColor sets the color of the triangle
-func (t *Triangle) SetColor(c color.RGBA) {
-	t.color = c
-}
-
 // Global variables to track cumulative time and number of calls
 // var cumulativeTime time.Duration
 // var cumulativeTimeV2 time.Duration
 // var callCount int
 
 func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
-
-	// start := time.Now()
-
-	// Calculate the center of the bounding box
-	// center := Vector{
-	// 	x: (BoundingBox[0].x + BoundingBox[1].x) / 2,
-	// 	y: (BoundingBox[0].y + BoundingBox[1].y) / 2,
-	// 	z: (BoundingBox[0].z + BoundingBox[1].z) / 2,
-	// }
-
-	// // Calculate the radius of the bounding sphere
-	// radius := Vector{
-	// 	x: BoundingBox[1].x - center.x,
-	// 	y: BoundingBox[1].y - center.y,
-	// 	z: BoundingBox[1].z - center.z,
-	// }.Length()
-
-	// // Perform ray-sphere intersection test
-	// oc := ray.origin.Sub(center)
-	// a := ray.direction.Dot(ray.direction)
-	// b := 2.0 * oc.Dot(ray.direction)
-	// c := oc.Dot(oc) - radius*radius
-	// discriminant := b*b - 4*a*c
-
-	// Calculate time taken for this function call
-	// elapsed := time.Since(start)
-
-	// Update cumulative time and call count
-	// cumulativeTime += elapsed
-	// callCount++
-
-	// Calculate the average time
-	// averageTime := cumulativeTime / time.Duration(callCount)
-
-	// Log the average time and discriminant
-	// fmt.Println("Time taken for BoundingBoxCollision:", elapsed, "Discriminant:", discriminant)
-	// fmt.Println("Average Time taken for BoundingBoxCollision:", averageTime)
-
-	// return discriminant > 0
-
-	// start = time.Now()
-
 	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
 
 	tmin := (BoundingBox[0].x - ray.origin.x) * invDir.x
@@ -326,8 +279,6 @@ func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
 	}
 
 	if (tmin > tymax) || (tymin > tmax) {
-		// cumulativeTimeV2 += time.Since(start)
-		// fmt.Println("Time taken for BoundingBoxCollision v1 average", cumulativeTimeV2/time.Duration(callCount), "Discriminant", false)
 		return false
 	}
 
@@ -345,13 +296,8 @@ func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
 	}
 
 	if (tmin > tzmax) || (tzmin > tmax) {
-		// cumulativeTimeV2 += time.Since(start)
-		// fmt.Println("Time taken for BoundingBoxCollision v1 average", cumulativeTimeV2/time.Duration(callCount), "Discriminant", false)
 		return false
 	}
-
-	// cumulativeTimeV2 += time.Since(start)
-	// fmt.Println("Time taken for BoundingBoxCollision v1 average", cumulativeTimeV2/time.Duration(callCount), "Discriminant", false)
 	return true
 }
 
@@ -492,15 +438,12 @@ func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
 		return false
 	}
 
-	// if tzMin > tMin {
-	// 	tMin = tzMin
-	// }
-
 	if tzMax < tMax {
-		tMax = tzMax
+		// tMax = tzMax
+		return tzMax > 0
 	}
 
-	return tMax > 0
+	return tzMax > 0
 }
 
 type Intersection struct {
@@ -524,12 +467,6 @@ func (light *Light) CalculateLighting(intersection Intersection, bvh *BVHNode) c
 
 	// Check if the point is in shadow
 	inShadow := false
-	// for _, triangle := range triangles {
-	// 	if _, intersect := shadowRay.IntersectTriangle(triangle); intersect {
-	// 		inShadow = true
-	// 		break
-	// 	}
-	// }
 	if _, intersect := shadowRay.IntersectBVH(bvh); intersect {
 		inShadow = true
 	}
@@ -558,10 +495,6 @@ func (light *Light) CalculateLighting(intersection Intersection, bvh *BVHNode) c
 		ambientColor.A,
 	}
 
-	// R := clampUint8(float64(ambientColor.R) + lightIntensity*float64(intersection.Color.R))
-	// G := clampUint8(float64(ambientColor.G) + lightIntensity*float64(intersection.Color.G))
-	// B := clampUint8(float64(ambientColor.B) + lightIntensity*float64(intersection.Color.B))
-
 	return finalColor
 }
 
@@ -577,63 +510,44 @@ func clampUint8(value float32) uint8 {
 }
 
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
-	// Check if the ray intersects the current node's bounding box
+	// If the ray doesn't hit the bounding box, return immediately
 	if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
 		return Intersection{}, false
 	}
 
-	// If the node is a leaf, check for intersections with all triangles
+	// If the node is a leaf, check intersections with all triangles
 	if nodeBVH.Triangles != nil {
 		closestIntersection := Intersection{Distance: math32.MaxFloat32}
-		for _, triangle := range *nodeBVH.Triangles {
-			tempIntersection, intersect := ray.IntersectTriangle(triangle)
-			if intersect && tempIntersection.Distance < closestIntersection.Distance {
-				closestIntersection = tempIntersection
-			}
+		tempIntersection, intersect := ray.IntersectTriangle(*nodeBVH.Triangles)
+		if intersect && tempIntersection.Distance < closestIntersection.Distance {
+			closestIntersection = tempIntersection
 		}
 		return closestIntersection, closestIntersection.Distance != math32.MaxFloat32
 	}
 
-	// Initialize variables for closest intersection tracking
-	var closestIntersection Intersection
-	foundIntersection := false
+	// Recursively check child nodes
+	leftHit := nodeBVH.Left != nil && BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
+	rightHit := nodeBVH.Right != nil && BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
 
-	// Order traversal by which bounding box the ray hits first
-	if nodeBVH.Left != nil && nodeBVH.Right != nil {
-		leftHit := BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
-		rightHit := BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
+	if leftHit && rightHit {
+		// Traverse both children and return the closest intersection
+		leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
+		rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
 
-		if leftHit && rightHit {
-			leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
-			rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
-
-			if leftIntersect && rightIntersect {
-				if leftIntersection.Distance < rightIntersection.Distance {
-					return leftIntersection, true
-				}
-				return rightIntersection, true
-			}
-
-			if leftIntersect {
+		if leftIntersect && rightIntersect {
+			if leftIntersection.Distance < rightIntersection.Distance {
 				return leftIntersection, true
 			}
-
-			if rightIntersect {
-				return rightIntersection, true
-			}
-		} else if leftHit {
-			closestIntersection, foundIntersection = ray.IntersectBVH(nodeBVH.Left)
-		} else if rightHit {
-			closestIntersection, foundIntersection = ray.IntersectBVH(nodeBVH.Right)
+			return rightIntersection, true
+		} else if leftIntersect {
+			return leftIntersection, true
+		} else if rightIntersect {
+			return rightIntersection, true
 		}
-	} else if nodeBVH.Left != nil {
-		closestIntersection, foundIntersection = ray.IntersectBVH(nodeBVH.Left)
-	} else if nodeBVH.Right != nil {
-		closestIntersection, foundIntersection = ray.IntersectBVH(nodeBVH.Right)
-	}
-
-	if foundIntersection {
-		return closestIntersection, true
+	} else if leftHit {
+		return ray.IntersectBVH(nodeBVH.Left)
+	} else if rightHit {
+		return ray.IntersectBVH(nodeBVH.Right)
 	}
 
 	return Intersection{}, false
@@ -699,17 +613,6 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 		reflectedIntersection = tempIntersection
 	}
 
-	// for _, object := range *o {
-	// 	if object.IntersectBoundingBox(reflectRay) {
-	// 		for _, triangle := range object.ConvertToTriangles() {
-	// 			tempIntersection, intersect := reflectRay.IntersectTriangle(triangle)
-	// 			if intersect && tempIntersection.Distance < reflectedIntersection.Distance {
-	// 				reflectedIntersection = tempIntersection
-	// 			}
-	// 		}
-	// 	}
-	// }
-
 	for i := 0; i < samples; i++ {
 		// Generate random direction in hemisphere around the normal (cosine-weighted distribution)
 		u := rand.Float32()
@@ -739,24 +642,6 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 
 		// Find intersection with scene
 		scatteredIntersection := Intersection{Distance: math32.MaxFloat32}
-		// for _, triangle := range triangles {
-		// 	tempIntersection, intersect := ray.IntersectTriangle(triangle)
-		// 	if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
-		// 		scatteredIntersection = tempIntersection
-		// 	}
-		// }
-
-		// for _, object := range *o {
-		// 	if object.IntersectBoundingBox(ray) {
-		// 		for _, triangle := range object.ConvertToTriangles() {
-		// 			tempIntersection, intersect := ray.IntersectTriangle(triangle)
-		// 			if intersect && tempIntersection.Distance < scatteredIntersection.Distance {
-		// 				scatteredIntersection = tempIntersection
-		// 			}
-		// 		}
-		// 	}
-		// }
-
 		bvhIntersection, intersect := ray.IntersectBVH(bvh)
 		if intersect {
 			scatteredIntersection = bvhIntersection
@@ -805,11 +690,18 @@ func ConvertObjectsToBVH(objects []object) *BVHNode {
 type BVHNode struct {
 	Left, Right *BVHNode
 	BoundingBox *[2]Vector
-	Triangles   *[]Triangle
+	Triangles   *Triangle
 }
 
 func (object *object) BuildBVH() *BVHNode {
 	return buildBVHNode(object.triangles)
+}
+
+func calculateSurfaceArea(bbox [2]Vector) float32 {
+	dx := bbox[1].x - bbox[0].x
+	dy := bbox[1].y - bbox[0].y
+	dz := bbox[1].z - bbox[0].z
+	return 2 * (dx*dy + dy*dz + dz*dx)
 }
 
 func buildBVHNode(triangles []Triangle) *BVHNode {
@@ -833,19 +725,81 @@ func buildBVHNode(triangles []Triangle) *BVHNode {
 		boundingBox[1].z = math32.Max(boundingBox[1].z, triangle.BoundingBox[1].z)
 	}
 
-	// Split the triangles into two groups along the longest axis
-	longestAxis := 0
-	longestAxisLength := boundingBox[1].x - boundingBox[0].x
-	if boundingBox[1].y-boundingBox[0].y > longestAxisLength {
-		longestAxis = 1
-		longestAxisLength = boundingBox[1].y - boundingBox[0].y
-	}
-	if boundingBox[1].z-boundingBox[0].z > longestAxisLength {
-		longestAxis = 2
+	// If the node is a leaf
+	if len(triangles) <= 2 {
+		node := &BVHNode{BoundingBox: &boundingBox}
+		if len(triangles) == 1 {
+			node.Triangles = &triangles[0]
+		} else {
+			node.Left = buildBVHNode(triangles[:1])
+			node.Right = buildBVHNode(triangles[1:])
+		}
+		return node
 	}
 
-	// Sort the triangles along the longest axis
-	switch longestAxis {
+	// Surface Area Heuristics (SAH) to find the best split
+	bestCost := float32(math32.MaxFloat32)
+	bestSplit := -1
+	bestAxis := 0
+
+	for axis := 0; axis < 3; axis++ {
+		// Sort the triangles along the current axis
+		switch axis {
+		case 0:
+			sort.Slice(triangles, func(i, j int) bool {
+				return triangles[i].BoundingBox[0].x < triangles[j].BoundingBox[0].x
+			})
+		case 1:
+			sort.Slice(triangles, func(i, j int) bool {
+				return triangles[i].BoundingBox[0].y < triangles[j].BoundingBox[0].y
+			})
+		case 2:
+			sort.Slice(triangles, func(i, j int) bool {
+				return triangles[i].BoundingBox[0].z < triangles[j].BoundingBox[0].z
+			})
+		}
+
+		// Compute surface area for all possible splits
+		for i := 1; i < len(triangles); i++ {
+			leftBBox := [2]Vector{
+				{math32.MaxFloat32, math32.MaxFloat32, math32.MaxFloat32},
+				{-math32.MaxFloat32, -math32.MaxFloat32, -math32.MaxFloat32},
+			}
+			rightBBox := [2]Vector{
+				{math32.MaxFloat32, math32.MaxFloat32, math32.MaxFloat32},
+				{-math32.MaxFloat32, -math32.MaxFloat32, -math32.MaxFloat32},
+			}
+
+			for j := 0; j < i; j++ {
+				leftBBox[0].x = math32.Min(leftBBox[0].x, triangles[j].BoundingBox[0].x)
+				leftBBox[0].y = math32.Min(leftBBox[0].y, triangles[j].BoundingBox[0].y)
+				leftBBox[0].z = math32.Min(leftBBox[0].z, triangles[j].BoundingBox[0].z)
+				leftBBox[1].x = math32.Max(leftBBox[1].x, triangles[j].BoundingBox[1].x)
+				leftBBox[1].y = math32.Max(leftBBox[1].y, triangles[j].BoundingBox[1].y)
+				leftBBox[1].z = math32.Max(leftBBox[1].z, triangles[j].BoundingBox[1].z)
+			}
+
+			for j := i; j < len(triangles); j++ {
+				rightBBox[0].x = math32.Min(rightBBox[0].x, triangles[j].BoundingBox[0].x)
+				rightBBox[0].y = math32.Min(rightBBox[0].y, triangles[j].BoundingBox[0].y)
+				rightBBox[0].z = math32.Min(rightBBox[0].z, triangles[j].BoundingBox[0].z)
+				rightBBox[1].x = math32.Max(rightBBox[1].x, triangles[j].BoundingBox[1].x)
+				rightBBox[1].y = math32.Max(rightBBox[1].y, triangles[j].BoundingBox[1].y)
+				rightBBox[1].z = math32.Max(rightBBox[1].z, triangles[j].BoundingBox[1].z)
+			}
+
+			// Calculate the SAH cost for this split
+			cost := float32(i)*calculateSurfaceArea(leftBBox) + float32(len(triangles)-i)*calculateSurfaceArea(rightBBox)
+			if cost < bestCost {
+				bestCost = cost
+				bestSplit = i
+				bestAxis = axis
+			}
+		}
+	}
+
+	// Sort triangles along the best axis before splitting
+	switch bestAxis {
 	case 0:
 		sort.Slice(triangles, func(i, j int) bool {
 			return triangles[i].BoundingBox[0].x < triangles[j].BoundingBox[0].x
@@ -860,22 +814,10 @@ func buildBVHNode(triangles []Triangle) *BVHNode {
 		})
 	}
 
-	// Create the BVH node
+	// Create the BVH node with the best split
 	node := &BVHNode{BoundingBox: &boundingBox}
-
-	if len(triangles) == 1 {
-		node.Triangles = &triangles
-	}
-
-	if len(triangles) == 2 {
-		node.Left = buildBVHNode(triangles[:1])
-		node.Right = buildBVHNode(triangles[1:])
-	}
-
-	if len(triangles) > 2 {
-		node.Left = buildBVHNode(triangles[:len(triangles)/2])
-		node.Right = buildBVHNode(triangles[len(triangles)/2:])
-	}
+	node.Left = buildBVHNode(triangles[:bestSplit])
+	node.Right = buildBVHNode(triangles[bestSplit:])
 
 	return node
 }
@@ -1016,61 +958,49 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
-func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
+func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
-	rowsPerWorker := screenHeight / workerCount
 
 	var wg sync.WaitGroup
-	wg.Add(workerCount)
 
-	for i := 0; i < workerCount; i++ {
-		go func(startY int) {
-			defer wg.Done()
-			for width := 0; width < screenWidth; width += scaling {
-				for height := startY; height < startY+rowsPerWorker && height < screenHeight; height += scaling {
-					// Use precomputed screen space coordinates
-					rayDirection := screenSpaceCoordinates[width][height].Normalize()
-					ray := Ray{origin: camera.Position, direction: rayDirection}
+	for startX := 0; startX < screenWidth; startX += blockSize * scaling {
+		for startY := 0; startY < screenHeight; startY += blockSize * scaling {
+			wg.Add(1)
+			go func(startX, startY int) {
+				defer wg.Done()
 
-					intersection := Intersection{Distance: math32.MaxFloat32}
+				endX := min(startX+blockSize*scaling, screenWidth)
+				endY := min(startY+blockSize*scaling, screenHeight)
 
-					// Find intersection with scene
-					intersection, intersect := ray.IntersectBVH(bvh)
+				for width := startX; width < endX; width += scaling {
+					for height := startY; height < endY; height += scaling {
+						// Use precomputed screen space coordinates
+						rayDirection := screenSpaceCoordinates[width][height].Normalize()
+						ray := Ray{origin: camera.Position, direction: rayDirection}
 
-					// for _, object := range *object {
-					// 	if object.IntersectBoundingBox(ray) {
-					// 		for _, triangle := range object.ConvertToTriangles() {
-					// 			tempIntersection, intersect := ray.IntersectTriangle(triangle)
-					// 			if intersect && tempIntersection.Distance < intersection.Distance {
-					// 				intersection = tempIntersection
-					// 			}
-					// 		}
-					// 	}
-					// }
-					// for _, triangle := range Triangles {
-					// 	tempIntersection, intersect := ray.IntersectTriangle(triangle)
-					// 	if intersect && tempIntersection.Distance < intersection.Distance {
-					// 		intersection = tempIntersection
-					// 	}
-					// }
+						intersection := Intersection{Distance: math32.MaxFloat32}
 
-					if intersection.Distance != math32.MaxFloat32 && intersect {
-						// Calculate the final color with lighting
-						Scatter := intersection.Scatter(samples, light, bvh)
-						light := light.CalculateLighting(intersection, bvh)
+						// Find intersection with scene
+						intersection, intersect := ray.IntersectBVH(bvh)
 
-						c := color.RGBA{
-							G: clampUint8(float32(Scatter.G) + float32(light.G)),
-							R: clampUint8(float32(Scatter.R) + float32(light.R)),
-							B: clampUint8(float32(Scatter.B) + float32(light.B)),
-							A: 255,
+						if intersection.Distance != math32.MaxFloat32 && intersect {
+							// Calculate the final color with lighting
+							Scatter := intersection.Scatter(samples, light, bvh)
+							light := light.CalculateLighting(intersection, bvh)
+
+							c := color.RGBA{
+								G: clampUint8(float32(Scatter.G) + float32(light.G)),
+								R: clampUint8(float32(Scatter.R) + float32(light.R)),
+								B: clampUint8(float32(Scatter.B) + float32(light.B)),
+								A: 255,
+							}
+
+							pixelChan <- Pixel{x: width, y: height, color: c}
 						}
-
-						pixelChan <- Pixel{x: width, y: height, color: c}
 					}
 				}
-			}
-		}(i * rowsPerWorker)
+			}(startX, startY)
+		}
 	}
 
 	go func() {
@@ -1130,7 +1060,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", fps))
 
 	// Capture the previous screen
-	DrawRays(g.BVHobjects, screen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates)
+	DrawRays(g.BVHobjects, screen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
 }
 
 func (g *Game) calculateFrameRateStats() (float64, float64, float64) {
@@ -1157,36 +1087,23 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 }
 
 type Game struct {
-	currentLayer  int
-	brushSize     float32
-	brushType     int
-	prevKeyStates map[ebiten.Key]bool
-	currKeyStates map[ebiten.Key]bool
-	color         color.RGBA
-	currentTool   int
-	camera        Camera
-	// triangles              []Triangle
-	light       Light
-	scaleFactor float32
-	// objects                *[]object
-	render                 bool
-	move                   bool
-	avgScreen              *ebiten.Image
-	accumulate             bool
+	camera                 Camera
+	light                  Light
+	scaleFactor            float32
 	samples                int
-	updateFreq             int
 	screenSpaceCoordinates [][]Vector
-	// offScreen              *ebiten.Image
-	BVHobjects *BVHNode
-	frameRates []float64
-	startTime  time.Time
+	BVHobjects             *BVHNode
+	frameRates             []float64
+	startTime              time.Time
+	updateFreq             int
+	blockSize              int
 }
 
 func main() {
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
-	runtime.GOMAXPROCS(workerCount)
+	runtime.GOMAXPROCS(numCPU)
 
 	ebiten.SetVsyncEnabled(false)
 	ebiten.SetTPS(60)
@@ -1199,25 +1116,16 @@ func main() {
 	bvh := ConvertObjectsToBVH([]object{obj})
 
 	game := &Game{
-		currentLayer:           0,
-		brushSize:              10,
-		color:                  color.RGBA{255, 0, 0, 255},
-		brushType:              0,
-		prevKeyStates:          make(map[ebiten.Key]bool),
-		currKeyStates:          make(map[ebiten.Key]bool),
-		currentTool:            0,
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
 		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor:            2,
-		render:                 false,
-		move:                   true,
-		avgScreen:              ebiten.NewImage(screenWidth, screenHeight),
-		accumulate:             false,
-		samples:                2,
+		scaleFactor:            1,
+		updateFreq:             0,
+		samples:                0,
 		frameRates:             []float64{},
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
 		BVHobjects:             bvh,
+		blockSize:              16,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
