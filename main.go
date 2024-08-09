@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"fmt"
 	"image/color"
+	"math"
 	"math/rand"
 	"os"
 	"runtime"
@@ -25,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/chewxy/math32"
 
@@ -35,7 +37,6 @@ import (
 
 const screenWidth = 800
 const screenHeight = 600
-const numLayers = 5
 const FOV = 90
 const workerCount = 4
 
@@ -666,7 +667,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 	reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 
 	// Find intersection with scene
-	reflectedIntersection := Intersection{Distance: math32.MaxFloat32}
+	reflectedIntersection := Intersection{}
 	tempIntersection, intersect := reflectRay.IntersectBVH(bvh)
 	if intersect {
 		reflectedIntersection = tempIntersection
@@ -764,7 +765,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 type object struct {
 	triangles   []Triangle
 	BoundingBox [2]Vector
-	materials map[string]Material
+	materials   map[string]Material
 }
 
 func ConvertObjectsToBVH(objects []object) *BVHNode {
@@ -1062,82 +1063,6 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 	}
 }
 
-type Button struct {
-	x, y, w, h  int
-	text        string
-	background  color.RGBA
-	valueReturn int
-}
-
-func (b *Button) Draw(screen *ebiten.Image) {
-	vector.DrawFilledRect(screen, float32(b.x), float32(b.y), float32(b.w), float32(b.h), b.background, true)
-	ebitenutil.DebugPrintAt(screen, b.text, b.x, b.y)
-}
-
-type Slider struct {
-	x, y, w, h int
-	value      float32
-	color      color.RGBA
-}
-
-func (s *Slider) Update(mouseX, mouseY int, mousePressed bool) {
-	if mousePressed && mouseX >= s.x && mouseX <= s.x+s.w && mouseY >= s.y && mouseY <= s.y+s.h {
-		s.value = float32(mouseX-s.x) / float32(s.w)
-	}
-}
-
-func (s *Slider) Draw(screen *ebiten.Image) {
-	vector.DrawFilledRect(screen, float32(s.x), float32(s.y), float32(s.w), float32(s.h), color.Gray{0x80}, true)
-	vector.DrawFilledRect(screen, float32(s.x)+float32(s.w)*s.value-2, float32(s.y), 4, float32(s.h), s.color, true)
-}
-
-func (g *Game) isKeyReleased(key ebiten.Key) bool {
-	return g.prevKeyStates[key] && !g.currKeyStates[key]
-}
-
-func (g *Game) updateKeyStates() {
-	for k := range g.currKeyStates {
-		g.prevKeyStates[k] = g.currKeyStates[k]
-	}
-	for k := range g.currKeyStates {
-		g.currKeyStates[k] = ebiten.IsKeyPressed(k)
-	}
-}
-
-func drawIntLayer(layer *Layer, x float32, y float32, g *Game) {
-	if g.brushType == 0 {
-		// Draw a circle
-		vector.DrawFilledCircle(layer.image, x, y, g.brushSize, g.color, true)
-	} else {
-		// Draw a square
-		vector.DrawFilledRect(layer.image, x, y, g.brushSize, g.brushSize, g.color, true)
-	}
-}
-
-const maxMaskSize = 100
-
-type Mask struct {
-	mask            [maxMaskSize][maxMaskSize]color.RGBA
-	currentMaskSize int
-}
-
-func (mask *Mask) createMask(layer *Layer, x int, y int, g *Game) {
-	brushSize := g.brushSize
-	mask.currentMaskSize = int(brushSize)
-	if brushSize > maxMaskSize {
-		brushSize = maxMaskSize
-	}
-	for i := 0; i < int(brushSize); i++ {
-		for j := 0; j < int(brushSize); j++ {
-			newX := x - int(brushSize)/2 + i
-			newY := y - int(brushSize)/2 + j
-			if newX >= 0 && newX < screenWidth && newY >= 0 && newY < screenHeight {
-				mask.mask[i][j] = layer.image.At(newX, newY).(color.RGBA)
-			}
-		}
-	}
-}
-
 type ColorInt16 struct {
 	R uint16
 	G uint16
@@ -1145,339 +1070,74 @@ type ColorInt16 struct {
 	A uint16
 }
 
-func (layer *Layer) edgeLayer(x int, y int, game *Game, mask *Mask, threshold int) {
-	mask.createMask(layer, x, y, game)
-	temp := make([][]color.RGBA, mask.currentMaskSize)
-	edgeColor := game.color
-
-	sobelX := [3][3]int{
-		{-1, 0, 1},
-		{-2, 0, 2},
-		{-1, 0, 1},
-	}
-	sobelY := [3][3]int{
-		{-1, -2, -1},
-		{0, 0, 0},
-		{1, 2, 1},
-	}
-
-	for i := range temp {
-		temp[i] = make([]color.RGBA, mask.currentMaskSize)
-	}
-
-	for h := 0; h < mask.currentMaskSize; h++ {
-		for w := 0; w < mask.currentMaskSize; w++ {
-			var gxR, gxG, gxB, gyR, gyG, gyB int
-
-			for i := -1; i <= 1; i++ {
-				for j := -1; j <= 1; j++ {
-					nh, nw := h+i, w+j
-					if nh >= 0 && nh < mask.currentMaskSize && nw >= 0 && nw < mask.currentMaskSize {
-						gxR += int(mask.mask[nh][nw].R) * sobelX[i+1][j+1]
-						gxG += int(mask.mask[nh][nw].G) * sobelX[i+1][j+1]
-						gxB += int(mask.mask[nh][nw].B) * sobelX[i+1][j+1]
-						gyR += int(mask.mask[nh][nw].R) * sobelY[i+1][j+1]
-						gyG += int(mask.mask[nh][nw].G) * sobelY[i+1][j+1]
-						gyB += int(mask.mask[nh][nw].B) * sobelY[i+1][j+1]
-					}
-				}
-			}
-
-			// Calculate the gradient magnitude
-			gradientR := math32.Sqrt(float32(gxR*gxR + gyR*gyR))
-			gradientG := math32.Sqrt(float32(gxG*gxG + gyG*gyG))
-			gradientB := math32.Sqrt(float32(gxB*gxB + gyB*gyB))
-
-			// Average the gradient magnitude
-			gradient := (gradientR + gradientG + gradientB) / 3
-
-			// Apply the threshold
-			if gradient > float32(threshold) {
-				temp[h][w] = edgeColor
-			} else {
-				temp[h][w] = mask.mask[h][w]
-			}
-		}
-		// Copy the result back to the layer's image
-		for h := 1; h < mask.currentMaskSize-1; h++ {
-			for w := 1; w < mask.currentMaskSize-1; w++ {
-				newX := x - mask.currentMaskSize/2 + h
-				newY := y - mask.currentMaskSize/2 + w
-				if newX >= 0 && newX < screenWidth && newY >= 0 && newY < screenHeight {
-					layer.image.Set(newX, newY, temp[h][w])
-				}
-			}
-		}
-	}
-}
-
-func (layer *Layer) blurLayer(x int, y int, game *Game, mask *Mask) {
-	mask.createMask(layer, x, y, game)
-	temp := make([][]color.RGBA, mask.currentMaskSize)
-	for i := range temp {
-		temp[i] = make([]color.RGBA, mask.currentMaskSize)
-	}
-
-	kernelSize := int(game.brushSize/25) + 1
-
-	for h := 0; h < mask.currentMaskSize; h++ {
-		for w := 0; w < mask.currentMaskSize; w++ {
-			average := ColorInt16{}
-			count := uint16(0)
-			for i := -kernelSize; i <= kernelSize; i++ {
-				for j := -kernelSize; j <= kernelSize; j++ {
-					nh, nw := h+i, w+j
-					if nh >= 0 && nh < mask.currentMaskSize && nw >= 0 && nw < mask.currentMaskSize {
-						average.R += uint16(mask.mask[nh][nw].R)
-						average.G += uint16(mask.mask[nh][nw].G)
-						average.B += uint16(mask.mask[nh][nw].B)
-						average.A += uint16(mask.mask[nh][nw].A)
-						count++
-					}
-				}
-			}
-			average.R /= count
-			average.G /= count
-			average.B /= count
-			average.A /= count
-			temp[h][w] = color.RGBA{uint8(average.R), uint8(average.G), uint8(average.B), uint8(average.A)}
-		}
-	}
-
-	for h := 0; h < mask.currentMaskSize; h++ {
-		for w := 0; w < mask.currentMaskSize; w++ {
-			newX := x - mask.currentMaskSize/2 + h
-			newY := y - mask.currentMaskSize/2 + w
-			if newX >= 0 && newX < screenWidth && newY >= 0 && newY < screenHeight {
-				layer.image.Set(newX, newY, temp[h][w])
-			}
-		}
-	}
-}
-
 func (g *Game) Update() error {
-	// Update the current key states
-	g.updateKeyStates()
 
-	if g.isKeyReleased(ebiten.KeyTab) {
-		if !g.move {
-			g.samples = 2
-		} else {
-			g.samples = 64
-		}
-		g.move = !g.move
-		println("Samples:", g.samples)
-		println("Move:", g.move)
-	}
+	// Rotate the camera around the object
+	angle := float64(g.updateFreq) * 2 * math.Pi / 600
+	g.camera.Position.x = float32(math.Cos(angle)) * 300
+	g.camera.Position.y = 200
+	g.camera.Position.z = float32(math.Sin(angle)) * 300
+	g.camera.Direction = Vector{-g.camera.Position.x, -g.camera.Position.y, -g.camera.Position.z}.Normalize()
 
-	if g.isKeyReleased(ebiten.KeyW) {
-		if g.currentLayer < numLayers-1 {
-			g.currentLayer++
-		}
-	}
+	// Record the frame rate
+	currentFPS := ebiten.ActualFPS()
+	g.frameRates = append(g.frameRates, currentFPS)
+	g.updateFreq++
 
-	if g.isKeyReleased(ebiten.KeyS) {
-		if g.currentLayer > 0 {
-			g.currentLayer--
-		}
-	}
-
-	if g.isKeyReleased(ebiten.KeyC) {
-		for i := 0; i < numLayers; i++ {
-			g.layers.layers[i].image.Clear()
-		}
-	}
-
-	if g.isKeyReleased(ebiten.KeyQ) {
-		g.brushType = (g.brushType + 1) % 2 // Toggle between 0 and 1
-	}
-
-	if g.isKeyReleased(ebiten.KeyCapsLock) {
-		if g.accumulate {
-			g.samples = 2
-		} else {
-			g.samples = 64
-		}
-		g.accumulate = !g.accumulate
-		println("Accumulate:", g.accumulate)
-		println("Samples:", g.samples)
-	}
-
-	if g.isKeyReleased(ebiten.KeyR) {
-		if g.render {
-			g.scaleFactor = 1
-		} else {
-			g.scaleFactor = 16
-		}
-		g.render = !g.render
-		println("Render:", g.render)
-		println("Scale Factor:", g.scaleFactor)
-	}
-
-	if g.isKeyReleased(ebiten.KeyT) {
-		g.scaleFactor = 2
-		g.scaleFactor = 2
-		println("Render:", g.render)
-		println("Scale Factor:", g.scaleFactor)
-	}
-
-	// increase the brush size by scrolling
-	_, scrollY := ebiten.Wheel()
-	if scrollY > 0 {
-		g.brushSize += 1
-	} else if scrollY < 0 {
-		g.brushSize -= 1
-	}
-
-	mouseX, mouseY := ebiten.CursorPosition()
-	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
-
-	for _, slider := range g.sliders {
-		slider.Update(mouseX, mouseY, mousePressed)
-	}
-
-	g.color = color.RGBA{
-		uint8(g.sliders[0].value * 255),
-		uint8(g.sliders[1].value * 255),
-		uint8(g.sliders[2].value * 255),
-		uint8(g.sliders[3].value * 255),
-	}
-
-	// Get Button Clicks
-	if mousePressed {
-		for _, button := range g.Buttons {
-			if mouseX >= button.x && mouseX <= button.x+button.w && mouseY >= button.y && mouseY <= button.y+button.h {
-				g.currentTool = button.valueReturn
-			}
-		}
-	}
-
-	// Draw on the current layer
-	if mousePressed && g.currentTool == 0 {
-		drawIntLayer(&g.layers.layers[g.currentLayer], float32(mouseX), float32(mouseY), g)
-	} else if mousePressed && g.currentTool == 1 {
-		g.layers.layers[g.currentLayer].blurLayer(mouseX, mouseY, g, &g.mask)
-	} else if mousePressed && g.currentTool == 2 {
-		if g.updateFreq%10 == 0 {
-			g.layers.layers[g.currentLayer].edgeLayer(mouseX, mouseY, g, &g.mask, 50)
-		}
-		g.updateFreq++
-	}
-
-	if g.render {
-		if ebiten.ActualFPS() < 60 {
-			g.scaleFactor += 0.1
-		} else {
-			g.scaleFactor -= 0.1
-		}
+	// Check if 60 seconds have passed
+	if time.Since(g.startTime).Seconds() >= 60 {
+		// Calculate frame rate statistics
+		avgFPS, minFPS, maxFPS := g.calculateFrameRateStats()
+		fmt.Printf("Average FPS: %v\n", avgFPS)
+		fmt.Printf("Max FPS: %v\n", maxFPS)
+		fmt.Printf("Min FPS: %v\n", minFPS)
+		// Close the program
+		os.Exit(0)
 	}
 
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Draw the layers
-	for i := 0; i < numLayers; i++ {
-		screen.DrawImage(g.layers.layers[i].image, nil)
-	}
-
-	// Draw sliders
-	for _, slider := range g.sliders {
-		slider.Draw(screen)
-	}
-	// Draw current color preview
-	vector.DrawFilledRect(screen, 50, 470, 200, 200, g.color, true)
-
-	// Draw buttons
-	for _, button := range g.Buttons {
-		button.Draw(screen)
-	}
-
-	// fmt.Printf("FPS: %v", ebiten.ActualFPS())
-
+	// Display frame rate
 	fps := ebiten.ActualFPS()
-
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", fps))
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current Layer: %v", g.currentLayer), 0, 20)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Brush Size: %v", g.brushSize), 0, 40)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Brush Type: %v", g.brushType), 0, 60)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current Tool: %v", g.currentTool), 0, 80)
 
-	// capture the previous screen
-
+	// Capture the previous screen
 	DrawRays(g.BVHobjects, screen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates)
-
-	// get the mouse position
-	if g.move {
-		mouseX, mouseY := ebiten.CursorPosition()
-		g.light.Position = Vector{float32(mouseX), float32(mouseY), 200}
-		g.camera.Position = Vector{float32(mouseX), 0, g.camera.Position.z + (float32(mouseY-400) * 0.01)}
-	}
-
-	if g.accumulate {
-		g.avgScreen = averageImages(screen, g.avgScreen)
-		screen.DrawImage(g.avgScreen, nil)
-	}
 }
 
-func averageImages(img1, img2 *ebiten.Image) *ebiten.Image {
-	bounds := img1.Bounds()
-	result := ebiten.NewImage(bounds.Dx(), bounds.Dy())
-	resultPix := make([]byte, bounds.Dx()*bounds.Dy()*4)
+func (g *Game) calculateFrameRateStats() (float64, float64, float64) {
+	var totalFPS float64
+	minFPS := g.frameRates[0]
+	maxFPS := g.frameRates[0]
 
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r1, g1, b1, a1 := img1.At(x, y).RGBA()
-			r2, g2, b2, a2 := img2.At(x, y).RGBA()
-
-			r := (r1 + r2) / 2
-			g := (g1 + g2) / 2
-			b := (b1 + b2) / 2
-			a := (a1 + a2) / 2
-
-			// result.Set(x, y, color.RGBA{
-			// 	uint8(r >> 8),
-			// 	uint8(g >> 8),
-			// 	uint8(b >> 8),
-			// 	uint8(a >> 8),
-			// })
-
-			i := (y*bounds.Dx() + x) * 4
-			resultPix[i] = uint8(r >> 8)
-			resultPix[i+1] = uint8(g >> 8)
-			resultPix[i+2] = uint8(b >> 8)
-			resultPix[i+3] = uint8(a >> 8)
+	for _, fps := range g.frameRates {
+		totalFPS += fps
+		if fps < minFPS {
+			minFPS = fps
+		}
+		if fps > maxFPS {
+			maxFPS = fps
 		}
 	}
 
-	result.WritePixels(resultPix)
-	return result
+	avgFPS := totalFPS / float64(len(g.frameRates))
+	return avgFPS, minFPS, maxFPS
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	return 800, 600
 }
 
-type Layer struct {
-	image *ebiten.Image
-}
-
-type Layers struct {
-	layers [numLayers]Layer
-}
-
 type Game struct {
-	layers        *Layers
 	currentLayer  int
 	brushSize     float32
 	brushType     int
 	prevKeyStates map[ebiten.Key]bool
 	currKeyStates map[ebiten.Key]bool
 	color         color.RGBA
-	sliders       [4]*Slider
-	Buttons       []*Button
 	currentTool   int
-	mask          Mask
 	camera        Camera
 	// triangles              []Triangle
 	light       Light
@@ -1492,107 +1152,34 @@ type Game struct {
 	screenSpaceCoordinates [][]Vector
 	// offScreen              *ebiten.Image
 	BVHobjects *BVHNode
+	frameRates []float64
+	startTime  time.Time
 }
 
 func main() {
-
-	// start := time.Now()
-	// for i := 0; i < 100_000_000; i++ {
-	// 	k := float32(i)
-	// 	math32.Sqrt(k)
-	// 	math32.Sin(k)
-	// }
-
-	// fmt.Println("Time taken Math 32:", time.Since(start))
-
-	// start = time.Now()
-	// for i := 0; i < 100_000_000; i++ {
-	// 	t := float64(i)
-	// 	math.Sqrt(t)
-	// 	math.Sin(t)
-	// }
-
-	// fmt.Println("Time taken Math Classic :", time.Since(start))
-
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
 	runtime.GOMAXPROCS(workerCount)
 
 	ebiten.SetVsyncEnabled(false)
-
 	ebiten.SetTPS(60)
-
-	layers := Layers{
-		layers: [numLayers]Layer{
-			{image: ebiten.NewImage(screenWidth, screenHeight)},
-			{image: ebiten.NewImage(screenWidth, screenHeight)},
-			{image: ebiten.NewImage(screenWidth, screenHeight)},
-			{image: ebiten.NewImage(screenWidth, screenHeight)},
-			{image: ebiten.NewImage(screenWidth, screenHeight)},
-		},
-	}
-	buttons := []*Button{
-		{x: 200, y: 200, w: 100, h: 50, text: "Button 1", background: color.RGBA{255, 0, 0, 0}, valueReturn: 0},
-		{x: 200, y: 300, w: 100, h: 50, text: "Button 2", background: color.RGBA{0, 255, 0, 255}, valueReturn: 1},
-		{x: 200, y: 400, w: 100, h: 50, text: "Button 3", background: color.RGBA{0, 0, 255, 255}, valueReturn: 2},
-	}
-
-	// Set the background color of each layer
-	for i := 0; i < numLayers; i++ {
-		layers.layers[i].image.Fill(color.Transparent)
-	}
-
-	cube1 := CreateCube(Vector{100, 100, 0}, 200, color.RGBA{255, 0, 0, 255}, 0.5)
-	cubeObj := CreateObject(cube1)
-	cube2 := CreateCube(Vector{200, 0, 200}, 200, color.RGBA{0, 255, 0, 255}, 0.1)
-	cubeObj1 := CreateObject(cube2)
-	cube3 := CreateCube(Vector{500, 200, 100}, 200, color.RGBA{0, 0, 255, 255}, 0.9)
-	cubeObj2 := CreateObject(cube3)
-	cube4 := CreateCube(Vector{300, 300, 300}, 200, color.RGBA{255, 255, 255, 255}, 1.0)
-	cubeObj3 := CreateObject(cube4)
-	cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
-	cubeObj4 := CreateObject(cube5)
 
 	obj, err := LoadOBJ("Room.obj")
 	if err != nil {
 		panic(err)
 	}
 	obj.Scale(60)
-
-	// bvh := ConvertObjectsToBVH([]object{obj, *cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4})
 	bvh := ConvertObjectsToBVH([]object{obj})
 
-	fmt.Println("Number of Triangles:", len(obj.triangles)+len(cubeObj.triangles)+len(cubeObj1.triangles)+len(cubeObj2.triangles)+len(cubeObj3.triangles)+len(cubeObj4.triangles))
-
-	// bvh := obj.BuildBVH()
-	// fmt.Println(bvh)
-
-	// objects := []object{*cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4, obj}
-	// objects := []object{obj}
-
-	// t := []Triangle{}
-	// for _, object := range objects {
-	// 	t = append(t, object.ConvertToTriangles()...)
-	// }
-
 	game := &Game{
-		layers:        &layers,
-		currentLayer:  0,
-		brushSize:     10,
-		color:         color.RGBA{255, 0, 0, 255},
-		brushType:     0,
-		prevKeyStates: make(map[ebiten.Key]bool),
-		currKeyStates: make(map[ebiten.Key]bool),
-		sliders: [4]*Slider{
-			{x: 50, y: 350, w: 200, h: 20, color: color.RGBA{255, 0, 0, 255}},
-			{x: 50, y: 380, w: 200, h: 20, color: color.RGBA{0, 255, 0, 255}},
-			{x: 50, y: 410, w: 200, h: 20, color: color.RGBA{0, 0, 255, 255}},
-			{x: 50, y: 440, w: 200, h: 20, color: color.RGBA{0, 0, 0, 255}}, // Alpha slider
-		},
+		currentLayer:           0,
+		brushSize:              10,
+		color:                  color.RGBA{255, 0, 0, 255},
+		brushType:              0,
+		prevKeyStates:          make(map[ebiten.Key]bool),
+		currKeyStates:          make(map[ebiten.Key]bool),
 		currentTool:            0,
-		Buttons:                buttons,
-		mask:                   Mask{},
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
 		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
 		scaleFactor:            2,
@@ -1601,18 +1188,15 @@ func main() {
 		avgScreen:              ebiten.NewImage(screenWidth, screenHeight),
 		accumulate:             false,
 		samples:                2,
+		frameRates:             []float64{},
+		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
 		BVHobjects:             bvh,
 	}
 
-	keys := []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyQ, ebiten.KeyR, ebiten.KeyTab, ebiten.KeyCapsLock, ebiten.KeyC, ebiten.KeyT}
-	for _, key := range keys {
-		game.prevKeyStates[key] = false
-		game.currKeyStates[key] = false
-	}
-
 	ebiten.SetWindowSize(screenWidth, screenHeight)
-	ebiten.SetWindowTitle("Ebiten Game")
+	ebiten.SetWindowTitle("Ebiten Benchmark")
+
 	if err := ebiten.RunGame(game); err != nil {
 		panic(err)
 	}
