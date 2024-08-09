@@ -577,37 +577,63 @@ func clampUint8(value float32) uint8 {
 }
 
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
+	// Check if the ray intersects the current node's bounding box
 	if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
 		return Intersection{}, false
 	}
 
+	// If the node is a leaf, check for intersections with all triangles
 	if nodeBVH.Triangles != nil {
-		intersection := Intersection{Distance: math32.MaxFloat32}
+		closestIntersection := Intersection{Distance: math32.MaxFloat32}
 		for _, triangle := range *nodeBVH.Triangles {
 			tempIntersection, intersect := ray.IntersectTriangle(triangle)
-			if intersect && tempIntersection.Distance < intersection.Distance {
-				intersection = tempIntersection
+			if intersect && tempIntersection.Distance < closestIntersection.Distance {
+				closestIntersection = tempIntersection
 			}
 		}
-		return intersection, intersection.Distance != math32.MaxFloat32
+		return closestIntersection, closestIntersection.Distance != math32.MaxFloat32
 	}
 
-	leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
-	rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
+	// Initialize variables for closest intersection tracking
+	var closestIntersection Intersection
+	foundIntersection := false
 
-	if leftIntersect && rightIntersect {
-		if leftIntersection.Distance < rightIntersection.Distance {
-			return leftIntersection, true
+	// Order traversal by which bounding box the ray hits first
+	if nodeBVH.Left != nil && nodeBVH.Right != nil {
+		leftHit := BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
+		rightHit := BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
+
+		if leftHit && rightHit {
+			leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
+			rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
+
+			if leftIntersect && rightIntersect {
+				if leftIntersection.Distance < rightIntersection.Distance {
+					return leftIntersection, true
+				}
+				return rightIntersection, true
+			}
+
+			if leftIntersect {
+				return leftIntersection, true
+			}
+
+			if rightIntersect {
+				return rightIntersection, true
+			}
+		} else if leftHit {
+			closestIntersection, foundIntersection = ray.IntersectBVH(nodeBVH.Left)
+		} else if rightHit {
+			closestIntersection, foundIntersection = ray.IntersectBVH(nodeBVH.Right)
 		}
-		return rightIntersection, true
+	} else if nodeBVH.Left != nil {
+		closestIntersection, foundIntersection = ray.IntersectBVH(nodeBVH.Left)
+	} else if nodeBVH.Right != nil {
+		closestIntersection, foundIntersection = ray.IntersectBVH(nodeBVH.Right)
 	}
 
-	if leftIntersect {
-		return leftIntersection, true
-	}
-
-	if rightIntersect {
-		return rightIntersection, true
+	if foundIntersection {
+		return closestIntersection, true
 	}
 
 	return Intersection{}, false
