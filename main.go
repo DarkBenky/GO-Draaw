@@ -1118,14 +1118,14 @@ func main() {
 	game := &Game{
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
 		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor:            1,
+		scaleFactor:            2,
 		updateFreq:             0,
-		samples:                0,
+		samples:                2,
 		frameRates:             []float64{},
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
 		BVHobjects:             bvh,
-		blockSize:              16,
+		blockSize:              32,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
