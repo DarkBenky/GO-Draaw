@@ -380,6 +380,45 @@ func CreateCube(center Vector, size float32, color color.RGBA, refection float32
 	}
 }
 
+func CreateSphere(center Vector, radius float32, color color.RGBA, reflection float32) []Triangle {
+	var triangles []Triangle
+	latitudeBands := 30
+	longitudeBands := 30
+
+	for lat := 0; lat < latitudeBands; lat++ {
+		for long := 0; long < longitudeBands; long++ {
+			lat0 := math.Pi * float64(-0.5+float32(lat)/float32(latitudeBands))
+			z0 := math32.Sin(float32(lat0)) * radius
+			zr0 := math32.Cos(float32(lat0)) * radius
+
+			lat1 := math.Pi * float64(-0.5+float32(lat+1)/float32(latitudeBands))
+			z1 := math32.Sin(float32(lat1)) * radius
+			zr1 := math32.Cos(float32(lat1)) * radius
+
+			lng0 := 2 * math.Pi * float64(float32(long)/float32(longitudeBands))
+			x0 := math32.Cos(float32(lng0)) * zr0
+			y0 := math32.Sin(float32(lng0)) * zr0
+
+			lng1 := 2 * math.Pi * float64(float32(long+1)/float32(longitudeBands))
+			x1 := math32.Cos(float32(lng1)) * zr0
+			y1 := math32.Sin(float32(lng1)) * zr0
+
+			lng2 := 2 * math.Pi * float64(float32(long)/float32(longitudeBands))
+			x2 := math32.Cos(float32(lng2)) * zr1
+			y2 := math32.Sin(float32(lng2)) * zr1
+
+			lng3 := 2 * math.Pi * float64(float32(long+1)/float32(longitudeBands))
+			x3 := math32.Cos(float32(lng3)) * zr1
+			y3 := math32.Sin(float32(lng3)) * zr1
+
+			triangles = append(triangles, NewTriangle(Vector{x0 + center.x, y0 + center.y, z0 + center.z}, Vector{x1 + center.x, y1 + center.y, z0 + center.z}, Vector{x2 + center.x, y2 + center.y, z1 + center.z}, color, reflection))
+			triangles = append(triangles, NewTriangle(Vector{x1 + center.x, y1 + center.y, z0 + center.z}, Vector{x3 + center.x, y3 + center.y, z1 + center.z}, Vector{x2 + center.x, y2 + center.y, z1 + center.z}, color, reflection))
+		}
+	}
+
+	return triangles
+}
+
 func (triangle *Triangle) CalculateBoundingBox() {
 	// Compute the minimum and maximum coordinates using float32 functions
 	minX := math32.Min(triangle.v1.x, math32.Min(triangle.v2.x, triangle.v3.x))
@@ -472,7 +511,7 @@ func (light *Light) CalculateLighting(intersection Intersection, bvh *BVHNode) c
 	}
 
 	// Ambient light contribution
-	ambientFactor := 0.3 // Adjust ambient factor as needed
+	ambientFactor := 0.05 // Adjust ambient factor as needed
 	ambientColor := color.RGBA{
 		uint8(float64(light.Color.R) * ambientFactor),
 		uint8(float64(light.Color.G) * ambientFactor),
@@ -1113,14 +1152,19 @@ func main() {
 		panic(err)
 	}
 	obj.Scale(60)
-	bvh := ConvertObjectsToBVH([]object{obj})
+	cube := CreateCube(Vector{0, 0, 200}, 100, color.RGBA{255, 0, 0, 255}, 1)
+	cube2 := CreateCube(Vector{100, 300, 100}, 50, color.RGBA{0, 255, 0, 255}, 0.5)
+	sphere := CreateSphere(Vector{100, 0, 0}, 25, color.RGBA{0, 0, 255, 255}, 0)
+	sphere2 := CreateSphere(Vector{0, 200, 0}, 50, color.RGBA{255, 255, 0, 255}, 0.5)
+
+	bvh := ConvertObjectsToBVH([]object{obj, *CreateObject(cube), *CreateObject(cube2), *CreateObject(sphere), *CreateObject(sphere2)})
 
 	game := &Game{
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
-		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{60, 128, 0, 255}, intensity: 0.75},
+		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.1},
 		scaleFactor:            1,
 		updateFreq:             0,
-		samples:                0,
+		samples:                128,
 		frameRates:             []float64{},
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
