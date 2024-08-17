@@ -474,10 +474,10 @@ func (light *Light) CalculateLighting(intersection Intersection, bvh *BVHNode) c
 	// Ambient light contribution
 	ambientFactor := 0.3 // Adjust ambient factor as needed
 	ambientColor := color.RGBA{
-		uint8(float64(intersection.Color.R) * ambientFactor),
-		uint8(float64(intersection.Color.G) * ambientFactor),
-		uint8(float64(intersection.Color.B) * ambientFactor),
-		intersection.Color.A,
+		uint8(float64(light.Color.R) * ambientFactor),
+		uint8(float64(light.Color.G) * ambientFactor),
+		uint8(float64(light.Color.B) * ambientFactor),
+		light.Color.A,
 	}
 
 	if inShadow {
@@ -1117,10 +1117,10 @@ func main() {
 
 	game := &Game{
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
-		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 1},
-		scaleFactor:            2,
+		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{60, 128, 0, 255}, intensity: 0.75},
+		scaleFactor:            1,
 		updateFreq:             0,
-		samples:                2,
+		samples:                0,
 		frameRates:             []float64{},
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
