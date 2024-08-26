@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"fmt"
 	"image/color"
+	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -27,6 +28,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"net/http"
+	_ "net/http/pprof" // Import the pprof package for profiling
 
 	"github.com/chewxy/math32"
 
@@ -661,7 +665,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 		theta := 2 * math32.Pi * v
 
 		// Construct local coordinate system based on the precomputed normal
-		w := intersection.Normal  // Use the precomputed normal vector from the intersection
+		w := intersection.Normal // Use the precomputed normal vector from the intersection
 		var uVec, vVec Vector
 		if math32.Abs(w.x) > 0.1 {
 			uVec = Vector{0.0, 1.0, 0.0}
@@ -1088,15 +1092,15 @@ func (g *Game) Update() error {
 	g.updateFreq++
 
 	// Check if 60 seconds have passed
-	if time.Since(g.startTime).Seconds() >= 60 {
-		// Calculate frame rate statistics
-		avgFPS, minFPS, maxFPS := g.calculateFrameRateStats()
-		fmt.Printf("Average FPS: %v\n", avgFPS)
-		fmt.Printf("Max FPS: %v\n", maxFPS)
-		fmt.Printf("Min FPS: %v\n", minFPS)
-		// Close the program
-		os.Exit(0)
-	}
+	// if time.Since(g.startTime).Seconds() >= 60 {
+	// 	// Calculate frame rate statistics
+	// 	avgFPS, minFPS, maxFPS := g.calculateFrameRateStats()
+	// 	fmt.Printf("Average FPS: %v\n", avgFPS)
+	// 	fmt.Printf("Max FPS: %v\n", maxFPS)
+	// 	fmt.Printf("Min FPS: %v\n", minFPS)
+	// 	// Close the program
+	// 	os.Exit(0)
+	// }
 
 	return nil
 }
@@ -1110,24 +1114,24 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	DrawRays(g.BVHobjects, screen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
 }
 
-func (g *Game) calculateFrameRateStats() (float64, float64, float64) {
-	var totalFPS float64
-	minFPS := g.frameRates[0]
-	maxFPS := g.frameRates[0]
+// func (g *Game) calculateFrameRateStats() (float64, float64, float64) {
+// 	var totalFPS float64
+// 	minFPS := g.frameRates[0]
+// 	maxFPS := g.frameRates[0]
 
-	for _, fps := range g.frameRates {
-		totalFPS += fps
-		if fps < minFPS {
-			minFPS = fps
-		}
-		if fps > maxFPS {
-			maxFPS = fps
-		}
-	}
+// 	for _, fps := range g.frameRates {
+// 		totalFPS += fps
+// 		if fps < minFPS {
+// 			minFPS = fps
+// 		}
+// 		if fps > maxFPS {
+// 			maxFPS = fps
+// 		}
+// 	}
 
-	avgFPS := totalFPS / float64(len(g.frameRates))
-	return avgFPS, minFPS, maxFPS
-}
+// 	avgFPS := totalFPS / float64(len(g.frameRates))
+// 	return avgFPS, minFPS, maxFPS
+// }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	return 800, 600
@@ -1147,6 +1151,11 @@ type Game struct {
 }
 
 func main() {
+	// Create CPU profile
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
@@ -1172,7 +1181,7 @@ func main() {
 		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.1},
 		scaleFactor:            1,
 		updateFreq:             0,
-		samples:                128,
+		samples:                1,
 		frameRates:             []float64{},
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
