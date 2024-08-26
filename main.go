@@ -207,6 +207,7 @@ func LoadOBJ(filename string) (object, error) {
 	}
 
 	obj.CalculateBoundingBox()
+	obj.CalculateNormals()
 
 	return obj, nil
 }
@@ -255,13 +256,15 @@ type Triangle struct {
 	v1, v2, v3  Vector
 	color       color.RGBA
 	BoundingBox [2]Vector
+	Normal      Vector
 	reflection  float32
 }
 
-// Global variables to track cumulative time and number of calls
-// var cumulativeTime time.Duration
-// var cumulativeTimeV2 time.Duration
-// var callCount int
+func (t *Triangle) CalculateNormal() {
+	edge1 := t.v2.Sub(t.v1)
+	edge2 := t.v3.Sub(t.v1)
+	t.Normal = edge1.Cross(edge2).Normalize()
+}
 
 func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
 	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
@@ -436,6 +439,7 @@ func (triangle *Triangle) CalculateBoundingBox() {
 func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32) Triangle {
 	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection}
 	triangle.CalculateBoundingBox()
+	triangle.CalculateNormal()
 	return triangle
 }
 
@@ -593,6 +597,7 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 }
 
 func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
+	// Check if the ray intersects the bounding box of the triangle first
 	if !triangle.IntersectBoundingBox(*ray) {
 		return Intersection{}, false
 	}
@@ -618,11 +623,7 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	}
 	t := f * edge2.Dot(q)
 	if t > 0.00001 {
-		point := ray.origin.Add(ray.direction.Mul(t))
-		normal := edge1.Cross(edge2).Normalize()
-		distance := t // The distance should be the parameter t
-
-		return Intersection{PointOfIntersection: point, Color: triangle.color, Normal: normal, Direction: ray.direction, Distance: distance, reflection: triangle.reflection}, true
+		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection}, true
 	}
 	return Intersection{}, false
 }
@@ -640,12 +641,12 @@ type Pixel struct {
 func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode) color.RGBA {
 	var finalColor color.RGBA64
 
-	//  Calculate the direct reflection
+	// Calculate the direct reflection
 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
 	reflectDir := intersection.Normal.Mul(2 * lightDir.Dot(intersection.Normal)).Sub(lightDir).Normalize()
 	reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 
-	// Find intersection with scene
+	// Find intersection with the scene
 	reflectedIntersection := Intersection{}
 	tempIntersection, intersect := reflectRay.IntersectBVH(bvh)
 	if intersect {
@@ -659,8 +660,8 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 		r := math32.Sqrt(u)
 		theta := 2 * math32.Pi * v
 
-		// Construct local coordinate system
-		w := intersection.Normal
+		// Construct local coordinate system based on the precomputed normal
+		w := intersection.Normal  // Use the precomputed normal vector from the intersection
 		var uVec, vVec Vector
 		if math32.Abs(w.x) > 0.1 {
 			uVec = Vector{0.0, 1.0, 0.0}
@@ -679,7 +680,7 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 		// Create ray starting from intersection point
 		ray := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: direction}
 
-		// Find intersection with scene
+		// Find intersection with the scene
 		scatteredIntersection := Intersection{Distance: math32.MaxFloat32}
 		bvhIntersection, intersect := ray.IntersectBVH(bvh)
 		if intersect {
@@ -702,14 +703,15 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 		finalColor.A = 255 // Ensure alpha remains fully opaque
 	}
 
-	//  mix the direct reflection with the scattered color
+	// Mix the direct reflection with the scattered color
 	rationScatterToDirect := 1 - intersection.reflection
 
 	return color.RGBA{
 		clampUint8(float32(finalColor.R)*rationScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection),
 		clampUint8(float32(finalColor.G)*rationScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection),
 		clampUint8(float32(finalColor.B)*rationScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection),
-		uint8(finalColor.A)}
+		uint8(finalColor.A),
+	}
 }
 
 type object struct {
@@ -901,6 +903,12 @@ func CreateObject(triangles []Triangle) *object {
 	return object
 }
 
+func (object *object) CalculateNormals() {
+	for i := range object.triangles {
+		object.triangles[i].CalculateNormal()
+	}
+}
+
 func (object *object) CalculateBoundingBox() {
 	for _, triangle := range object.triangles {
 		// Update minimum coordinates (BoundingBox[0])
@@ -990,7 +998,7 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 			pixelCameraX := pixelScreenX * aspectRatio * scale
 			pixelCameraY := pixelScreenY * scale
 
-			screenSpaceCoordinates[width][height] = Vector{pixelCameraX, pixelCameraY, -1}
+			screenSpaceCoordinates[width][height] = Vector{pixelCameraX, pixelCameraY, -1}.Normalize()
 		}
 	}
 
@@ -1014,7 +1022,7 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 				for width := startX; width < endX; width += scaling {
 					for height := startY; height < endY; height += scaling {
 						// Use precomputed screen space coordinates
-						rayDirection := screenSpaceCoordinates[width][height].Normalize()
+						rayDirection := screenSpaceCoordinates[width][height]
 						ray := Ray{origin: camera.Position, direction: rayDirection}
 
 						intersection := Intersection{Distance: math32.MaxFloat32}
