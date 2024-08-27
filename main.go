@@ -271,41 +271,29 @@ func (t *Triangle) CalculateNormal() {
 }
 
 func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
-	invDir := Vector{1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z}
+	// Precompute the inverse direction
+	invDirX := 1.0 / ray.direction.x
+	invDirY := 1.0 / ray.direction.y
+	invDirZ := 1.0 / ray.direction.z
 
-	tmin := (BoundingBox[0].x - ray.origin.x) * invDir.x
-	tmax := (BoundingBox[1].x - ray.origin.x) * invDir.x
-	if tmin > tmax {
-		tmin, tmax = tmax, tmin
-	}
+	// Compute the tmin and tmax for each axis directly
+	tx1 := (BoundingBox[0].x - ray.origin.x) * invDirX
+	tx2 := (BoundingBox[1].x - ray.origin.x) * invDirX
+	tmin := min(tx1, tx2)
+	tmax := max(tx1, tx2)
 
-	tymin := (BoundingBox[0].y - ray.origin.y) * invDir.y
-	tymax := (BoundingBox[1].y - ray.origin.y) * invDir.y
-	if tymin > tymax {
-		tymin, tymax = tymax, tymin
-	}
+	ty1 := (BoundingBox[0].y - ray.origin.y) * invDirY
+	ty2 := (BoundingBox[1].y - ray.origin.y) * invDirY
+	tmin = max(tmin, min(ty1, ty2))
+	tmax = min(tmax, max(ty1, ty2))
 
-	if (tmin > tymax) || (tymin > tmax) {
-		return false
-	}
+	tz1 := (BoundingBox[0].z - ray.origin.z) * invDirZ
+	tz2 := (BoundingBox[1].z - ray.origin.z) * invDirZ
+	tmin = max(tmin, min(tz1, tz2))
+	tmax = min(tmax, max(tz1, tz2))
 
-	if tymin > tmin {
-		tmin = tymin
-	}
-	if tymax < tmax {
-		tmax = tymax
-	}
-
-	tzmin := (BoundingBox[0].z - ray.origin.z) * invDir.z
-	tzmax := (BoundingBox[1].z - ray.origin.z) * invDir.z
-	if tzmin > tzmax {
-		tzmin, tzmax = tzmax, tzmin
-	}
-
-	if (tmin > tzmax) || (tzmin > tmax) {
-		return false
-	}
-	return true
+	// Final intersection check
+	return tmax >= max(0.0, tmin)
 }
 
 func (triangle *Triangle) Rotate(xAngle, yAngle, zAngle float32) {
@@ -448,49 +436,29 @@ func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32) Triang
 }
 
 func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
-	tMin := (triangle.BoundingBox[0].x - ray.origin.x) / ray.direction.x
-	tMax := (triangle.BoundingBox[1].x - ray.origin.x) / ray.direction.x
+	// Precompute the inverse direction
+	invDirX := 1.0 / ray.direction.x
+	invDirY := 1.0 / ray.direction.y
+	invDirZ := 1.0 / ray.direction.z
 
-	if tMin > tMax {
-		tMin, tMax = tMax, tMin
-	}
+	// Compute the tmin and tmax for each axis directly
+	tx1 := (triangle.BoundingBox[0].x - ray.origin.x) * invDirX
+	tx2 := (triangle.BoundingBox[1].x - ray.origin.x) * invDirX
+	tmin := min(tx1, tx2)
+	tmax := max(tx1, tx2)
 
-	tyMin := (triangle.BoundingBox[0].y - ray.origin.y) / ray.direction.y
-	tyMax := (triangle.BoundingBox[1].y - ray.origin.y) / ray.direction.y
+	ty1 := (triangle.BoundingBox[0].y - ray.origin.y) * invDirY
+	ty2 := (triangle.BoundingBox[1].y - ray.origin.y) * invDirY
+	tmin = max(tmin, min(ty1, ty2))
+	tmax = min(tmax, max(ty1, ty2))
 
-	if tyMin > tyMax {
-		tyMin, tyMax = tyMax, tyMin
-	}
+	tz1 := (triangle.BoundingBox[0].z - ray.origin.z) * invDirZ
+	tz2 := (triangle.BoundingBox[1].z - ray.origin.z) * invDirZ
+	tmin = max(tmin, min(tz1, tz2))
+	tmax = min(tmax, max(tz1, tz2))
 
-	if (tMin > tyMax) || (tyMin > tMax) {
-		return false
-	}
-
-	if tyMin > tMin {
-		tMin = tyMin
-	}
-
-	if tyMax < tMax {
-		tMax = tyMax
-	}
-
-	tzMin := (triangle.BoundingBox[0].z - ray.origin.z) / ray.direction.z
-	tzMax := (triangle.BoundingBox[1].z - ray.origin.z) / ray.direction.z
-
-	if tzMin > tzMax {
-		tzMin, tzMax = tzMax, tzMin
-	}
-
-	if (tMin > tzMax) || (tzMin > tMax) {
-		return false
-	}
-
-	if tzMax < tMax {
-		// tMax = tzMax
-		return tzMax > 0
-	}
-
-	return tzMax > 0
+	// Final intersection check
+	return tmax >= max(0.0, tmin)
 }
 
 type Intersection struct {
@@ -1181,12 +1149,12 @@ func main() {
 		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.1},
 		scaleFactor:            1,
 		updateFreq:             0,
-		samples:                1,
+		samples:                16,
 		frameRates:             []float64{},
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
 		BVHobjects:             bvh,
-		blockSize:              32,
+		blockSize:              64,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
