@@ -18,7 +18,6 @@ import (
 	"bufio"
 	"fmt"
 	"image/color"
-	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -29,7 +28,6 @@ import (
 	"sync"
 	"time"
 
-	"net/http"
 	_ "net/http/pprof" // Import the pprof package for profiling
 
 	"github.com/chewxy/math32"
@@ -377,8 +375,8 @@ func CreateCube(center Vector, size float32, color color.RGBA, refection float32
 
 func CreateSphere(center Vector, radius float32, color color.RGBA, reflection float32) []Triangle {
 	var triangles []Triangle
-	latitudeBands := 30
-	longitudeBands := 30
+	latitudeBands := 15
+	longitudeBands := 15
 
 	for lat := 0; lat < latitudeBands; lat++ {
 		for long := 0; long < longitudeBands; long++ {
@@ -895,6 +893,34 @@ func (object *object) CalculateBoundingBox() {
 	}
 }
 
+func GenerateRandomSpheres(numSpheres int) []object {
+	spheres := make([]object, numSpheres)
+	for i := 0; i < numSpheres; i++ {
+		radius := rand.Float32()*50 + 10
+		color := color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
+		reflection := rand.Float32()
+		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32()*400 - 200}
+		sphere := CreateSphere(position, radius, color, reflection)
+		spheres[i] = *CreateObject(sphere)
+	}
+	return spheres
+}
+
+func GenerateRandomCubes(numCubes int) []object {
+	cubes := make([]object, numCubes)
+	for i := 0; i < numCubes; i++ {
+		size := rand.Float32()*50 + 10
+		color := color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
+		reflection := rand.Float32()
+		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32()*400 - 200}
+		cube := CreateCube(position, size, color, reflection)
+		obj := CreateObject(cube)
+		obj.Rotate(rand.Float32()*math.Pi, rand.Float32()*math.Pi, rand.Float32()*math.Pi)
+		cubes[i] = *obj
+	}
+	return cubes
+}
+
 func (object *object) IntersectBoundingBox(ray Ray) bool {
 	tMin := (object.BoundingBox[0].x - ray.origin.x) / ray.direction.x
 	tMax := (object.BoundingBox[1].x - ray.origin.x) / ray.direction.x
@@ -979,7 +1005,6 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 
 func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
-
 	var wg sync.WaitGroup
 
 	for startX := 0; startX < screenWidth; startX += blockSize * scaling {
@@ -1055,8 +1080,8 @@ func (g *Game) Update() error {
 	g.camera.Direction = Vector{-g.camera.Position.x, -g.camera.Position.y, -g.camera.Position.z}.Normalize()
 
 	// Record the frame rate
-	currentFPS := ebiten.ActualFPS()
-	g.frameRates = append(g.frameRates, currentFPS)
+	// currentFPS := ebiten.ActualFPS()
+	// g.frameRates = append(g.frameRates, currentFPS)
 	g.updateFreq++
 
 	// Check if 60 seconds have passed
@@ -1073,33 +1098,56 @@ func (g *Game) Update() error {
 	return nil
 }
 
+// Mutex to synchronize access to shared resources
+func (g *Game) InterpolateFrames(numInterpolations int) *ebiten.Image {
+	if g.prevFrame == nil || g.currentFrame == nil {
+		return g.currentFrame
+	}
+
+	// Calculate interpolation factor based on the number of frames to interpolate
+	t := math.Min(1.0, ebiten.ActualFPS()/float64(numInterpolations*60))
+
+	// Create a new image to hold the interpolated frame
+	interpolatedFrame := ebiten.NewImageFromImage(g.prevFrame)
+
+	// Blend between the previous and current frames
+	op := &ebiten.DrawImageOptions{}
+	op.ColorM.Scale(1.0-t, 1.0-t, 1.0-t, 1.0)
+	interpolatedFrame.DrawImage(g.currentFrame, op)
+
+	return interpolatedFrame
+}
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", fps))
 
-	// Capture the previous screen
-	DrawRays(g.BVHobjects, screen, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
+	// Move current frame to previous frame
+	if g.currentFrame != nil {
+		g.prevFrame = g.currentFrame
+	}
+
+	// Create a new image for the current frame
+	g.currentFrame = ebiten.NewImage(800, 600)
+
+	// Perform path tracing and draw rays into the current frame
+	start := time.Now()
+	DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
+	fmt.Println("Time taken to draw rays:", time.Since(start))
+
+	// If there's no previous frame, just draw the current frame
+	if g.prevFrame == nil {
+		screen.DrawImage(g.currentFrame, nil)
+		return
+	}
+
+	// Perform frame interpolation
+	start = time.Now()
+	interpolatedFrame := g.InterpolateFrames(10) // Specify the number of frames to interpolate
+	screen.DrawImage(interpolatedFrame, nil)
+	fmt.Println("Time taken to blend frames:", time.Since(start))
 }
-
-// func (g *Game) calculateFrameRateStats() (float64, float64, float64) {
-// 	var totalFPS float64
-// 	minFPS := g.frameRates[0]
-// 	maxFPS := g.frameRates[0]
-
-// 	for _, fps := range g.frameRates {
-// 		totalFPS += fps
-// 		if fps < minFPS {
-// 			minFPS = fps
-// 		}
-// 		if fps > maxFPS {
-// 			maxFPS = fps
-// 		}
-// 	}
-
-// 	avgFPS := totalFPS / float64(len(g.frameRates))
-// 	return avgFPS, minFPS, maxFPS
-// }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	return 800, 600
@@ -1112,18 +1160,14 @@ type Game struct {
 	samples                int
 	screenSpaceCoordinates [][]Vector
 	BVHobjects             *BVHNode
-	frameRates             []float64
 	startTime              time.Time
 	updateFreq             int
 	blockSize              int
+	prevFrame              *ebiten.Image
+	currentFrame           *ebiten.Image
 }
 
 func main() {
-	// Create CPU profile
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
-
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
@@ -1132,29 +1176,21 @@ func main() {
 	ebiten.SetVsyncEnabled(false)
 	ebiten.SetTPS(60)
 
-	obj, err := LoadOBJ("Room.obj")
-	if err != nil {
-		panic(err)
-	}
-	obj.Scale(60)
-	cube := CreateCube(Vector{0, 0, 200}, 100, color.RGBA{255, 0, 0, 255}, 1)
-	cube2 := CreateCube(Vector{100, 300, 100}, 50, color.RGBA{0, 255, 0, 255}, 0.5)
-	sphere := CreateSphere(Vector{100, 0, 0}, 25, color.RGBA{0, 0, 255, 255}, 0)
-	sphere2 := CreateSphere(Vector{0, 200, 0}, 50, color.RGBA{255, 255, 0, 255}, 0.5)
+	spheres := GenerateRandomSpheres(15)
+	cubes := GenerateRandomCubes(15)
 
-	bvh := ConvertObjectsToBVH([]object{obj, *CreateObject(cube), *CreateObject(cube2), *CreateObject(sphere), *CreateObject(sphere2)})
+	bvh := ConvertObjectsToBVH(append(cubes, spheres...))
 
 	game := &Game{
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
 		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.1},
-		scaleFactor:            1,
+		scaleFactor:            2,
 		updateFreq:             0,
 		samples:                16,
-		frameRates:             []float64{},
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
 		BVHobjects:             bvh,
-		blockSize:              64,
+		blockSize:              32,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
