@@ -1,15 +1,14 @@
+import os
+import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models
-import numpy as np
-import cv2
-import os
-from tensorflow.keras.preprocessing.image import img_to_array, load_img
+from tensorflow.keras.preprocessing.image import img_to_array
 from tensorflow.keras.callbacks import TensorBoard
-import tensorboard
 from datasets import load_dataset
+import tensorboard
 
 # Define an upscaling model with 4x scale factor
-def create_upscaling_model(scale_factor=4, num_layers=3, num_filters=128):
+def create_upscaling_model(scale_factor=4, num_layers=3, num_filters=64):
     inputs = layers.Input(shape=(None, None, 3))
     x = inputs
 
@@ -25,48 +24,42 @@ def create_upscaling_model(scale_factor=4, num_layers=3, num_filters=128):
     
     return models.Model(inputs, outputs)
 
-# Create and compile the model with 4x upscaling
-model = create_upscaling_model(scale_factor=4)
-model.compile(optimizer='adam', loss='mse')
-
-# Function to load and preprocess images from a directory
-def load_images_from_directory(directory, target_size):
-    images = []
-    for filename in os.listdir(directory):
-        img_path = os.path.join(directory, filename)
-        img = load_img(img_path, target_size=target_size)
-        img_array = img_to_array(img)
-        img_array = img_array.astype(np.float32) / 255.0
-        images.append(img_array)
-    return np.array(images)
-
 # Function to preprocess datasets and create low-res versions
 def preprocess_dataset(high_res_images, scale_factor, low_res_size):
-    # Convert low_res_size to TensorFlow's shape format
     low_res_size_tensor = (low_res_size[0], low_res_size[1])
-    
-    # Resize high-res images to target size (original high-res)
     high_res_resized = tf.image.resize(high_res_images, (low_res_size[0] * scale_factor, low_res_size[1] * scale_factor), method='bicubic').numpy()
-    
-    # Create low-res versions
     low_res_images = tf.image.resize(high_res_resized, low_res_size_tensor, method='bicubic').numpy()
-    
     return low_res_images, high_res_resized
 
-# Load and preprocess multiple datasets
-def load_and_preprocess_multiple_datasets(scale_factor, target_size=(32, 32)):
+# Save the preprocessed data to files
+def save_preprocessed_data(low_res, high_res, prefix):
+    np.save(f"{prefix}_low_res.npy", low_res)
+    np.save(f"{prefix}_high_res.npy", high_res)
+
+# Load the preprocessed data from files
+def load_preprocessed_data(prefix):
+    low_res = np.load(f"{prefix}_low_res.npy")
+    high_res = np.load(f"{prefix}_high_res.npy")
+    return low_res, high_res
+
+# Load and preprocess multiple datasets or load from file if available
+def load_and_preprocess_multiple_datasets(scale_factor, target_size=(32, 32), prefix="preprocessed"):
+    if os.path.exists(f"{prefix}_low_res.npy") and os.path.exists(f"{prefix}_high_res.npy"):
+        # Load preprocessed data if available
+        print("Loading preprocessed data from files...")
+        return load_preprocessed_data(prefix)
+    
+    print("Preprocessing datasets...")
+
     # CIFAR-10 Dataset
     (x_train_cifar, _), (x_test_cifar, _) = tf.keras.datasets.cifar10.load_data()
-    # load only half of the dataset to save memory
-    # x_train_cifar = x_train_cifar[:10_000]
     x_test_cifar = x_test_cifar[:2500]
     x_train_cifar = x_train_cifar.astype(np.float32) / 255.0
     x_test_cifar = x_test_cifar.astype(np.float32) / 255.0
     low_res_train_cifar, high_res_train_cifar = preprocess_dataset(x_train_cifar, scale_factor, target_size)
 
-     # Inspiration Dataset from Hugging Face
+    # Inspiration Dataset from Hugging Face
     ds = load_dataset("yfszzx/inspiration", split="train")
-    print(ds)
     
     # Extract images from the 'image' column
     inspiration_images = np.array([img_to_array(img) for img in ds['image']])
@@ -76,9 +69,13 @@ def load_and_preprocess_multiple_datasets(scale_factor, target_size=(32, 32)):
     # Combine all datasets
     low_res_train = np.concatenate([low_res_train_cifar, low_res_inspiration], axis=0)
     high_res_train = np.concatenate([high_res_train_cifar, high_res_inspiration], axis=0)
+
+    # Save preprocessed data
+    save_preprocessed_data(low_res_train, high_res_train, prefix)
+    
     return low_res_train, high_res_train
 
-# Load and preprocess datasets
+# Load and preprocess datasets (or load from saved files)
 scale_factor = 4
 target_size = (32, 32)  # Consistent size for all images
 low_res_train, high_res_train = load_and_preprocess_multiple_datasets(scale_factor, target_size)
@@ -86,6 +83,10 @@ low_res_train, high_res_train = load_and_preprocess_multiple_datasets(scale_fact
 # Set up TensorBoard callback
 log_dir = "logs/fit/"
 tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1)
+
+# Create and compile the model
+model = create_upscaling_model(scale_factor=4, num_layers=3, num_filters=256)
+model.compile(optimizer='adam', loss='mse')
 
 # Train the model
 epochs = 100
