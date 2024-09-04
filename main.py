@@ -53,22 +53,25 @@ def load_and_preprocess_multiple_datasets(scale_factor, target_size=(32, 32), pr
 
     # CIFAR-10 Dataset
     (x_train_cifar, _), (x_test_cifar, _) = tf.keras.datasets.cifar10.load_data()
-    x_test_cifar = x_test_cifar[:2500]
     x_train_cifar = x_train_cifar.astype(np.float32) / 255.0
     x_test_cifar = x_test_cifar.astype(np.float32) / 255.0
     low_res_train_cifar, high_res_train_cifar = preprocess_dataset(x_train_cifar, scale_factor, target_size)
-
+    
     # Inspiration Dataset from Hugging Face
-    ds = load_dataset("yfszzx/inspiration", split="train")
+    # ds = load_dataset("yfszzx/inspiration", split="train")
+    # ds = ds['image'].to_list()
+    # ds = np.array(ds)
     
     # Extract images from the 'image' column
-    inspiration_images = np.array([img_to_array(img) for img in ds['image']])
-    inspiration_images = inspiration_images.astype(np.float32) / 255.0
-    low_res_inspiration, high_res_inspiration = preprocess_dataset(inspiration_images, scale_factor, target_size)
+    # inspiration_images = np.array([img_to_array(img) for img in ds['image']])
+    # inspiration_images = inspiration_images.astype(np.float32) / 255.0
+    # low_res_inspiration, high_res_inspiration = preprocess_dataset(inspiration_images, scale_factor, target_size)
+
+    # TODO: fix the loading of pastures from the dataset
 
     # Combine all datasets
-    low_res_train = np.concatenate([low_res_train_cifar, low_res_inspiration], axis=0)
-    high_res_train = np.concatenate([high_res_train_cifar, high_res_inspiration], axis=0)
+    low_res_train = np.concatenate([low_res_train_cifar], axis=0)
+    high_res_train = np.concatenate([high_res_train_cifar], axis=0)
 
     # Save preprocessed data
     save_preprocessed_data(low_res_train, high_res_train, prefix)
