@@ -1077,23 +1077,16 @@ func (g *Game) Update() error {
 	g.camera.Position.x = float32(math.Cos(angle)) * 300
 	g.camera.Position.y = 200
 	g.camera.Position.z = float32(math.Sin(angle)) * 300
-	g.camera.Direction = Vector{-g.camera.Position.x, -g.camera.Position.y, -g.camera.Position.z}.Normalize()
+	// g.camera.Direction = Vector{-g.camera.Position.x, -g.camera.Position.y, -g.camera.Position.z}.Normalize()
 
-	// Record the frame rate
-	// currentFPS := ebiten.ActualFPS()
-	// g.frameRates = append(g.frameRates, currentFPS)
 	g.updateFreq++
 
 	// Check if 60 seconds have passed
-	// if time.Since(g.startTime).Seconds() >= 60 {
-	// 	// Calculate frame rate statistics
-	// 	avgFPS, minFPS, maxFPS := g.calculateFrameRateStats()
-	// 	fmt.Printf("Average FPS: %v\n", avgFPS)
-	// 	fmt.Printf("Max FPS: %v\n", maxFPS)
-	// 	fmt.Printf("Min FPS: %v\n", minFPS)
-	// 	// Close the program
-	// 	os.Exit(0)
-	// }
+	if time.Since(g.startTime).Seconds() >= 60 {
+		fmt.Println("Average FPS:", averageFPS/float64(Frames))
+		// Close the program
+		os.Exit(0)
+	}
 
 	return nil
 }
@@ -1132,9 +1125,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.currentFrame = ebiten.NewImage(800, 600)
 
 	// Perform path tracing and draw rays into the current frame
-	start := time.Now()
 	DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
-	fmt.Println("Time taken to draw rays:", time.Since(start))
+	averageFPS += fps
+	Frames++
 
 	// If there's no previous frame, just draw the current frame
 	if g.prevFrame == nil {
@@ -1142,11 +1135,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		return
 	}
 
-	// Perform frame interpolation
-	start = time.Now()
 	interpolatedFrame := g.InterpolateFrames(10) // Specify the number of frames to interpolate
 	screen.DrawImage(interpolatedFrame, nil)
-	fmt.Println("Time taken to blend frames:", time.Since(start))
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
@@ -1167,6 +1157,9 @@ type Game struct {
 	currentFrame           *ebiten.Image
 }
 
+var averageFPS = 0.0
+var Frames = 0
+
 func main() {
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
@@ -1176,14 +1169,23 @@ func main() {
 	ebiten.SetVsyncEnabled(false)
 	ebiten.SetTPS(60)
 
-	spheres := GenerateRandomSpheres(15)
-	cubes := GenerateRandomCubes(15)
+	// spheres := GenerateRandomSpheres(15)
+	// cubes := GenerateRandomCubes(15)
 
-	bvh := ConvertObjectsToBVH(append(cubes, spheres...))
+	obj , err := LoadOBJ("Room.obj")
+	if err != nil {
+		panic(err)
+	}
+	obj.Scale(100)
+
+	objects := []object{}
+	objects = append(objects, obj)
+
+	bvh := ConvertObjectsToBVH(objects)
 
 	game := &Game{
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
-		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.1},
+		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.5},
 		scaleFactor:            1,
 		updateFreq:             0,
 		samples:                2,
