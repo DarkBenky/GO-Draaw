@@ -522,61 +522,64 @@ func clampUint8(value float32) uint8 {
 	return uint8(value)
 }
 
+var SuccessRate int64
+var TotalRays int64
+
 func BoxIntersectBVH(rays [3][3]Ray, nodeBVH *BVHNode) ([3][3]Intersection, [3][3]bool) {
-    var intersections [3][3]Intersection
-    var intersected [3][3]bool
+	var intersections [3][3]Intersection
+	var intersected [3][3]bool
 
-    // Intersect rays at four corners: top-left, top-right, bottom-left, bottom-right
-    top_left, hit_top_left := rays[0][0].IntersectBVH(nodeBVH)
-    // top_right, hit_top_right := rays[0][2].IntersectBVH(nodeBVH)
-    // bottom_left, hit_bottom_left := rays[2][0].IntersectBVH(nodeBVH)
-    bottom_right, hit_bottom_right := rays[2][2].IntersectBVH(nodeBVH)
+	TotalRays += 1
 
-    // Store corner intersections
-    if hit_top_left {
-        intersections[0][0], intersected[0][0] = top_left, true
-    }
-    // if hit_top_right {
-    //     intersections[0][2], intersected[0][2] = top_right, true
-    // }
-    // if hit_bottom_left {
-    //     intersections[2][0], intersected[2][0] = bottom_left, true
-    // }
-    if hit_bottom_right {
-        intersections[2][2], intersected[2][2] = bottom_right, true
-    }
+	top_left, hit_top_left := rays[0][0].IntersectBVH(nodeBVH)
+	bottom_right, hit_bottom_right := rays[2][2].IntersectBVH(nodeBVH)
 
-    // If all corners hit and match the same triangle
-    if hit_top_left && hit_bottom_right {
-        if top_left.Color == bottom_right.Color {
-            
-            // All rays share the same intersection
-            for i := 0; i < 3; i++ {
-                for j := 0; j < 3; j++ {
-                    intersections[i][j] = top_left
-                    intersected[i][j] = true
-                }
-            }
-            return intersections, intersected
-        }
-    }
+	// Store corner intersections
+	if hit_top_left {
+		intersections[0][0], intersected[0][0] = top_left, true
+	}
+	if hit_bottom_right {
+		intersections[2][2], intersected[2][2] = bottom_right, true
+	}
 
-    // If corners don't match or not all corners hit, calculate the rest of the pixels
-    for i := 0; i < 3; i++ {
-        for j := 0; j < 3; j++ {
-            if (i == 0 && j == 0) || (i == 2 && j == 2) {
-                // Skip the corners that have already been calculated
-                continue
-            }
-            // Intersect the remaining rays with the BVH
-            intersection, hit := rays[i][j].IntersectBVH(nodeBVH)
-            if hit {
-                intersections[i][j], intersected[i][j] = intersection, true
-            }
-        }
-    }
+	// If all corners hit and match the same triangle, fill the entire 3x3 block
+	if hit_top_left && hit_bottom_right && top_left.Color == bottom_right.Color {
+		SuccessRate += 1
 
-    return intersections, intersected
+		// Directly assign top_left to all the elements in the 3x3 array
+		intersections = [3][3]Intersection{
+			{top_left, top_left, top_left},
+			{top_left, top_left, top_left},
+			{top_left, top_left, top_left},
+		}
+
+		// Mark all intersections as true
+		intersected = [3][3]bool{
+			{true, true, true},
+			{true, true, true},
+			{true, true, true},
+		}
+
+		// Early return since all rays share the same intersection
+		return intersections, intersected
+	}
+
+	// If corners don't match or not all corners hit, calculate the rest of the pixels
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			if (i == 0 && j == 0) || (i == 2 && j == 2) {
+				// Skip the corners that have already been calculated
+				continue
+			}
+			// Intersect the remaining rays with the BVH
+			intersection, hit := rays[i][j].IntersectBVH(nodeBVH)
+			if hit {
+				intersections[i][j], intersected[i][j] = intersection, true
+			}
+		}
+	}
+
+	return intersections, intersected
 }
 
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
@@ -1061,77 +1064,90 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 }
 
 func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector) {
-    pixelChan := make(chan Pixel, screenWidth*screenHeight)
-    var wg sync.WaitGroup
+	var wg sync.WaitGroup
+	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 
-    // Process the entire screen in 3x3 blocks based on the scaling factor
-    for startX := 0; startX < screenWidth; startX += 3 * scaling {
-        for startY := 0; startY < screenHeight; startY += 3 * scaling {
-            wg.Add(1)
-            go func(startX, startY int) {
-                defer wg.Done()
+	// Process screen space in parallel using larger blocks
+	blockSize := 3 // Process 3x3 blocks
+	for startX := 0; startX < screenWidth; startX += blockSize * scaling {
+		for startY := 0; startY < screenHeight; startY += blockSize * scaling {
+			wg.Add(1)
 
-                // Create a 3x3 grid of rays from screen space coordinates
-                var rays [3][3]Ray
-                for i := 0; i < 3; i++ {
-                    for j := 0; j < 3; j++ {
-                        // Clamp coordinates to the screen boundaries
-                        x := min(startX+i*scaling, screenWidth-1)
-                        y := min(startY+j*scaling, screenHeight-1)
+			go func(startX, startY int) {
+				defer wg.Done()
 
-                        // Get the precomputed direction for the ray
-                        rayDirection := screenSpaceCoordinates[x][y]
-                        rays[i][j] = Ray{origin: camera.Position, direction: rayDirection}
-                    }
-                }
+				// Create a 3x3 grid of rays from screen space coordinates
+				var rays [3][3]Ray
+				for i := 0; i < 3; i++ {
+					for j := 0; j < 3; j++ {
+						// Pre-clamp the coordinates to screen boundaries once
+						x := startX + i*scaling
+						y := startY + j*scaling
+						if x >= screenWidth {
+							x = screenWidth - 1
+						}
+						if y >= screenHeight {
+							y = screenHeight - 1
+						}
 
-                // Use BoxIntersectBVH to get intersections for the 3x3 grid
-                intersections, intersected := BoxIntersectBVH(rays, bvh)
+						// Get precomputed screen-space coordinates and create rays
+						rayDirection := screenSpaceCoordinates[x][y]
+						rays[i][j] = Ray{origin: camera.Position, direction: rayDirection}
+					}
+				}
 
-                // Process each pixel in the 3x3 block
-                for i := 0; i < 3; i++ {
-                    for j := 0; j < 3; j++ {
-                        // Clamp coordinates to the screen boundaries
-                        x := min(startX+i*scaling, screenWidth-1)
-                        y := min(startY+j*scaling, screenHeight-1)
+				// Use BoxIntersectBVH to find intersections for the 3x3 grid
+				intersections, intersected := BoxIntersectBVH(rays, bvh)
 
-                        if intersected[i][j] {
-                            intersection := intersections[i][j]
-                            // Calculate final color using lighting and scattering
-                            Scatter := intersection.Scatter(samples, light, bvh)
-                            lightResult := light.CalculateLighting(intersection, bvh)
+				// Process each pixel in the 3x3 block
+				for i := 0; i < 3; i++ {
+					for j := 0; j < 3; j++ {
+						x := startX + i*scaling
+						y := startY + j*scaling
+						if x >= screenWidth {
+							x = screenWidth - 1
+						}
+						if y >= screenHeight {
+							y = screenHeight - 1
+						}
 
-                            c := color.RGBA{
-                                G: clampUint8(float32(Scatter.G) + float32(lightResult.G)),
-                                R: clampUint8(float32(Scatter.R) + float32(lightResult.R)),
-                                B: clampUint8(float32(Scatter.B) + float32(lightResult.B)),
-                                A: 255,
-                            }
+						if intersected[i][j] {
+							intersection := intersections[i][j]
+							// Calculate color using lighting and scattering
+							scatterColor := intersection.Scatter(samples, light, bvh)
+							lightColor := light.CalculateLighting(intersection, bvh)
 
-                            // Send pixel color and coordinates to channel
-                            pixelChan <- Pixel{x: x, y: y, color: c}
-                        }
-                    }
-                }
-            }(startX, startY)
-        }
-    }
+							finalColor := color.RGBA{
+								R: clampUint8(float32(scatterColor.R) + float32(lightColor.R)),
+								G: clampUint8(float32(scatterColor.G) + float32(lightColor.G)),
+								B: clampUint8(float32(scatterColor.B) + float32(lightColor.B)),
+								A: 255,
+							}
 
-    go func() {
-        wg.Wait()
-        close(pixelChan)
-    }()
+							// Send the pixel to the pixel channel
+							pixelChan <- Pixel{x: x, y: y, color: finalColor}
+						}
+					}
+				}
+			}(startX, startY)
+		}
+	}
 
-    // Draw pixels to the screen
-    if scaling == 1 {
-        for pixel := range pixelChan {
-            screen.Set(pixel.x, pixel.y, pixel.color)
-        }
-    } else {
-        for pixel := range pixelChan {
-            vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
-        }
-    }
+	go func() {
+		wg.Wait()
+		close(pixelChan)
+	}()
+
+	// Directly draw pixels to the screen
+	if scaling == 1 {
+		for pixel := range pixelChan {
+			screen.Set(pixel.x, pixel.y, pixel.color)
+		}
+	} else {
+		for pixel := range pixelChan {
+			vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
+		}
+	}
 }
 
 type ColorInt16 struct {
@@ -1155,6 +1171,7 @@ func (g *Game) Update() error {
 	// Check if 60 seconds have passed
 	if time.Since(g.startTime).Seconds() >= 60 {
 		fmt.Println("Average FPS:", averageFPS/float64(Frames))
+		fmt.Println("Success Rate of Optimization:", float64(SuccessRate)/float64(TotalRays))
 		// Close the program
 		os.Exit(0)
 	}
@@ -1223,9 +1240,9 @@ type Game struct {
 	BVHobjects             *BVHNode
 	startTime              time.Time
 	updateFreq             int
-	blockSize              int
-	prevFrame              *ebiten.Image
-	currentFrame           *ebiten.Image
+	// blockSize              int
+	prevFrame    *ebiten.Image
+	currentFrame *ebiten.Image
 }
 
 var averageFPS = 0.0
@@ -1243,7 +1260,7 @@ func main() {
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(15)
 
-	obj , err := LoadOBJ("Room.obj")
+	obj, err := LoadOBJ("Room.obj")
 	if err != nil {
 		panic(err)
 	}
@@ -1263,7 +1280,7 @@ func main() {
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
 		BVHobjects:             bvh,
-		blockSize:              3,
+		// blockSize:              3,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
