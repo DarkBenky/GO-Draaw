@@ -28,8 +28,6 @@ import (
 	"sync"
 	"time"
 
-	_ "net/http/pprof" // Import the pprof package for profiling
-
 	"github.com/chewxy/math32"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -37,8 +35,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-const screenWidth = 800
-const screenHeight = 600
+const screenWidth = 400
+const screenHeight = 300
 const FOV = 90
 
 type Material struct {
@@ -1114,7 +1112,7 @@ func (g *Game) InterpolateFrames(numInterpolations int) *ebiten.Image {
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", fps))
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
 
 	// Move current frame to previous frame
 	if g.currentFrame != nil {
@@ -1122,12 +1120,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	// Create a new image for the current frame
-	g.currentFrame = ebiten.NewImage(800, 600)
+	g.currentFrame = ebiten.NewImage(400, 300)
 
 	// Perform path tracing and draw rays into the current frame
 	DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
 	averageFPS += fps
 	Frames++
+
+	scaledFrame := ebiten.NewImage(800, 600)
+    op := &ebiten.DrawImageOptions{}
+    op.GeoM.Scale(800/400, 600/300)
+    scaledFrame.DrawImage(g.currentFrame, op)
+
+	// Update the current frame
+    g.currentFrame = scaledFrame
 
 	// If there's no previous frame, just draw the current frame
 	if g.prevFrame == nil {
@@ -1135,6 +1141,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		return
 	}
 
+	// Interpolate frames and draw the result
 	interpolatedFrame := g.InterpolateFrames(10) // Specify the number of frames to interpolate
 	screen.DrawImage(interpolatedFrame, nil)
 }
@@ -1172,7 +1179,7 @@ func main() {
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(15)
 
-	obj , err := LoadOBJ("Room.obj")
+	obj, err := LoadOBJ("Room.obj")
 	if err != nil {
 		panic(err)
 	}
