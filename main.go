@@ -1400,8 +1400,29 @@ func main() {
 	x1 := []C.float{-1, 2, 4, 0, 5, 3, 6, 2, 1}
 	y1 := []C.float{2, 3, 1, 4, 5, 6, 7, 8, 9}
 	z1 := []C.float{3, 4, 5, 6, 7, 8, 9, 10, 11}
-
+	
+	start := time.Now()
 	vectorAdd(x, y, z, x1, y1, z1, C.int(len(x)))
+	fmt.Println(time.Since(start), "cuda")
+
+	vectors := []Vector{
+		{1, 2, 3},
+		{4, 5, 6},
+		{7, 8, 9},
+		{1, 2, 3},
+		{4, 5, 6},
+		{7, 8, 9},
+		{1, 2, 3},
+		{4, 5, 6},
+		{7, 8, 9},
+	}
+
+	start = time.Now()
+	for i := 0; i < len(vectors); i++ {
+		vectors[i].Add(vectors[i])
+	}
+
+	fmt.Println(time.Since(start), "go\n")
 
 	fmt.Println(x)
 	fmt.Println(y)
