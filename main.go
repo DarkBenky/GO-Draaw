@@ -11,6 +11,7 @@
 // TODO [High]: Implement the eraser tool
 // TODO [High]: Implement the fill tool
 // TODO [High]: Implement the line tool
+// TODO [High]: Implement Projection rendering
 
 package main
 
