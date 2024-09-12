@@ -12,6 +12,8 @@ require (
 	github.com/ebitengine/hideconsole v1.0.0 // indirect
 	github.com/ebitengine/purego v0.7.0 // indirect
 	github.com/felixge/fgprof v0.9.3 // indirect
+	github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71 // indirect
+	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a // indirect
 	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20240805132620-81f5be970eca // indirect
 	github.com/jezek/xgb v1.1.1 // indirect

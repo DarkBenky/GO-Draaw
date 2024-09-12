@@ -55,6 +55,8 @@ def load_and_preprocess_multiple_datasets(scale_factor, target_size=(32, 32), pr
     (x_train_cifar, _), (x_test_cifar, _) = tf.keras.datasets.cifar10.load_data()
     x_train_cifar = x_train_cifar.astype(np.float32) / 255.0
     x_test_cifar = x_test_cifar.astype(np.float32) / 255.0
+    # add the test data to the training data
+    x_train_cifar = np.concatenate([x_train_cifar, x_test_cifar], axis=0)
     low_res_train_cifar, high_res_train_cifar = preprocess_dataset(x_train_cifar, scale_factor, target_size)
     
     # Inspiration Dataset from Hugging Face
@@ -88,16 +90,16 @@ log_dir = "logs/fit/"
 tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1)
 
 # Create and compile the model
-model = create_upscaling_model(scale_factor=4, num_layers=3, num_filters=256)
+model = create_upscaling_model(scale_factor=4, num_layers=2, num_filters=64)
 model.compile(optimizer='adam', loss='mse')
 
 # Train the model
-epochs = 100
+epochs = 25
 model.fit(
     low_res_train, 
     high_res_train, 
     epochs=epochs, 
-    batch_size=1024,
+    batch_size=128,
     callbacks=[tensorboard_callback]
 )
 
