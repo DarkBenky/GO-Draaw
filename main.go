@@ -12,6 +12,9 @@
 // TODO [High]: Implement the fill tool
 // TODO [High]: Implement the line tool
 
+// TODO: Merge the changes from the previous commit
+// TODO: Implement the Projection Rendering
+
 package main
 
 import (
