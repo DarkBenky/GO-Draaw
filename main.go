@@ -29,8 +29,6 @@ import (
 	"sync"
 	"time"
 
-	_ "net/http/pprof" // Import the pprof package for profiling
-
 	"github.com/chewxy/math32"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -105,7 +103,7 @@ func LoadMTL(filename string) (map[string]Material, error) {
 
 func LoadOBJ(filename string) (object, error) {
 	var obj object
-	obj.materials = make(map[string]Material)
+	materials := make(map[string]Material)
 
 	file, err := os.Open(filename)
 	if err != nil {
@@ -149,13 +147,13 @@ func LoadOBJ(filename string) (object, error) {
 				continue // Skip malformed mtllib lines
 			}
 			mtlFilename := fields[1]
-			materials, err := LoadMTL(mtlFilename)
+			loadedMaterials, err := LoadMTL(mtlFilename)
 			if err != nil {
 				return obj, err
 			}
-			// Merge the loaded materials into the object's materials map
-			for name, mat := range materials {
-				obj.materials[name] = mat
+			// Merge the loaded materials into the materials map
+			for name, mat := range loadedMaterials {
+				materials[name] = mat
 			}
 
 		case "f":
@@ -192,9 +190,9 @@ func LoadOBJ(filename string) (object, error) {
 					}
 
 					// Apply the current material color if available
-					if mat, exists := obj.materials[currentMaterial]; exists {
-						mat.color.A = uint8(255 * 0.40)
+					if mat, exists := materials[currentMaterial]; exists {
 						triangle.color = mat.color
+						triangle.color.A = 255 // Ensure alpha is fully opaque
 					} else {
 						triangle.color = color.RGBA{255, 125, 0, 255} // Default color
 					}
@@ -252,7 +250,7 @@ func (v Vector) Normalize() Vector {
 	return Vector{v.x / magnitude, v.y / magnitude, v.z / magnitude}
 }
 
-func (v Vector)RotateX(angle float32) Vector {
+func (v Vector) RotateX(angle float32) Vector {
 	return Vector{
 		x: v.x,
 		y: v.y*math32.Cos(angle) - v.z*math32.Sin(angle),
@@ -260,7 +258,7 @@ func (v Vector)RotateX(angle float32) Vector {
 	}
 }
 
-func (v Vector)RotateY(angle float32) Vector {
+func (v Vector) RotateY(angle float32) Vector {
 	return Vector{
 		x: v.x*math32.Cos(angle) + v.z*math32.Sin(angle),
 		y: v.y,
@@ -268,7 +266,7 @@ func (v Vector)RotateY(angle float32) Vector {
 	}
 }
 
-func (v Vector)RotateZ(angle float32) Vector {
+func (v Vector) RotateZ(angle float32) Vector {
 	return Vector{
 		x: v.x*math32.Cos(angle) - v.y*math32.Sin(angle),
 		y: v.x*math32.Sin(angle) + v.y*math32.Cos(angle),
@@ -276,7 +274,7 @@ func (v Vector)RotateZ(angle float32) Vector {
 	}
 }
 
-func (v Vector)Rotate(angleX, angleY, angleZ float32) Vector {
+func (v Vector) Rotate(angleX, angleY, angleZ float32) Vector {
 	return v.RotateX(angleX).RotateY(angleY).RotateZ(angleZ)
 }
 
@@ -553,53 +551,53 @@ func clampUint8(value float32) uint8 {
 }
 
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
-    // If the ray doesn't hit the bounding box, return immediately
-    if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
-        return Intersection{}, false
-    }
+	// If the ray doesn't hit the bounding box, return immediately
+	if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
+		return Intersection{}, false
+	}
 
-    // If the node is a leaf, check intersections with all triangles
-    if len(nodeBVH.Triangles) > 0 {
-        closestIntersection := Intersection{Distance: math32.MaxFloat32}
-        hasIntersection := false
+	// If the node is a leaf, check intersections with all triangles
+	if len(nodeBVH.Triangles) > 0 {
+		closestIntersection := Intersection{Distance: math32.MaxFloat32}
+		hasIntersection := false
 
-        for _, triangle := range nodeBVH.Triangles {
-            tempIntersection, intersect := ray.IntersectTriangle(triangle)
-            if intersect && tempIntersection.Distance < closestIntersection.Distance {
-                closestIntersection = tempIntersection
-                hasIntersection = true
-            }
-        }
+		for _, triangle := range nodeBVH.Triangles {
+			tempIntersection, intersect := ray.IntersectTriangle(triangle)
+			if intersect && tempIntersection.Distance < closestIntersection.Distance {
+				closestIntersection = tempIntersection
+				hasIntersection = true
+			}
+		}
 
-        return closestIntersection, hasIntersection
-    }
+		return closestIntersection, hasIntersection
+	}
 
-    // Recursively check child nodes
-    leftHit := nodeBVH.Left != nil && BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
-    rightHit := nodeBVH.Right != nil && BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
+	// Recursively check child nodes
+	leftHit := nodeBVH.Left != nil && BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
+	rightHit := nodeBVH.Right != nil && BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
 
-    if leftHit && rightHit {
-        // Traverse both children and return the closest intersection
-        leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
-        rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
+	if leftHit && rightHit {
+		// Traverse both children and return the closest intersection
+		leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
+		rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
 
-        if leftIntersect && rightIntersect {
-            if leftIntersection.Distance < rightIntersection.Distance {
-                return leftIntersection, true
-            }
-            return rightIntersection, true
-        } else if leftIntersect {
-            return leftIntersection, true
-        } else if rightIntersect {
-            return rightIntersection, true
-        }
-    } else if leftHit {
-        return ray.IntersectBVH(nodeBVH.Left)
-    } else if rightHit {
-        return ray.IntersectBVH(nodeBVH.Right)
-    }
+		if leftIntersect && rightIntersect {
+			if leftIntersection.Distance < rightIntersection.Distance {
+				return leftIntersection, true
+			}
+			return rightIntersection, true
+		} else if leftIntersect {
+			return leftIntersection, true
+		} else if rightIntersect {
+			return rightIntersection, true
+		}
+	} else if leftHit {
+		return ray.IntersectBVH(nodeBVH.Left)
+	} else if rightHit {
+		return ray.IntersectBVH(nodeBVH.Right)
+	}
 
-    return Intersection{}, false
+	return Intersection{}, false
 }
 
 func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
@@ -635,7 +633,7 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 }
 
 type Camera struct {
-	Position  Vector
+	Position            Vector
 	xAxis, yAxis, zAxis float32
 }
 
@@ -1112,7 +1110,6 @@ func (g *Game) Update() error {
 	g.camera.Position.y = 200
 	g.camera.Position.z = float32(math.Sin(angle)) * 300
 
-
 	g.camera.yAxis += 0.01
 
 	// Update the screen space coordinates
@@ -1206,7 +1203,7 @@ func main() {
 	runtime.GOMAXPROCS(numCPU)
 
 	ebiten.SetVsyncEnabled(false)
-	ebiten.SetTPS(60)
+	ebiten.SetTPS(24)
 
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(15)
@@ -1233,7 +1230,7 @@ func main() {
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		blockSize:              128,
+		blockSize:              32,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
