@@ -41,6 +41,7 @@ import (
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
+const maxDepth = 12
 
 type Material struct {
 	name  string
@@ -524,47 +525,53 @@ func clampUint8(value float32) uint8 {
 }
 
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
-	// If the ray doesn't hit the bounding box, return immediately
-	if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
-		return Intersection{}, false
-	}
+    // If the ray doesn't hit the bounding box, return immediately
+    if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
+        return Intersection{}, false
+    }
 
-	// If the node is a leaf, check intersections with all triangles
-	if nodeBVH.Triangles != nil {
-		closestIntersection := Intersection{Distance: math32.MaxFloat32}
-		tempIntersection, intersect := ray.IntersectTriangle(*nodeBVH.Triangles)
-		if intersect && tempIntersection.Distance < closestIntersection.Distance {
-			closestIntersection = tempIntersection
-		}
-		return closestIntersection, closestIntersection.Distance != math32.MaxFloat32
-	}
+    // If the node is a leaf, check intersections with all triangles
+    if len(nodeBVH.Triangles) > 0 {
+        closestIntersection := Intersection{Distance: math32.MaxFloat32}
+        hasIntersection := false
 
-	// Recursively check child nodes
-	leftHit := nodeBVH.Left != nil && BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
-	rightHit := nodeBVH.Right != nil && BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
+        for _, triangle := range nodeBVH.Triangles {
+            tempIntersection, intersect := ray.IntersectTriangle(triangle)
+            if intersect && tempIntersection.Distance < closestIntersection.Distance {
+                closestIntersection = tempIntersection
+                hasIntersection = true
+            }
+        }
 
-	if leftHit && rightHit {
-		// Traverse both children and return the closest intersection
-		leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
-		rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
+        return closestIntersection, hasIntersection
+    }
 
-		if leftIntersect && rightIntersect {
-			if leftIntersection.Distance < rightIntersection.Distance {
-				return leftIntersection, true
-			}
-			return rightIntersection, true
-		} else if leftIntersect {
-			return leftIntersection, true
-		} else if rightIntersect {
-			return rightIntersection, true
-		}
-	} else if leftHit {
-		return ray.IntersectBVH(nodeBVH.Left)
-	} else if rightHit {
-		return ray.IntersectBVH(nodeBVH.Right)
-	}
+    // Recursively check child nodes
+    leftHit := nodeBVH.Left != nil && BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
+    rightHit := nodeBVH.Right != nil && BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
 
-	return Intersection{}, false
+    if leftHit && rightHit {
+        // Traverse both children and return the closest intersection
+        leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
+        rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
+
+        if leftIntersect && rightIntersect {
+            if leftIntersection.Distance < rightIntersection.Distance {
+                return leftIntersection, true
+            }
+            return rightIntersection, true
+        } else if leftIntersect {
+            return leftIntersection, true
+        } else if rightIntersect {
+            return rightIntersection, true
+        }
+    } else if leftHit {
+        return ray.IntersectBVH(nodeBVH.Left)
+    } else if rightHit {
+        return ray.IntersectBVH(nodeBVH.Right)
+    }
+
+    return Intersection{}, false
 }
 
 func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
@@ -691,22 +698,22 @@ type object struct {
 	materials   map[string]Material
 }
 
-func ConvertObjectsToBVH(objects []object) *BVHNode {
+func ConvertObjectsToBVH(objects []object, maxDepth int) *BVHNode {
 	triangles := []Triangle{}
 	for _, object := range objects {
 		triangles = append(triangles, object.triangles...)
 	}
-	return buildBVHNode(triangles)
+	return buildBVHNode(triangles, 0, maxDepth)
 }
 
 type BVHNode struct {
 	Left, Right *BVHNode
 	BoundingBox *[2]Vector
-	Triangles   *Triangle
+	Triangles   []Triangle
 }
 
-func (object *object) BuildBVH() *BVHNode {
-	return buildBVHNode(object.triangles)
+func (object *object) BuildBVH(maxDepth int) *BVHNode {
+	return buildBVHNode(object.triangles, 0, maxDepth)
 }
 
 func calculateSurfaceArea(bbox [2]Vector) float32 {
@@ -716,7 +723,7 @@ func calculateSurfaceArea(bbox [2]Vector) float32 {
 	return 2 * (dx*dy + dy*dz + dz*dx)
 }
 
-func buildBVHNode(triangles []Triangle) *BVHNode {
+func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 	if len(triangles) == 0 {
 		return nil
 	}
@@ -737,15 +744,10 @@ func buildBVHNode(triangles []Triangle) *BVHNode {
 		boundingBox[1].z = math32.Max(boundingBox[1].z, triangle.BoundingBox[1].z)
 	}
 
-	// If the node is a leaf
-	if len(triangles) <= 2 {
+	// If the node is a leaf or we've reached the maximum depth
+	if len(triangles) <= 2 || depth >= maxDepth {
 		node := &BVHNode{BoundingBox: &boundingBox}
-		if len(triangles) == 1 {
-			node.Triangles = &triangles[0]
-		} else {
-			node.Left = buildBVHNode(triangles[:1])
-			node.Right = buildBVHNode(triangles[1:])
-		}
+		node.Triangles = triangles
 		return node
 	}
 
@@ -828,8 +830,8 @@ func buildBVHNode(triangles []Triangle) *BVHNode {
 
 	// Create the BVH node with the best split
 	node := &BVHNode{BoundingBox: &boundingBox}
-	node.Left = buildBVHNode(triangles[:bestSplit])
-	node.Right = buildBVHNode(triangles[bestSplit:])
+	node.Left = buildBVHNode(triangles[:bestSplit], depth+1, maxDepth)
+	node.Right = buildBVHNode(triangles[bestSplit:], depth+1, maxDepth)
 
 	return node
 }
@@ -1083,7 +1085,7 @@ func (g *Game) Update() error {
 	g.updateFreq++
 
 	// Check if 60 seconds have passed
-	if time.Since(g.startTime).Seconds() >= 60 {
+	if time.Since(g.startTime).Seconds() >= 30 {
 		fmt.Println("Average FPS:", averageFPS/float64(Frames))
 		// Close the program
 		os.Exit(0)
@@ -1173,7 +1175,7 @@ func main() {
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(15)
 
-	obj , err := LoadOBJ("Room.obj")
+	obj, err := LoadOBJ("Room.obj")
 	if err != nil {
 		panic(err)
 	}
@@ -1182,7 +1184,7 @@ func main() {
 	objects := []object{}
 	objects = append(objects, obj)
 
-	bvh := ConvertObjectsToBVH(objects)
+	bvh := ConvertObjectsToBVH(objects, maxDepth)
 
 	game := &Game{
 		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
