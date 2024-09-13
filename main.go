@@ -252,6 +252,34 @@ func (v Vector) Normalize() Vector {
 	return Vector{v.x / magnitude, v.y / magnitude, v.z / magnitude}
 }
 
+func (v Vector)RotateX(angle float32) Vector {
+	return Vector{
+		x: v.x,
+		y: v.y*math32.Cos(angle) - v.z*math32.Sin(angle),
+		z: v.y*math32.Sin(angle) + v.z*math32.Cos(angle),
+	}
+}
+
+func (v Vector)RotateY(angle float32) Vector {
+	return Vector{
+		x: v.x*math32.Cos(angle) + v.z*math32.Sin(angle),
+		y: v.y,
+		z: -v.x*math32.Sin(angle) + v.z*math32.Cos(angle),
+	}
+}
+
+func (v Vector)RotateZ(angle float32) Vector {
+	return Vector{
+		x: v.x*math32.Cos(angle) - v.y*math32.Sin(angle),
+		y: v.x*math32.Sin(angle) + v.y*math32.Cos(angle),
+		z: v.z,
+	}
+}
+
+func (v Vector)Rotate(angleX, angleY, angleZ float32) Vector {
+	return v.RotateX(angleX).RotateY(angleY).RotateZ(angleZ)
+}
+
 type Ray struct {
 	origin, direction Vector
 }
@@ -608,7 +636,7 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 
 type Camera struct {
 	Position  Vector
-	Direction Vector
+	xAxis, yAxis, zAxis float32
 }
 
 type Pixel struct {
@@ -979,7 +1007,7 @@ func (object *object) ConvertToTriangles() []Triangle {
 	return triangles
 }
 
-func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32) [][]Vector {
+func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32, camera Camera) [][]Vector {
 	aspectRatio := float32(screenWidth) / float32(screenHeight)
 	scale := math32.Tan(FOV * 0.5 * math32.Pi / 180.0) // Convert FOV to radians
 
@@ -1000,6 +1028,9 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 			pixelCameraY := pixelScreenY * scale
 
 			screenSpaceCoordinates[width][height] = Vector{pixelCameraX, pixelCameraY, -1}.Normalize()
+
+			// Rotate the screen space coordinates based on the direction of the camera
+			screenSpaceCoordinates[width][height] = screenSpaceCoordinates[width][height].Rotate(camera.xAxis, camera.yAxis, camera.zAxis)
 		}
 	}
 
@@ -1080,7 +1111,12 @@ func (g *Game) Update() error {
 	g.camera.Position.x = float32(math.Cos(angle)) * 300
 	g.camera.Position.y = 200
 	g.camera.Position.z = float32(math.Sin(angle)) * 300
-	// g.camera.Direction = Vector{-g.camera.Position.x, -g.camera.Position.y, -g.camera.Position.z}.Normalize()
+
+
+	g.camera.yAxis += 0.01
+
+	// Update the screen space coordinates
+	g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
 
 	g.updateFreq++
 
@@ -1186,16 +1222,18 @@ func main() {
 
 	bvh := ConvertObjectsToBVH(objects, maxDepth)
 
+	camera := Camera{Position: Vector{0, 200, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
+
 	game := &Game{
-		camera:                 Camera{Position: Vector{0, 200, 0}, Direction: Vector{0, 0, -1}},
+		camera:                 camera,
 		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.5},
 		scaleFactor:            1,
 		updateFreq:             0,
 		samples:                2,
 		startTime:              time.Now(),
-		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV),
+		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		blockSize:              32,
+		blockSize:              128,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
