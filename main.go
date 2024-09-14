@@ -39,7 +39,7 @@ import (
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
-const maxDepth = 12
+const maxDepth = 8
 
 type Material struct {
 	name  string
@@ -1065,9 +1065,9 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 							light := light.CalculateLighting(intersection, bvh)
 
 							c := color.RGBA{
-								G: clampUint8(float32(Scatter.G) + float32(light.G)),
-								R: clampUint8(float32(Scatter.R) + float32(light.R)),
-								B: clampUint8(float32(Scatter.B) + float32(light.B)),
+								G: clampUint8((float32(Scatter.G) + float32(light.G))/2),
+								R: clampUint8((float32(Scatter.R) + float32(light.R))/2),
+								B: clampUint8((float32(Scatter.B) + float32(light.B))/2),
 								A: 255,
 							}
 
@@ -1223,14 +1223,14 @@ func main() {
 
 	game := &Game{
 		camera:                 camera,
-		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.5},
+		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.8},
 		scaleFactor:            1,
 		updateFreq:             0,
-		samples:                2,
+		samples:                8,
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		blockSize:              32,
+		blockSize:              64,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
