@@ -3,3 +3,4 @@ DIV2K_train_HR
 *.npy
 *.tflite
 *.h5
+Render_*

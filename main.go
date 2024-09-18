@@ -18,6 +18,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"math/rand"
@@ -28,6 +29,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"image/png"
 
 	"github.com/chewxy/math32"
 
@@ -186,7 +189,7 @@ func LoadOBJ(filename string) (object, error) {
 						v1:         vertices[indices[0]],
 						v2:         vertices[indices[i]],
 						v3:         vertices[indices[i+1]],
-						reflection: 0.25,
+						reflection: 0.09,
 					}
 
 					// Apply the current material color if available
@@ -401,10 +404,34 @@ func CreateCube(center Vector, size float32, color color.RGBA, refection float32
 	}
 }
 
+func CreatePlane(center Vector, normal Vector, width, height float32, color color.RGBA, reflection float32) []Triangle {
+	// Calculate the tangent vectors
+	var tangent, bitangent Vector
+	if math32.Abs(normal.x) > math32.Abs(normal.y) {
+		tangent = Vector{normal.z, 0, -normal.x}.Normalize()
+	} else {
+		tangent = Vector{0, -normal.z, normal.y}.Normalize()
+	}
+	bitangent = normal.Cross(tangent)
+
+	// Calculate the corner vertices
+	halfWidth := width / 2
+	halfHeight := height / 2
+	v1 := center.Add(tangent.Mul(-halfWidth)).Add(bitangent.Mul(-halfHeight))
+	v2 := center.Add(tangent.Mul(halfWidth)).Add(bitangent.Mul(-halfHeight))
+	v3 := center.Add(tangent.Mul(halfWidth)).Add(bitangent.Mul(halfHeight))
+	v4 := center.Add(tangent.Mul(-halfWidth)).Add(bitangent.Mul(halfHeight))
+
+	return []Triangle{
+		NewTriangle(v1, v2, v3, color, reflection),
+		NewTriangle(v1, v3, v4, color, reflection),
+	}
+}
+
 func CreateSphere(center Vector, radius float32, color color.RGBA, reflection float32) []Triangle {
 	var triangles []Triangle
-	latitudeBands := 15
-	longitudeBands := 15
+	latitudeBands := 20
+	longitudeBands := 20
 
 	for lat := 0; lat < latitudeBands; lat++ {
 		for long := 0; long < longitudeBands; long++ {
@@ -712,9 +739,9 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 	rationScatterToDirect := 1 - intersection.reflection
 
 	return color.RGBA{
-		clampUint8((Red*rationScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection) / 2),
-		clampUint8((Green*rationScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection) / 2),
-		clampUint8((Blue*rationScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection) / 2),
+		clampUint8(Red*rationScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection),
+		clampUint8(Green*rationScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection),
+		clampUint8(Blue*rationScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection),
 		uint8(Alpha),
 	}
 }
@@ -932,7 +959,7 @@ func GenerateRandomSpheres(numSpheres int) []object {
 		radius := rand.Float32()*50 + 10
 		color := color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
 		reflection := rand.Float32()
-		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32()*400 - 200}
+		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32() * 400 - 200}
 		sphere := CreateSphere(position, radius, color, reflection)
 		spheres[i] = *CreateObject(sphere)
 	}
@@ -1069,9 +1096,9 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 							light := light.CalculateLighting(intersection, bvh)
 
 							c := color.RGBA{
-								G: clampUint8((float32(Scatter.G) + float32(light.G)) / 2),
-								R: clampUint8((float32(Scatter.R) + float32(light.R)) / 2),
-								B: clampUint8((float32(Scatter.B) + float32(light.B)) / 2),
+								G: clampUint8((float32(Scatter.G) + float32(light.G))),
+								R: clampUint8((float32(Scatter.R) + float32(light.R))),
+								B: clampUint8((float32(Scatter.B) + float32(light.B))),
 								A: 255,
 							}
 
@@ -1111,7 +1138,6 @@ func (g *Game) Update() error {
 	// Rotate the camera around the object
 	angle := float64(g.updateFreq) * 2 * math.Pi / 600
 	g.camera.Position.x = float32(math.Cos(angle)) * 300
-	g.camera.Position.y = 200
 	g.camera.Position.z = float32(math.Sin(angle)) * 300
 
 	g.camera.yAxis += 0.01
@@ -1122,7 +1148,7 @@ func (g *Game) Update() error {
 	g.updateFreq++
 
 	// Check if 30 seconds have passed
-	if time.Since(g.startTime).Seconds() >= 30 {
+	if time.Since(g.startTime).Seconds() >= 1080 {
 		fmt.Println("Average FPS:", averageFPS/float64(Frames))
 		// Close the program
 		os.Exit(0)
@@ -1151,6 +1177,37 @@ func (g *Game) InterpolateFrames(numInterpolations int) *ebiten.Image {
 	return interpolatedFrame
 }
 
+func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
+	// Get the size of the Ebiten image
+	width, height := ebitenImg.Size()
+
+	// Create an RGBA image to hold the pixel data
+	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	// Iterate over the pixels in the Ebiten image and copy them to the RGBA image
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			c := ebitenImg.At(x, y).(color.RGBA)
+			rgba.Set(x, y, c)
+		}
+	}
+
+	// Create the output file
+	outFile, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	// Encode the RGBA image as a PNG and save it
+	err = png.Encode(outFile, rgba)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
@@ -1168,6 +1225,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
 	averageFPS += fps
 	Frames++
+
+	// Save the current frame as a PNG image
+	saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Plane/frame_%d.png", Frames))
 
 	// If there's no previous frame, just draw the current frame
 	if g.prevFrame == nil {
@@ -1210,27 +1270,30 @@ func main() {
 	ebiten.SetTPS(24)
 
 	// spheres := GenerateRandomSpheres(15)
-	// cubes := GenerateRandomCubes(15)
+	// cubes := GenerateRandomCubes(25)
 
-	obj, err := LoadOBJ("Room.obj")
+	obj, err := LoadOBJ("T 90.obj")
 	if err != nil {
 		panic(err)
 	}
-	obj.Scale(100)
+	obj.Scale(65)
 
 	objects := []object{}
 	objects = append(objects, obj)
 
+	// objects = append(objects, spheres...)
+	// objects = append(objects, cubes...)
+
 	bvh := ConvertObjectsToBVH(objects, maxDepth)
 
-	camera := Camera{Position: Vector{0, 200, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
+	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
 
 	game := &Game{
 		camera:                 camera,
-		light:                  Light{Position: Vector{0, 400, 10000}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.8},
+		light:                  Light{Position: Vector{0, 1000, 100}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.9},
 		scaleFactor:            1,
 		updateFreq:             0,
-		samples:                8,
+		samples:                128,
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
