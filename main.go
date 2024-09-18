@@ -39,7 +39,7 @@ import (
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
-const maxDepth = 8
+const maxDepth = 12
 
 type Material struct {
 	name  string
@@ -552,9 +552,9 @@ func clampUint8(value float32) uint8 {
 
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 	// If the ray doesn't hit the bounding box, return immediately
-	if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
-		return Intersection{}, false
-	}
+	// if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
+	// 	return Intersection{}, false
+	// }
 
 	// If the node is a leaf, check intersections with all triangles
 	if len(nodeBVH.Triangles) > 0 {
@@ -643,7 +643,7 @@ type Pixel struct {
 }
 
 func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode) color.RGBA {
-	var finalColor color.RGBA64
+	var Red, Green, Blue, Alpha float32
 
 	// Calculate the direct reflection
 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
@@ -691,37 +691,37 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 			scatteredIntersection = bvhIntersection
 		}
 
+		// Replace this check with checking only 9 bit of the float if it 1 it is true
 		if scatteredIntersection.Distance != math32.MaxFloat32 {
-			finalColor.R += uint16(scatteredIntersection.Color.R)
-			finalColor.G += uint16(scatteredIntersection.Color.G)
-			finalColor.B += uint16(scatteredIntersection.Color.B)
-			finalColor.A += uint16(scatteredIntersection.Color.A)
+			Red += float32(scatteredIntersection.Color.R)
+			Green += float32(scatteredIntersection.Color.G)
+			Blue += float32(scatteredIntersection.Color.B)
 		}
 	}
 
 	// Average color by dividing by samples
 	if samples > 0 {
-		finalColor.R /= uint16(samples)
-		finalColor.G /= uint16(samples)
-		finalColor.B /= uint16(samples)
-		finalColor.A = 255 // Ensure alpha remains fully opaque
+		s := float32(samples)
+		Red /= s
+		Green /= s
+		Blue /= s
+		Alpha = float32(intersection.Color.A)
 	}
 
 	// Mix the direct reflection with the scattered color
 	rationScatterToDirect := 1 - intersection.reflection
 
 	return color.RGBA{
-		clampUint8(float32(finalColor.R)*rationScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection),
-		clampUint8(float32(finalColor.G)*rationScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection),
-		clampUint8(float32(finalColor.B)*rationScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection),
-		uint8(finalColor.A),
+		clampUint8((Red*rationScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection) / 2),
+		clampUint8((Green*rationScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection) / 2),
+		clampUint8((Blue*rationScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection) / 2),
+		uint8(Alpha),
 	}
 }
 
 type object struct {
 	triangles   []Triangle
 	BoundingBox [2]Vector
-	materials   map[string]Material
 }
 
 func ConvertObjectsToBVH(objects []object, maxDepth int) *BVHNode {
@@ -772,8 +772,12 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 
 	// If the node is a leaf or we've reached the maximum depth
 	if len(triangles) <= 2 || depth >= maxDepth {
-		node := &BVHNode{BoundingBox: &boundingBox}
-		node.Triangles = triangles
+		// Allocate the slice with the exact capacity needed
+		node := &BVHNode{
+			BoundingBox: &boundingBox,
+			Triangles:   make([]Triangle, len(triangles)), // Set capacity to the exact size
+		}
+		copy(node.Triangles, triangles) // Copy the triangles
 		return node
 	}
 
@@ -1065,9 +1069,9 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 							light := light.CalculateLighting(intersection, bvh)
 
 							c := color.RGBA{
-								G: clampUint8((float32(Scatter.G) + float32(light.G))/2),
-								R: clampUint8((float32(Scatter.R) + float32(light.R))/2),
-								B: clampUint8((float32(Scatter.B) + float32(light.B))/2),
+								G: clampUint8((float32(Scatter.G) + float32(light.G)) / 2),
+								R: clampUint8((float32(Scatter.R) + float32(light.R)) / 2),
+								B: clampUint8((float32(Scatter.B) + float32(light.B)) / 2),
 								A: 255,
 							}
 
@@ -1117,7 +1121,7 @@ func (g *Game) Update() error {
 
 	g.updateFreq++
 
-	// Check if 60 seconds have passed
+	// Check if 30 seconds have passed
 	if time.Since(g.startTime).Seconds() >= 30 {
 		fmt.Println("Average FPS:", averageFPS/float64(Frames))
 		// Close the program
