@@ -525,46 +525,45 @@ type Intersection struct {
 
 type Light struct {
 	Position  Vector
-	Color     color.RGBA
+	Color     [3]float32
 	intensity float32
 }
 
-func (light *Light) CalculateLighting(intersection Intersection, bvh *BVHNode) color.RGBA {
-	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
-	shadowRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: lightDir}
+// func (light *Light) CalculateLighting(intersection Intersection, bvh *BVHNode) color.RGBA {
+// 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+// 	shadowRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: lightDir}
 
-	// Check if the point is in shadow
-	inShadow := false
-	if _, intersect := shadowRay.IntersectBVH(bvh); intersect {
-		inShadow = true
-	}
+// 	// Check if the point is in shadow
+// 	inShadow := false
+// 	if _, intersect := shadowRay.IntersectBVH(bvh); intersect {
+// 		inShadow = true
+// 	}
 
-	// Ambient light contribution
-	ambientFactor := 0.05 // Adjust ambient factor as needed
-	ambientColor := color.RGBA{
-		uint8(float64(light.Color.R) * ambientFactor),
-		uint8(float64(light.Color.G) * ambientFactor),
-		uint8(float64(light.Color.B) * ambientFactor),
-		light.Color.A,
-	}
+// 	// Ambient light contribution
+// 	ambientFactor := 0.05 // Adjust ambient factor as needed
+// 	ambientColor := color.RGBA{
+// 		uint8(float64(light.Color.R) * ambientFactor),
+// 		uint8(float64(light.Color.G) * ambientFactor),
+// 		uint8(float64(light.Color.B) * ambientFactor),
+// 		light.Color.A,
+// 	}
 
-	if inShadow {
-		// If in shadow, return ambient color
-		return ambientColor
-	}
+// 	if inShadow {
+// 		// If in shadow, return ambient color
+// 		return ambientColor
+// 	}
 
-	// Calculate diffuse lighting
+// 	// Calculate diffuse lighting
+// 	lightIntensity := light.intensity * math32.Max(0.0, lightDir.Dot(intersection.Normal))
+// 	finalColor := color.RGBA{
+// 		clampUint8(float32(ambientColor.R) + lightIntensity*float32(intersection.Color.R)),
+// 		clampUint8(float32(ambientColor.G) + lightIntensity*float32(intersection.Color.G)),
+// 		clampUint8(float32(ambientColor.B) + lightIntensity*float32(intersection.Color.B)),
+// 		ambientColor.A,
+// 	}
 
-	lightIntensity := light.intensity * math32.Max(0.0, lightDir.Dot(intersection.Normal))
-	finalColor := color.RGBA{
-		clampUint8(float32(ambientColor.R) + lightIntensity*float32(intersection.Color.R)),
-		clampUint8(float32(ambientColor.G) + lightIntensity*float32(intersection.Color.G)),
-		clampUint8(float32(ambientColor.B) + lightIntensity*float32(intersection.Color.B)),
-		ambientColor.A,
-	}
-
-	return finalColor
-}
+// 	return finalColor
+// }
 
 // Helper function to clamp a float64 value to uint8 range
 func clampUint8(value float32) uint8 {
@@ -577,7 +576,7 @@ func clampUint8(value float32) uint8 {
 	return uint8(value)
 }
 
-var Old	int64
+var Old int64
 var OldCount int64
 var New int64
 var NewCount int64
@@ -590,31 +589,7 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 
 	// If the node is a leaf, check intersections with all triangles
 	if len(nodeBVH.Triangles) > 0 {
-
-		start := time.Now()
-
-		closestIntersection := Intersection{Distance: math32.MaxFloat32}
-		hasIntersection := false
-
-		for _, triangle := range nodeBVH.Triangles {
-			tempIntersection, intersect := ray.IntersectTriangle(triangle)
-			if intersect && tempIntersection.Distance < closestIntersection.Distance {
-				closestIntersection = tempIntersection
-				hasIntersection = true
-			}
-		}
-
-		Old += time.Since(start).Milliseconds()
-		OldCount++
-		
-		start = time.Now()
-
-		closestIntersection, hasIntersection = IntersectTriangles(*ray, nodeBVH.Triangles)
-
-		New += time.Since(start).Milliseconds()
-		NewCount++
-
-		return closestIntersection, hasIntersection
+		return IntersectTriangles(*ray, nodeBVH.Triangles)
 	}
 
 	// Recursively check child nodes
@@ -741,7 +716,7 @@ type Pixel struct {
 }
 
 func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode) color.RGBA {
-	var Red, Green, Blue, Alpha float32
+	var Red, Green, Blue float32
 
 	// Calculate the direct reflection
 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
@@ -783,17 +758,11 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 		ray := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: direction}
 
 		// Find intersection with the scene
-		scatteredIntersection := Intersection{Distance: math32.MaxFloat32}
-		bvhIntersection, intersect := ray.IntersectBVH(bvh)
-		if intersect {
-			scatteredIntersection = bvhIntersection
-		}
-
-		// Replace this check with checking only 9 bit of the float if it 1 it is true
-		if scatteredIntersection.Distance != math32.MaxFloat32 {
-			Red += float32(scatteredIntersection.Color.R)
-			Green += float32(scatteredIntersection.Color.G)
-			Blue += float32(scatteredIntersection.Color.B)
+		if bvhIntersection, intersect := ray.IntersectBVH(bvh); intersect && bvhIntersection.Distance != math32.MaxFloat32 {
+			// Accumulate color values
+			Red += float32(bvhIntersection.Color.R)
+			Green += float32(bvhIntersection.Color.G)
+			Blue += float32(bvhIntersection.Color.B)
 		}
 	}
 
@@ -803,18 +772,99 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 		Red /= s
 		Green /= s
 		Blue /= s
-		Alpha = float32(intersection.Color.A)
+
+		// Mix the direct reflection with the scattered color
+		ratioScatterToDirect := 1 - intersection.reflection
+		return color.RGBA{
+			clampUint8(Red*ratioScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection),
+			clampUint8(Green*ratioScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection),
+			clampUint8(Blue*ratioScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection),
+			intersection.Color.A,
+		}
+	} else {
+		return color.RGBA{}
+	}
+}
+
+func TraceRay(ray Ray, depth int, bvh *BVHNode, light Light, scatter int) color.RGBA {
+	if depth == 0 {
+		return color.RGBA{} // Base case: no more bounces
 	}
 
-	// Mix the direct reflection with the scattered color
-	rationScatterToDirect := 1 - intersection.reflection
+	if intersection, intersect := ray.IntersectBVH(bvh); intersect {
 
-	return color.RGBA{
-		clampUint8(Red*rationScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection),
-		clampUint8(Green*rationScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection),
-		clampUint8(Blue*rationScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection),
-		uint8(Alpha),
+		// Calculate scattered color
+		scatteredColor := intersection.Scatter(scatter, light, bvh) // Adjust samples as needed
+
+		// Calculate direct reflection
+		lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+		reflectDir := intersection.Normal.Mul(2 * lightDir.Dot(intersection.Normal)).Sub(lightDir).Normalize()
+		reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
+		reflectedIntersection := Intersection{}
+		if tempIntersection, intersect := reflectRay.IntersectBVH(bvh); intersect {
+			reflectedIntersection = tempIntersection
+		}
+		reflectedColor := color.RGBA{
+			R: uint8(reflectedIntersection.Color.R),
+			G: uint8(reflectedIntersection.Color.G),
+			B: uint8(reflectedIntersection.Color.B),
+			A: uint8(intersection.Color.A),
+		}
+
+		// Check if the intersection is in shadow
+		shadowRay := Ray{
+			origin:    intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)),
+			direction: light.Position.Sub(intersection.PointOfIntersection).Normalize(),
+		}
+		inShadow := false
+		if _, intersect := shadowRay.IntersectBVH(bvh); intersect {
+			inShadow = true
+		}
+
+		// Calculate direct lighting contribution
+		var directColor color.RGBA
+		if !inShadow {
+			// Calculate diffuse lighting
+			lightIntensity := light.intensity * math32.Max(0.0, lightDir.Dot(intersection.Normal))
+
+			directColor = color.RGBA{
+				R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R))* lightIntensity * float32(light.Color[0])),
+				G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G))* lightIntensity * float32(light.Color[1])),
+				B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B))* lightIntensity * float32(light.Color[2])),
+				A: intersection.Color.A,
+			}
+		} else {
+			lightIntensity := float32(0.05) // Adjust ambient factor as needed
+			directColor = color.RGBA{
+				R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R))* lightIntensity * float32(light.Color[0])),
+				G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G))* lightIntensity * float32(light.Color[0])),
+				B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B))* lightIntensity * float32(light.Color[0])),
+				A: intersection.Color.A,
+			}
+		}
+
+		// Combine scattered color with reflection
+		ratioScatterToDirect := 1 - intersection.reflection
+		finalColor := color.RGBA{
+			R: clampUint8(float32(directColor.R)*ratioScatterToDirect + float32(reflectedColor.R)*intersection.reflection),
+			G: clampUint8(float32(directColor.G)*ratioScatterToDirect + float32(reflectedColor.G)*intersection.reflection),
+			B: clampUint8(float32(directColor.B)*ratioScatterToDirect + float32(reflectedColor.B)*intersection.reflection),
+			A: uint8(intersection.Color.A),
+		}
+
+		// Recursive call for additional bounces
+		bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
+		bouncedColor := TraceRay(bounceRay, depth-1, bvh, light, scatter)
+
+		// Combine bounced color with final color
+		finalColor.R = clampUint8((float32(finalColor.R) + float32(bouncedColor.R)) / 2)
+		finalColor.G = clampUint8((float32(finalColor.G) + float32(bouncedColor.G)) / 2)
+		finalColor.B = clampUint8((float32(finalColor.B) + float32(bouncedColor.B)) / 2)
+
+		return finalColor
 	}
+
+	return color.RGBA{} // No intersection
 }
 
 type object struct {
@@ -1137,7 +1187,7 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
-func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int) {
+func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int, depth int) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	var wg sync.WaitGroup
 
@@ -1163,15 +1213,17 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 
 						if intersection.Distance != math32.MaxFloat32 && intersect {
 							// Calculate the final color with lighting
-							Scatter := intersection.Scatter(samples, light, bvh)
-							light := light.CalculateLighting(intersection, bvh)
+							// Scatter := intersection.Scatter(samples, light, bvh)
+							// light := light.CalculateLighting(intersection, bvh)
 
-							c := color.RGBA{
-								G: clampUint8((float32(Scatter.G) + float32(light.G))),
-								R: clampUint8((float32(Scatter.R) + float32(light.R))),
-								B: clampUint8((float32(Scatter.B) + float32(light.B))),
-								A: 255,
-							}
+							// c := color.RGBA{
+							// 	G: clampUint8((float32(Scatter.G) + float32(light.G))),
+							// 	R: clampUint8((float32(Scatter.R) + float32(light.R))),
+							// 	B: clampUint8((float32(Scatter.B) + float32(light.B))),
+							// 	A: 255,
+							// }
+
+							c := TraceRay(ray, depth, bvh, light, samples)
 
 							pixelChan <- Pixel{x: width, y: height, color: c}
 						}
@@ -1293,15 +1345,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.currentFrame = ebiten.NewImage(800, 600)
 
 	// Perform path tracing and draw rays into the current frame
-	DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
+	DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize, g.depth)
 	averageFPS += fps
 	Frames++
 
-	fmt.Println("Old:", float64(Old) / float64(OldCount))
-	fmt.Println("New:", float64(New) / float64(NewCount))
-
 	// Save the current frame as a PNG image
-	saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Plane/frame_%d.png", Frames))
+	saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Tank_New/frame_%d.png", Frames))
 
 	// If there's no previous frame, just draw the current frame
 	if g.prevFrame == nil {
@@ -1329,6 +1378,7 @@ type Game struct {
 	blockSize              int
 	prevFrame              *ebiten.Image
 	currentFrame           *ebiten.Image
+	depth                  int
 }
 
 var averageFPS = 0.0
@@ -1344,7 +1394,7 @@ func main() {
 	ebiten.SetTPS(24)
 
 	// spheres := GenerateRandomSpheres(15)
-	// cubes := GenerateRandomCubes(25)
+	// cubes := GenerateRandomCubes(10)
 
 	obj, err := LoadOBJ("T 90.obj")
 	if err != nil {
@@ -1364,14 +1414,15 @@ func main() {
 
 	game := &Game{
 		camera:                 camera,
-		light:                  Light{Position: Vector{0, 1000, 100}, Color: color.RGBA{255, 255, 255, 255}, intensity: 0.9},
+		light:                  Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1},
 		scaleFactor:            1,
 		updateFreq:             0,
-		samples:                128,
+		samples:                16,
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
 		blockSize:              64,
+		depth:                  8,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
