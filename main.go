@@ -42,7 +42,7 @@ import (
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
-const maxDepth = 12
+const maxDepth = 10
 
 type Material struct {
 	name  string
@@ -577,6 +577,11 @@ func clampUint8(value float32) uint8 {
 	return uint8(value)
 }
 
+var Old	int64
+var OldCount int64
+var New int64
+var NewCount int64
+
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 	// If the ray doesn't hit the bounding box, return immediately
 	// if !BoundingBoxCollision(nodeBVH.BoundingBox, ray) {
@@ -585,6 +590,9 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 
 	// If the node is a leaf, check intersections with all triangles
 	if len(nodeBVH.Triangles) > 0 {
+
+		start := time.Now()
+
 		closestIntersection := Intersection{Distance: math32.MaxFloat32}
 		hasIntersection := false
 
@@ -595,6 +603,16 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 				hasIntersection = true
 			}
 		}
+
+		Old += time.Since(start).Milliseconds()
+		OldCount++
+		
+		start = time.Now()
+
+		closestIntersection, hasIntersection = IntersectTriangles(*ray, nodeBVH.Triangles)
+
+		New += time.Since(start).Milliseconds()
+		NewCount++
 
 		return closestIntersection, hasIntersection
 	}
@@ -657,6 +675,59 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection}, true
 	}
 	return Intersection{}, false
+}
+
+func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
+	// Initialize the closest intersection and hit status
+	closestIntersection := Intersection{Distance: math32.MaxFloat32}
+	hasIntersection := false
+
+	// Iterate over each triangle for the given ray
+	for _, triangle := range triangles {
+		// Check if the ray intersects the bounding box of the triangle first
+		if !triangle.IntersectBoundingBox(ray) {
+			continue
+		}
+
+		// Möller–Trumbore intersection algorithm
+		edge1 := triangle.v2.Sub(triangle.v1)
+		edge2 := triangle.v3.Sub(triangle.v1)
+		h := ray.direction.Cross(edge2)
+		a := edge1.Dot(h)
+		if a > -0.00001 && a < 0.00001 {
+			continue
+		}
+		f := 1.0 / a
+		s := ray.origin.Sub(triangle.v1)
+		u := f * s.Dot(h)
+		if u < 0.0 || u > 1.0 {
+			continue
+		}
+		q := s.Cross(edge1)
+		v := f * ray.direction.Dot(q)
+		if v < 0.0 || u+v > 1.0 {
+			continue
+		}
+		t := f * edge2.Dot(q)
+		if t > 0.00001 {
+			tempIntersection := Intersection{
+				PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
+				Color:               triangle.color,
+				Normal:              triangle.Normal,
+				Direction:           ray.direction,
+				Distance:            t,
+				reflection:          triangle.reflection,
+			}
+
+			// Update the closest intersection if the new one is closer
+			if t < closestIntersection.Distance {
+				closestIntersection = tempIntersection
+				hasIntersection = true
+			}
+		}
+	}
+
+	return closestIntersection, hasIntersection
 }
 
 type Camera struct {
@@ -959,7 +1030,7 @@ func GenerateRandomSpheres(numSpheres int) []object {
 		radius := rand.Float32()*50 + 10
 		color := color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
 		reflection := rand.Float32()
-		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32() * 400 - 200}
+		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32()*400 - 200}
 		sphere := CreateSphere(position, radius, color, reflection)
 		spheres[i] = *CreateObject(sphere)
 	}
@@ -1225,6 +1296,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize)
 	averageFPS += fps
 	Frames++
+
+	fmt.Println("Old:", float64(Old) / float64(OldCount))
+	fmt.Println("New:", float64(New) / float64(NewCount))
 
 	// Save the current frame as a PNG image
 	saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Plane/frame_%d.png", Frames))
