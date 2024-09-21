@@ -1411,12 +1411,14 @@ func main() {
 	for i := 0; i < 100000; i++ {
 		v = v.Add(v)
 	}
+	// Vec time: 1.00906ms result: {[+Inf +Inf +Inf]}
 	fmt.Println("Vec time:", time.Since(start), "result:", v)
 
 	start = time.Now()
 	for i := 0; i < 100000; i++ {
 		vector = vector.Add(vector)
 	}
+	// Vector time: 80.242µs result: {+Inf +Inf +Inf}
 	fmt.Println("Vector time:", time.Since(start), "result:", vector)
 
 	numCPU := runtime.NumCPU()
