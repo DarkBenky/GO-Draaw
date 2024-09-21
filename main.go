@@ -828,17 +828,17 @@ func TraceRay(ray Ray, depth int, bvh *BVHNode, light Light, scatter int) color.
 			lightIntensity := light.intensity * math32.Max(0.0, lightDir.Dot(intersection.Normal))
 
 			directColor = color.RGBA{
-				R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R))* lightIntensity * float32(light.Color[0])),
-				G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G))* lightIntensity * float32(light.Color[1])),
-				B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B))* lightIntensity * float32(light.Color[2])),
+				R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R)) * lightIntensity * float32(light.Color[0])),
+				G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G)) * lightIntensity * float32(light.Color[1])),
+				B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B)) * lightIntensity * float32(light.Color[2])),
 				A: intersection.Color.A,
 			}
 		} else {
 			lightIntensity := float32(0.05) // Adjust ambient factor as needed
 			directColor = color.RGBA{
-				R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R))* lightIntensity * float32(light.Color[0])),
-				G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G))* lightIntensity * float32(light.Color[0])),
-				B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B))* lightIntensity * float32(light.Color[0])),
+				R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R)) * lightIntensity * float32(light.Color[0])),
+				G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G)) * lightIntensity * float32(light.Color[0])),
+				B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B)) * lightIntensity * float32(light.Color[0])),
 				A: intersection.Color.A,
 			}
 		}
@@ -1157,33 +1157,43 @@ func (object *object) ConvertToTriangles() []Triangle {
 	return triangles
 }
 
+// PrecomputeScreenSpaceCoordinates computes screen space coordinates using goroutines
 func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32, camera Camera) [][]Vector {
 	aspectRatio := float32(screenWidth) / float32(screenHeight)
 	scale := math32.Tan(FOV * 0.5 * math32.Pi / 180.0) // Convert FOV to radians
 
 	screenSpaceCoordinates := make([][]Vector, screenWidth)
-	for width := 0; width < screenWidth; width++ {
-		screenSpaceCoordinates[width] = make([]Vector, screenHeight)
-		for height := 0; height < screenHeight; height++ {
-			// Normalize screen coordinates to [-1, 1]
-			pixelNDCX := (float32(width) + 0.5) / float32(screenWidth)
-			pixelNDCY := (float32(height) + 0.5) / float32(screenHeight)
-
-			// Screen space coordinates [-1, 1]
-			pixelScreenX := 2.0*pixelNDCX - 1.0
-			pixelScreenY := 1.0 - 2.0*pixelNDCY
-
-			// Apply aspect ratio and FOV scale
-			pixelCameraX := pixelScreenX * aspectRatio * scale
-			pixelCameraY := pixelScreenY * scale
-
-			screenSpaceCoordinates[width][height] = Vector{pixelCameraX, pixelCameraY, -1}.Normalize()
-
-			// Rotate the screen space coordinates based on the direction of the camera
-			screenSpaceCoordinates[width][height] = screenSpaceCoordinates[width][height].Rotate(camera.xAxis, camera.yAxis, camera.zAxis)
-		}
+	for i := range screenSpaceCoordinates {
+		screenSpaceCoordinates[i] = make([]Vector, screenHeight)
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(screenWidth)
+
+	for width := 0; width < screenWidth; width++ {
+		go func(w int) {
+			defer wg.Done()
+			for height := 0; height < screenHeight; height++ {
+				// Normalize screen coordinates to [-1, 1]
+				pixelNDCX := (float32(w) + 0.5) / float32(screenWidth)
+				pixelNDCY := (float32(height) + 0.5) / float32(screenHeight)
+
+				// Screen space coordinates [-1, 1]
+				pixelScreenX := 2.0*pixelNDCX - 1.0
+				pixelScreenY := 1.0 - 2.0*pixelNDCY
+
+				// Apply aspect ratio and FOV scale
+				pixelCameraX := pixelScreenX * aspectRatio * scale
+				pixelCameraY := pixelScreenY * scale
+
+				// Normalize and rotate the vector
+				dir := Vector{pixelCameraX, pixelCameraY, -1}.Normalize()
+				screenSpaceCoordinates[w][height] = dir.Rotate(camera.xAxis, camera.yAxis, camera.zAxis)
+			}
+		}(width)
+	}
+
+	wg.Wait()
 	return screenSpaceCoordinates
 }
 
@@ -1350,7 +1360,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	Frames++
 
 	// Save the current frame as a PNG image
-	saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Tank_New/frame_%d.png", Frames))
+	saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Cubes/frame_%d.png", Frames))
 
 	// If there's no previous frame, just draw the current frame
 	if g.prevFrame == nil {
@@ -1384,7 +1394,31 @@ type Game struct {
 var averageFPS = 0.0
 var Frames = 0
 
+type Vec struct {
+	vec [3]float32
+}
+
+func (v Vec) Add(v2 Vec) Vec {
+	return Vec{vec: [3]float32{v.vec[0] + v2.vec[0], v.vec[1] + v2.vec[1], v.vec[2] + v2.vec[2]}}
+}
+
 func main() {
+
+	v := Vec{vec: [3]float32{1, 2, 3}}
+	vector := Vector{1, 2, 3}
+
+	start := time.Now()
+	for i := 0; i < 100000; i++ {
+		v = v.Add(v)
+	}
+	fmt.Println("Vec time:", time.Since(start), "result:", v)
+
+	start = time.Now()
+	for i := 0; i < 100000; i++ {
+		vector = vector.Add(vector)
+	}
+	fmt.Println("Vector time:", time.Since(start), "result:", vector)
+
 	numCPU := runtime.NumCPU()
 	fmt.Println("Number of CPUs:", numCPU)
 
@@ -1393,20 +1427,20 @@ func main() {
 	ebiten.SetVsyncEnabled(false)
 	ebiten.SetTPS(24)
 
-	// spheres := GenerateRandomSpheres(15)
-	// cubes := GenerateRandomCubes(10)
+	spheres := GenerateRandomSpheres(15)
+	cubes := GenerateRandomCubes(20)
 
-	obj, err := LoadOBJ("T 90.obj")
-	if err != nil {
-		panic(err)
-	}
-	obj.Scale(65)
+	// obj, err := LoadOBJ("T 90.obj")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// obj.Scale(65)
 
 	objects := []object{}
-	objects = append(objects, obj)
+	// objects = append(objects, obj)
 
-	// objects = append(objects, spheres...)
-	// objects = append(objects, cubes...)
+	objects = append(objects, spheres...)
+	objects = append(objects, cubes...)
 
 	bvh := ConvertObjectsToBVH(objects, maxDepth)
 
@@ -1414,7 +1448,7 @@ func main() {
 
 	game := &Game{
 		camera:                 camera,
-		light:                  Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1},
+		light:                  Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 5},
 		scaleFactor:            1,
 		updateFreq:             0,
 		samples:                16,
