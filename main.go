@@ -42,8 +42,8 @@ import (
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
-const maxDepth = 12
-const numCPU = 16
+var maxDepth = 12
+var numCPU = 16
 
 type Material struct {
 	name  string
@@ -1148,7 +1148,6 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 }
 
 func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int, depth int) {
-    numCPU := runtime.NumCPU()
     pixelChan := make(chan Pixel, screenWidth*screenHeight)
     var wg sync.WaitGroup
     jobChan := make(chan Job, numCPU)
@@ -1163,8 +1162,6 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
             }
         }()
     }
-
-    
 
     // Distribute work
     go func() {
@@ -1350,6 +1347,71 @@ type Game struct {
 var averageFPS = 0.0
 var Frames = 0
 
+func OptimizeBVHDepth(objects []object, camera Camera, light Light) int {
+	fmt.Println("Optimizing BVH depth...")
+
+	minDepth := 1
+	maxDepth := 32
+	bestDepth := 1
+	bestFPS := 0.0
+
+	for maxDepth - minDepth > 1 {
+		mid1 := minDepth + (maxDepth-minDepth)/3
+		mid2 := maxDepth - (maxDepth-minDepth)/3
+
+		fps1 := benchmarkBVHDepth(objects, camera, light, mid1)
+		fps2 := benchmarkBVHDepth(objects, camera, light, mid2)
+
+		fmt.Printf("BVH Depth: %d, FPS: %.2f | BVH Depth: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
+
+		if fps1 > fps2 {
+			maxDepth = mid2
+			if fps1 > bestFPS {
+				bestFPS = fps1
+				bestDepth = mid1
+			}
+		} else {
+			minDepth = mid1
+			if fps2 > bestFPS {
+				bestFPS = fps2
+				bestDepth = mid2
+			}
+		}
+	}
+
+	// Final check for the boundaries
+	for depth := minDepth; depth <= maxDepth; depth++ {
+		fps := benchmarkBVHDepth(objects, camera, light, depth)
+		fmt.Printf("Final check - BVH Depth: %d, FPS: %.2f\n", depth, fps)
+		if fps > bestFPS {
+			bestFPS = fps
+			bestDepth = depth
+		}
+	}
+
+	fmt.Printf("Optimal BVH depth found: %d, Best FPS: %.2f\n", bestDepth, bestFPS)
+	return bestDepth
+}
+
+func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) float64 {
+	bvh := ConvertObjectsToBVH(objects, depth)
+
+	// Create a dummy image for benchmarking
+	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
+
+	benchmarkDuration := 3 * time.Second
+	frameCount := 0
+	startTime := time.Now()
+
+	for time.Since(startTime) < benchmarkDuration {
+		DrawRays(bvh, dummyImage, camera, light, 4, 0, PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera), 64, 1)
+		frameCount++
+	}
+
+	fps := float64(frameCount) / benchmarkDuration.Seconds()
+	return fps
+}
+
 func main() {
 
 	fmt.Println("Number of CPUs:", numCPU)
@@ -1371,16 +1433,21 @@ func main() {
 	objects := []object{}
 	objects = append(objects, obj)
 
+	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
+	light := Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1}
+
+	bestDepth := OptimizeBVHDepth(objects, camera, light)
+
 	// objects = append(objects, spheres...)
 	// objects = append(objects, cubes...)
 
-	bvh := ConvertObjectsToBVH(objects, maxDepth)
+	bvh := ConvertObjectsToBVH(objects, bestDepth)
 
-	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
+	
 
 	game := &Game{
 		camera:                 camera,
-		light:                  Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1},
+		light:                  light,
 		scaleFactor:            3,
 		updateFreq:             0,
 		samples:                0,
