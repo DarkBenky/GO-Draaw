@@ -1399,12 +1399,73 @@ func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) 
 	// Create a dummy image for benchmarking
 	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
 
-	benchmarkDuration := 3 * time.Second
+	benchmarkDuration := 10 * time.Second
 	frameCount := 0
 	startTime := time.Now()
 
 	for time.Since(startTime) < benchmarkDuration {
 		DrawRays(bvh, dummyImage, camera, light, 4, 0, PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera), 64, 1)
+		frameCount++
+	}
+
+	fps := float64(frameCount) / benchmarkDuration.Seconds()
+	return fps
+}
+
+func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNode, minBlockSize, maxBlockSize int) int {
+	fmt.Println("Optimizing block size...")
+
+	bestBlockSize := minBlockSize
+	bestFPS := 0.0
+
+	for maxBlockSize - minBlockSize > 1 {
+		mid1 := minBlockSize + (maxBlockSize-minBlockSize)/3
+		mid2 := maxBlockSize - (maxBlockSize-minBlockSize)/3
+
+		fps1 := benchmarkBlockSize(objects, camera, light, bvh, mid1)
+		fps2 := benchmarkBlockSize(objects, camera, light, bvh, mid2)
+
+		fmt.Printf("BlockSize: %d, FPS: %.2f | BlockSize: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
+
+		if fps1 > fps2 {
+			maxBlockSize = mid2
+			if fps1 > bestFPS {
+				bestFPS = fps1
+				bestBlockSize = mid1
+			}
+		} else {
+			minBlockSize = mid1
+			if fps2 > bestFPS {
+				bestFPS = fps2
+				bestBlockSize = mid2
+			}
+		}
+	}
+
+	// Final check for the boundaries
+	for blockSize := minBlockSize; blockSize <= maxBlockSize; blockSize++ {
+		fps := benchmarkBlockSize(objects, camera, light, bvh, blockSize)
+		fmt.Printf("Final check - BlockSize: %d, FPS: %.2f\n", blockSize, fps)
+		if fps > bestFPS {
+			bestFPS = fps
+			bestBlockSize = blockSize
+		}
+	}
+
+	fmt.Printf("Optimal block size found: %d, Best FPS: %.2f\n", bestBlockSize, bestFPS)
+	return bestBlockSize
+}
+
+func benchmarkBlockSize(objects []object, camera Camera, light Light, bvh *BVHNode, blockSize int) float64 {
+	// Create a dummy image for benchmarking
+	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
+
+	benchmarkDuration := 10 * time.Second
+	frameCount := 0
+	startTime := time.Now()
+
+	for time.Since(startTime) < benchmarkDuration {
+		DrawRays(bvh, dummyImage, camera, light, 4, 0, PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera), blockSize, 1)
 		frameCount++
 	}
 
@@ -1443,8 +1504,11 @@ func main() {
 
 	bvh := ConvertObjectsToBVH(objects, bestDepth)
 
+	// Optimize the block size
+	minBlockSize := 16
+	maxBlockSize := 512
+	bestBlockSize := OptimizeBlockSize(objects, camera, light, bvh, minBlockSize, maxBlockSize)
 	
-
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
@@ -1454,7 +1518,7 @@ func main() {
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		blockSize:              64,
+		blockSize:              bestBlockSize,
 		depth:                  2,
 	}
 
