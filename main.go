@@ -577,7 +577,7 @@ func clampUint8(value float32) uint8 {
 	return uint8(value)
 }
 
-var Old	int64
+var Old int64
 var OldCount int64
 var New int64
 var NewCount int64
@@ -606,7 +606,7 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 
 		Old += time.Since(start).Milliseconds()
 		OldCount++
-		
+
 		start = time.Now()
 
 		closestIntersection, hasIntersection = IntersectTriangles(*ray, nodeBVH.Triangles)
@@ -1297,8 +1297,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	averageFPS += fps
 	Frames++
 
-	fmt.Println("Old:", float64(Old) / float64(OldCount))
-	fmt.Println("New:", float64(New) / float64(NewCount))
+	fmt.Println("Old:", float64(Old)/float64(OldCount))
+	fmt.Println("New:", float64(New)/float64(NewCount))
 
 	// Save the current frame as a PNG image
 	saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Plane/frame_%d.png", Frames))
