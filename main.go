@@ -1130,6 +1130,7 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 			pixelScreenX := 2.0*pixelNDCX - 1.0
 			pixelScreenY := 1.0 - 2.0*pixelNDCY
 
+			// Apply aspect ratio and FOV scale
 			pixelCameraX := pixelScreenX * aspectRatio * scale
 			pixelCameraY := pixelScreenY * scale
 
@@ -1143,57 +1144,58 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
-func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int) {
-	pixelChan := make(chan Pixel, screenWidth*screenHeight)
-	var wg sync.WaitGroup
-	jobChan := make(chan Job, numCPU)
+func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int, depth int) {
+    pixelChan := make(chan Pixel, screenWidth*screenHeight)
+    var wg sync.WaitGroup
+    jobChan := make(chan Job, numCPU)
 
-	// Create a pool of worker goroutines
-	for i := 0; i < numCPU; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobChan {
-				processBlock(job, bvh, light, scaling,camera , samples, screenSpaceCoordinates, depth, pixelChan)
-			}
-		}()
-	}
+    // Create a pool of worker goroutines
+    for i := 0; i < numCPU; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for job := range jobChan {
+                processBlock(job, bvh, camera, light, scaling, samples, screenSpaceCoordinates, depth, pixelChan)
+            }
+        }()
+    }
 
-	// Distribute work
-	go func() {
-		for startY := 0; startY < screenHeight; startY += BlockSize * scaling {
-			for startX := 0; startX < screenWidth; startX += BlockSize * scaling {
-				endX := min(startX+BlockSize*scaling, screenWidth)
-				endY := min(startY+BlockSize*scaling, screenHeight)
-				jobChan <- Job{startX, startY, endX, endY}
-			}
-		}
-		close(jobChan)
-	}()
+    // Distribute work
+    go func() {
+        for startY := 0; startY < screenHeight; startY += blockSize * scaling {
+            for startX := 0; startX < screenWidth; startX += blockSize * scaling {
+                endX := min(startX+blockSize*scaling, screenWidth)
+                endY := min(startY+blockSize*scaling, screenHeight)
+                jobChan <- Job{startX, startY, endX, endY}
+            }
+        }
+        close(jobChan)
+    }()
 
-	// Wait for all workers to finish
-	go func() {
-		wg.Wait()
-		close(pixelChan)
-	}()
+    // Wait for all workers to finish
+    go func() {
+        wg.Wait()
+        close(pixelChan)
+    }()
 
-	// Draw pixels
-	if scaling == 1 {
-		for pixel := range pixelChan {
-			screen.Set(pixel.x, pixel.y, pixel.color)
-		}
-	} else {
-		for pixel := range pixelChan {
-			vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
-		}
-	}
+    // Draw pixels
+    if scaling == 1 {
+        for pixel := range pixelChan {
+            screen.Set(pixel.x, pixel.y, pixel.color)
+        }
+    } else {
+        for pixel := range pixelChan {
+            vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
+        }
+    }
 }
+
 
 type Job struct {
 	startX, startY, endX, endY int
 }
 
-func processBlock(job Job, bvh *BVHNode, light Light, scaling int, camera Camera, samples int, screenSpaceCoordinates [][]Vector, depth int, pixelChan chan<- Pixel) {
+func processBlock(job Job, bvh *BVHNode, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int, pixelChan chan<- Pixel) {
 	for width := job.startX; width < job.endX; width += scaling {
 		for height := job.startY; height < job.endY; height += scaling {
 			rayDirection := screenSpaceCoordinates[width][height]
@@ -1213,7 +1215,7 @@ func (g *Game) Update() error {
 	g.camera.yAxis += 0.01
 
 	// Update the screen space coordinates
-	g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
+	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
 
 	g.updateFreq++
 
@@ -1289,7 +1291,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame = ebiten.NewImage(800, 600)
 
 		// Perform path tracing and draw rays into the current frame
-		DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.depth)
+		DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, BlockSize, g.depth)
 
 		// Move current frame to previous frame
 		if g.prevFrame == nil {
