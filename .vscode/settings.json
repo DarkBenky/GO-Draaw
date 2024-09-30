@@ -1,10 +1,10 @@
 {
     "cSpell.words": [
-        "tmax",
+        "bmin",
+        "cvtss",
+        "loadu",
+        "pvec",
         "tmin",
-        "tymax",
-        "tymin",
-        "tzmax",
-        "tzmin"
+        "tvec"
     ]
 }

@@ -1,0 +1,6 @@
+DIV2K_train_HR
+# Ignore all .npy, .tflite, and .h5 files
+*.npy
+*.tflite
+*.h5
+Render_*
