@@ -37,16 +37,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
-	"github.com/viterin/vek"
-	"github.com/viterin/vek/vek32"
 )
 
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
-
-var maxDepth = 12
-var numCPU = 16
+const BlockSize = 32
+const numCPU = 16
 
 type Material struct {
 	name  string
@@ -225,20 +222,12 @@ type Vector struct {
 	x, y, z float32
 }
 
-type Vector3x32 struct {
-	vec []float32
-}
-
 func (v Vector) Length() float32 {
 	return math32.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
 }
 
 func (v Vector) Add(v2 Vector) Vector {
 	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
-}
-
-func (v *Vector3x32) Add(v2 Vector3x32) {
-	vek32.Add_Inplace(v.vec, v2.vec)
 }
 
 func (v Vector) Sub(v2 Vector) Vector {
@@ -1141,7 +1130,6 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 			pixelScreenX := 2.0*pixelNDCX - 1.0
 			pixelScreenY := 1.0 - 2.0*pixelNDCY
 
-			// Apply aspect ratio and FOV scale
 			pixelCameraX := pixelScreenX * aspectRatio * scale
 			pixelCameraY := pixelScreenY * scale
 
@@ -1155,7 +1143,7 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
-func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int, depth int) {
+func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	var wg sync.WaitGroup
 	jobChan := make(chan Job, numCPU)
@@ -1166,17 +1154,17 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 		go func() {
 			defer wg.Done()
 			for job := range jobChan {
-				processBlock(job, bvh, camera, light, scaling, samples, screenSpaceCoordinates, depth, pixelChan)
+				processBlock(job, bvh, light, scaling,camera , samples, screenSpaceCoordinates, depth, pixelChan)
 			}
 		}()
 	}
 
 	// Distribute work
 	go func() {
-		for startY := 0; startY < screenHeight; startY += blockSize * scaling {
-			for startX := 0; startX < screenWidth; startX += blockSize * scaling {
-				endX := min(startX+blockSize*scaling, screenWidth)
-				endY := min(startY+blockSize*scaling, screenHeight)
+		for startY := 0; startY < screenHeight; startY += BlockSize * scaling {
+			for startX := 0; startX < screenWidth; startX += BlockSize * scaling {
+				endX := min(startX+BlockSize*scaling, screenWidth)
+				endY := min(startY+BlockSize*scaling, screenHeight)
 				jobChan <- Job{startX, startY, endX, endY}
 			}
 		}
@@ -1205,7 +1193,7 @@ type Job struct {
 	startX, startY, endX, endY int
 }
 
-func processBlock(job Job, bvh *BVHNode, light Light, scaling int, camera Camera, samples int, screenSpaceCoordinates *ScreenSpaceCoordinates, depth int, pixelChan chan<- Pixel) {
+func processBlock(job Job, bvh *BVHNode, light Light, scaling int, camera Camera, samples int, screenSpaceCoordinates [][]Vector, depth int, pixelChan chan<- Pixel) {
 	for width := job.startX; width < job.endX; width += scaling {
 		for height := job.startY; height < job.endY; height += scaling {
 			rayDirection := screenSpaceCoordinates[width][height]
@@ -1213,13 +1201,6 @@ func processBlock(job Job, bvh *BVHNode, light Light, scaling int, camera Camera
 			pixelChan <- Pixel{x: width, y: height, color: TraceRay(ray, depth, bvh, light, samples)}
 		}
 	}
-}
-
-type ColorInt16 struct {
-	R uint16
-	G uint16
-	B uint16
-	A uint16
 }
 
 func (g *Game) Update() error {
@@ -1232,7 +1213,7 @@ func (g *Game) Update() error {
 	g.camera.yAxis += 0.01
 
 	// Update the screen space coordinates
-	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
+	g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
 
 	g.updateFreq++
 
@@ -1308,7 +1289,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame = ebiten.NewImage(800, 600)
 
 		// Perform path tracing and draw rays into the current frame
-		DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize, g.depth)
+		DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.depth)
 
 		// Move current frame to previous frame
 		if g.prevFrame == nil {
@@ -1345,7 +1326,6 @@ type Game struct {
 	BVHobjects             *BVHNode
 	startTime              time.Time
 	updateFreq             int
-	blockSize              int
 	prevFrame              *ebiten.Image
 	currentFrame           *ebiten.Image
 	depth                  int
@@ -1354,186 +1334,7 @@ type Game struct {
 var averageFPS = 0.0
 var Frames = 0
 
-func OptimizeBVHDepth(objects []object, camera Camera, light Light) int {
-	fmt.Println("Optimizing BVH depth...")
-
-	minDepth := 1
-	maxDepth := 32
-	bestDepth := 1
-	bestFPS := 0.0
-
-	for maxDepth-minDepth > 1 {
-		mid1 := minDepth + (maxDepth-minDepth)/3
-		mid2 := maxDepth - (maxDepth-minDepth)/3
-
-		fps1 := benchmarkBVHDepth(objects, camera, light, mid1)
-		fps2 := benchmarkBVHDepth(objects, camera, light, mid2)
-
-		fmt.Printf("BVH Depth: %d, FPS: %.2f | BVH Depth: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
-
-		if fps1 > fps2 {
-			maxDepth = mid2
-			if fps1 > bestFPS {
-				bestFPS = fps1
-				bestDepth = mid1
-			}
-		} else {
-			minDepth = mid1
-			if fps2 > bestFPS {
-				bestFPS = fps2
-				bestDepth = mid2
-			}
-		}
-	}
-
-	// Final check for the boundaries
-	for depth := minDepth; depth <= maxDepth; depth++ {
-		fps := benchmarkBVHDepth(objects, camera, light, depth)
-		fmt.Printf("Final check - BVH Depth: %d, FPS: %.2f\n", depth, fps)
-		if fps > bestFPS {
-			bestFPS = fps
-			bestDepth = depth
-		}
-	}
-
-	fmt.Printf("Optimal BVH depth found: %d, Best FPS: %.2f\n", bestDepth, bestFPS)
-	return bestDepth
-}
-
-func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) float64 {
-	bvh := ConvertObjectsToBVH(objects, depth)
-
-	// Create a dummy image for benchmarking
-	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
-
-	benchmarkDuration := 10 * time.Second
-	frameCount := 0
-	startTime := time.Now()
-
-	for time.Since(startTime) < benchmarkDuration {
-		DrawRays(bvh, dummyImage, camera, light, 4, 0, PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera), 64, 1)
-		frameCount++
-	}
-
-	fps := float64(frameCount) / benchmarkDuration.Seconds()
-	return fps
-}
-
-func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNode, minBlockSize, maxBlockSize int) int {
-	fmt.Println("Optimizing block size...")
-
-	bestBlockSize := minBlockSize
-	bestFPS := 0.0
-
-	for maxBlockSize-minBlockSize > 1 {
-		mid1 := minBlockSize + (maxBlockSize-minBlockSize)/3
-		mid2 := maxBlockSize - (maxBlockSize-minBlockSize)/3
-
-		fps1 := benchmarkBlockSize(objects, camera, light, bvh, mid1)
-		fps2 := benchmarkBlockSize(objects, camera, light, bvh, mid2)
-
-		fmt.Printf("BlockSize: %d, FPS: %.2f | BlockSize: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
-
-		if fps1 > fps2 {
-			maxBlockSize = mid2
-			if fps1 > bestFPS {
-				bestFPS = fps1
-				bestBlockSize = mid1
-			}
-		} else {
-			minBlockSize = mid1
-			if fps2 > bestFPS {
-				bestFPS = fps2
-				bestBlockSize = mid2
-			}
-		}
-	}
-
-	// Final check for the boundaries
-	for blockSize := minBlockSize; blockSize <= maxBlockSize; blockSize++ {
-		fps := benchmarkBlockSize(objects, camera, light, bvh, blockSize)
-		fmt.Printf("Final check - BlockSize: %d, FPS: %.2f\n", blockSize, fps)
-		if fps > bestFPS {
-			bestFPS = fps
-			bestBlockSize = blockSize
-		}
-	}
-
-	fmt.Printf("Optimal block size found: %d, Best FPS: %.2f\n", bestBlockSize, bestFPS)
-	return bestBlockSize
-}
-
-func benchmarkBlockSize(objects []object, camera Camera, light Light, bvh *BVHNode, blockSize int) float64 {
-	// Create a dummy image for benchmarking
-	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
-
-	benchmarkDuration := 10 * time.Second
-	frameCount := 0
-	startTime := time.Now()
-
-	for time.Since(startTime) < benchmarkDuration {
-		DrawRays(bvh, dummyImage, camera, light, 4, 0, PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera), blockSize, 1)
-		frameCount++
-	}
-
-	fps := float64(frameCount) / benchmarkDuration.Seconds()
-	return fps
-}
-
 func main() {
-
-	fmt.Println("%+v", vek.Info())
-
-	v := Vector{1, 2, 3}
-	v2 := Vector{4, 5, 6}
-
-	start := time.Now()
-	for i := 0; i < 100000; i++ {
-		v = v.Add(v2)
-	}
-
-	fmt.Println(time.Since(start), "result is Add", v)
-
-	start = time.Now()
-	for i := 0; i < 100000; i++ {
-		v = v.Sub(v2)
-	}
-
-	fmt.Println(time.Since(start), "result is Sub", v)
-
-	dot := float32(0.0)
-	start = time.Now()
-	for i := 0; i < 100000; i++ {
-		dot += v.Dot(v2)
-	}
-
-	fmt.Println(time.Since(start), "result is Normalize", dot)
-
-	v3 := []float32{1, 2, 3}
-	v4 := []float32{4, 5, 6}
-
-	start = time.Now()
-	for i := 0; i < 10000; i++ {
-		vek32.Add_Inplace(v3, v4)
-	}
-	fmt.Println(time.Since(start), "result is Add", v3)
-
-	start = time.Now()
-	for i := 0; i < 10000; i++ {
-		vek32.Sub_Inplace(v3, v4)
-	}
-
-	fmt.Println(time.Since(start), "result is Sub", v3)
-
-	dot = float32(0.0)
-	start = time.Now()
-	for i := 0; i < 10000; i++ {
-		dot -= vek32.Dot(v3, v4)
-	}
-
-	fmt.Println(time.Since(start), "result is Dot", v3, dot)
-
-	fmt.Println("Number of CPUs:", numCPU)
 
 	runtime.GOMAXPROCS(numCPU)
 
@@ -1555,11 +1356,6 @@ func main() {
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
 	light := Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1}
 
-	// bestDepth := OptimizeBVHDepth(objects, camera, light)
-
-	// objects = append(objects, spheres...)
-	// objects = append(objects, cubes...)
-
 	bvh := ConvertObjectsToBVH(objects, 12)
 
 	// Optimize the block size
@@ -1576,7 +1372,6 @@ func main() {
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		blockSize:              64,
 		depth:                  2,
 	}
 
