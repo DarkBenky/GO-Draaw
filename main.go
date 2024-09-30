@@ -37,11 +37,14 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/viterin/vek"
+	"github.com/viterin/vek/vek32"
 )
 
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
+
 var maxDepth = 12
 var numCPU = 16
 
@@ -222,12 +225,20 @@ type Vector struct {
 	x, y, z float32
 }
 
+type Vector3x32 struct {
+	vec []float32
+}
+
 func (v Vector) Length() float32 {
 	return math32.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
 }
 
 func (v Vector) Add(v2 Vector) Vector {
 	return Vector{v.x + v2.x, v.y + v2.y, v.z + v2.z}
+}
+
+func (v *Vector3x32) Add(v2 Vector3x32) {
+	vek32.Add_Inplace(v.vec, v2.vec)
 }
 
 func (v Vector) Sub(v2 Vector) Vector {
@@ -583,12 +594,12 @@ var New int64
 var NewCount int64
 
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
-	if len(nodeBVH.Triangles) > 0 {
-		return IntersectTriangles(*ray, nodeBVH.Triangles)
+	if nodeBVH.Triangles != nil {
+		return ray.IntersectTriangle(*nodeBVH.Triangles)
 	}
 
-	leftHit := nodeBVH.Left != nil && BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
-	rightHit := nodeBVH.Right != nil && BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
+	leftHit := nodeBVH.Left != nil && BoundingBoxCollision(&nodeBVH.Left.BoundingBox, ray)
+	rightHit := nodeBVH.Right != nil && BoundingBoxCollision(&nodeBVH.Right.BoundingBox, ray)
 
 	if leftHit && rightHit {
 		leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
@@ -837,17 +848,17 @@ func ConvertObjectsToBVH(objects []object, maxDepth int) *BVHNode {
 	for _, object := range objects {
 		triangles = append(triangles, object.triangles...)
 	}
-	return buildBVHNode(triangles, 0, maxDepth)
+	return buildBVHNode(triangles)
 }
 
 type BVHNode struct {
 	Left, Right *BVHNode
-	BoundingBox *[2]Vector
-	Triangles   []Triangle
+	BoundingBox [2]Vector
+	Triangles   *Triangle
 }
 
 func (object *object) BuildBVH(maxDepth int) *BVHNode {
-	return buildBVHNode(object.triangles, 0, maxDepth)
+	return buildBVHNode(object.triangles)
 }
 
 func calculateSurfaceArea(bbox [2]Vector) float32 {
@@ -857,7 +868,7 @@ func calculateSurfaceArea(bbox [2]Vector) float32 {
 	return 2 * (dx*dy + dy*dz + dz*dx)
 }
 
-func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
+func buildBVHNode(triangles []Triangle) *BVHNode {
 	if len(triangles) == 0 {
 		return nil
 	}
@@ -878,15 +889,12 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 		boundingBox[1].z = math32.Max(boundingBox[1].z, triangle.BoundingBox[1].z)
 	}
 
-	// If the node is a leaf or we've reached the maximum depth
-	if len(triangles) <= 2 || depth >= maxDepth {
-		// Allocate the slice with the exact capacity needed
-		node := &BVHNode{
-			BoundingBox: &boundingBox,
-			Triangles:   make([]Triangle, len(triangles)), // Set capacity to the exact size
+	// If the node is a leaf (contains only one triangle)
+	if len(triangles) == 1 {
+		return &BVHNode{
+			BoundingBox: boundingBox,
+			Triangles:   &triangles[0], // Store a pointer to the single triangle
 		}
-		copy(node.Triangles, triangles) // Copy the triangles
-		return node
 	}
 
 	// Surface Area Heuristics (SAH) to find the best split
@@ -967,9 +975,9 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 	}
 
 	// Create the BVH node with the best split
-	node := &BVHNode{BoundingBox: &boundingBox}
-	node.Left = buildBVHNode(triangles[:bestSplit], depth+1, maxDepth)
-	node.Right = buildBVHNode(triangles[bestSplit:], depth+1, maxDepth)
+	node := &BVHNode{BoundingBox: boundingBox}
+	node.Left = buildBVHNode(triangles[:bestSplit])
+	node.Right = buildBVHNode(triangles[bestSplit:])
 
 	return node
 }
@@ -1148,51 +1156,50 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 }
 
 func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int, depth int) {
-    pixelChan := make(chan Pixel, screenWidth*screenHeight)
-    var wg sync.WaitGroup
-    jobChan := make(chan Job, numCPU)
+	pixelChan := make(chan Pixel, screenWidth*screenHeight)
+	var wg sync.WaitGroup
+	jobChan := make(chan Job, numCPU)
 
-    // Create a pool of worker goroutines
-    for i := 0; i < numCPU; i++ {
-        wg.Add(1)
-        go func() {
-            defer wg.Done()
-            for job := range jobChan {
-                processBlock(job, bvh, camera, light, scaling, samples, screenSpaceCoordinates, depth, pixelChan)
-            }
-        }()
-    }
+	// Create a pool of worker goroutines
+	for i := 0; i < numCPU; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobChan {
+				processBlock(job, bvh, camera, light, scaling, samples, screenSpaceCoordinates, depth, pixelChan)
+			}
+		}()
+	}
 
-    // Distribute work
-    go func() {
-        for startY := 0; startY < screenHeight; startY += blockSize * scaling {
-            for startX := 0; startX < screenWidth; startX += blockSize * scaling {
-                endX := min(startX+blockSize*scaling, screenWidth)
-                endY := min(startY+blockSize*scaling, screenHeight)
-                jobChan <- Job{startX, startY, endX, endY}
-            }
-        }
-        close(jobChan)
-    }()
+	// Distribute work
+	go func() {
+		for startY := 0; startY < screenHeight; startY += blockSize * scaling {
+			for startX := 0; startX < screenWidth; startX += blockSize * scaling {
+				endX := min(startX+blockSize*scaling, screenWidth)
+				endY := min(startY+blockSize*scaling, screenHeight)
+				jobChan <- Job{startX, startY, endX, endY}
+			}
+		}
+		close(jobChan)
+	}()
 
-    // Wait for all workers to finish
-    go func() {
-        wg.Wait()
-        close(pixelChan)
-    }()
+	// Wait for all workers to finish
+	go func() {
+		wg.Wait()
+		close(pixelChan)
+	}()
 
-    // Draw pixels
-    if scaling == 1 {
-        for pixel := range pixelChan {
-            screen.Set(pixel.x, pixel.y, pixel.color)
-        }
-    } else {
-        for pixel := range pixelChan {
-            vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
-        }
-    }
+	// Draw pixels
+	if scaling == 1 {
+		for pixel := range pixelChan {
+			screen.Set(pixel.x, pixel.y, pixel.color)
+		}
+	} else {
+		for pixel := range pixelChan {
+			vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
+		}
+	}
 }
-
 
 type Job struct {
 	startX, startY, endX, endY int
@@ -1355,7 +1362,7 @@ func OptimizeBVHDepth(objects []object, camera Camera, light Light) int {
 	bestDepth := 1
 	bestFPS := 0.0
 
-	for maxDepth - minDepth > 1 {
+	for maxDepth-minDepth > 1 {
 		mid1 := minDepth + (maxDepth-minDepth)/3
 		mid2 := maxDepth - (maxDepth-minDepth)/3
 
@@ -1418,7 +1425,7 @@ func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNod
 	bestBlockSize := minBlockSize
 	bestFPS := 0.0
 
-	for maxBlockSize - minBlockSize > 1 {
+	for maxBlockSize-minBlockSize > 1 {
 		mid1 := minBlockSize + (maxBlockSize-minBlockSize)/3
 		mid2 := maxBlockSize - (maxBlockSize-minBlockSize)/3
 
@@ -1475,6 +1482,57 @@ func benchmarkBlockSize(objects []object, camera Camera, light Light, bvh *BVHNo
 
 func main() {
 
+	fmt.Println("%+v", vek.Info())
+
+	v := Vector{1, 2, 3}
+	v2 := Vector{4, 5, 6}
+
+	start := time.Now()
+	for i := 0; i < 100000; i++ {
+		v = v.Add(v2)
+	}
+
+	fmt.Println(time.Since(start), "result is Add", v)
+
+	start = time.Now()
+	for i := 0; i < 100000; i++ {
+		v = v.Sub(v2)
+	}
+
+	fmt.Println(time.Since(start), "result is Sub", v)
+
+	dot := float32(0.0)
+	start = time.Now()
+	for i := 0; i < 100000; i++ {
+		dot += v.Dot(v2)
+	}
+
+	fmt.Println(time.Since(start), "result is Normalize", dot)
+
+	v3 := []float32{1, 2, 3}
+	v4 := []float32{4, 5, 6}
+
+	start = time.Now()
+	for i := 0; i < 10000; i++ {
+		vek32.Add_Inplace(v3, v4)
+	}
+	fmt.Println(time.Since(start), "result is Add", v3)
+
+	start = time.Now()
+	for i := 0; i < 10000; i++ {
+		vek32.Sub_Inplace(v3, v4)
+	}
+
+	fmt.Println(time.Since(start), "result is Sub", v3)
+
+	dot = float32(0.0)
+	start = time.Now()
+	for i := 0; i < 10000; i++ {
+		dot -= vek32.Dot(v3, v4)
+	}
+
+	fmt.Println(time.Since(start), "result is Dot", v3, dot)
+
 	fmt.Println("Number of CPUs:", numCPU)
 
 	runtime.GOMAXPROCS(numCPU)
@@ -1497,18 +1555,18 @@ func main() {
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
 	light := Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1}
 
-	bestDepth := OptimizeBVHDepth(objects, camera, light)
+	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
 	// objects = append(objects, spheres...)
 	// objects = append(objects, cubes...)
 
-	bvh := ConvertObjectsToBVH(objects, bestDepth)
+	bvh := ConvertObjectsToBVH(objects, 12)
 
 	// Optimize the block size
-	minBlockSize := 16
-	maxBlockSize := 512
-	bestBlockSize := OptimizeBlockSize(objects, camera, light, bvh, minBlockSize, maxBlockSize)
-	
+	// minBlockSize := 16
+	// maxBlockSize := 512
+	// bestBlockSize := OptimizeBlockSize(objects, camera, light, bvh, minBlockSize, maxBlockSize)
+
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
@@ -1518,7 +1576,7 @@ func main() {
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		blockSize:              bestBlockSize,
+		blockSize:              64,
 		depth:                  2,
 	}
 
