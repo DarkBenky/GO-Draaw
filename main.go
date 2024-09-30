@@ -1403,8 +1403,10 @@ func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) 
 	frameCount := 0
 	startTime := time.Now()
 
+	screenCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
+
 	for time.Since(startTime) < benchmarkDuration {
-		DrawRays(bvh, dummyImage, camera, light, 4, 0, PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera), 64, 1)
+		DrawRays(bvh, dummyImage, camera, light, 4, 0, screenCoordinates , 64, 1)
 		frameCount++
 	}
 
@@ -1412,13 +1414,13 @@ func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) 
 	return fps
 }
 
-func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNode, minBlockSize, maxBlockSize int) int {
+func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNode, minBlockSize, maxBlockSize int, maxIteration int) int {
 	fmt.Println("Optimizing block size...")
 
 	bestBlockSize := minBlockSize
 	bestFPS := 0.0
 
-	for maxBlockSize - minBlockSize > 1 {
+	for maxBlockSize - minBlockSize > 1 && maxIteration > 0 {
 		mid1 := minBlockSize + (maxBlockSize-minBlockSize)/3
 		mid2 := maxBlockSize - (maxBlockSize-minBlockSize)/3
 
@@ -1432,12 +1434,14 @@ func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNod
 			if fps1 > bestFPS {
 				bestFPS = fps1
 				bestBlockSize = mid1
+				maxIteration--
 			}
 		} else {
 			minBlockSize = mid1
 			if fps2 > bestFPS {
 				bestFPS = fps2
 				bestBlockSize = mid2
+				maxIteration--
 			}
 		}
 	}
@@ -1464,8 +1468,10 @@ func benchmarkBlockSize(objects []object, camera Camera, light Light, bvh *BVHNo
 	frameCount := 0
 	startTime := time.Now()
 
+	screenSpaceCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
+
 	for time.Since(startTime) < benchmarkDuration {
-		DrawRays(bvh, dummyImage, camera, light, 4, 0, PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera), blockSize, 1)
+		DrawRays(bvh, dummyImage, camera, light, 4, 0, screenSpaceCoordinates, blockSize, 1)
 		frameCount++
 	}
 
@@ -1497,17 +1503,18 @@ func main() {
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
 	light := Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1}
 
-	bestDepth := OptimizeBVHDepth(objects, camera, light)
+	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
 	// objects = append(objects, spheres...)
 	// objects = append(objects, cubes...)
 
-	bvh := ConvertObjectsToBVH(objects, bestDepth)
+	bvh := ConvertObjectsToBVH(objects, 12)
 
 	// Optimize the block size
 	minBlockSize := 16
 	maxBlockSize := 512
-	bestBlockSize := OptimizeBlockSize(objects, camera, light, bvh, minBlockSize, maxBlockSize)
+	maxIteration := 8
+	bestBlockSize := OptimizeBlockSize(objects, camera, light, bvh, minBlockSize, maxBlockSize, maxIteration)
 	
 	game := &Game{
 		camera:                 camera,
