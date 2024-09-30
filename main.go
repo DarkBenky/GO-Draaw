@@ -44,7 +44,7 @@ const screenHeight = 600
 const FOV = 90
 
 const maxDepth = 64
-const numCPU = 8
+const numCPU = 16
 
 type Material struct {
 	name  string
@@ -1229,9 +1229,9 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bo
 	if len(node.Triangles) > 0 {
 		for i, triangle := range node.Triangles {
 			if _, hit := ray.IntersectTriangle(triangle); hit {
-				fmt.Println("Triangle hit", triangle.color)
+				// fmt.Println("Triangle hit", triangle.color)
 				triangle.color = newColor
-				fmt.Println("Triangle hit", triangle.color)
+				// fmt.Println("Triangle hit", triangle.color)
 				node.Triangles[i] = triangle
 				return true
 			}
@@ -1251,7 +1251,7 @@ func (g *Game) Update() error {
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		// get position of the mouse
 		x, y := ebiten.CursorPosition()
-		fmt.Println("Mouse position", x, y)
+		// fmt.Println("Mouse position", x, y)
 		if x < screenWidth && y < screenHeight {
 			findIntersectionAndSetColor(g.BVHobjects, Ray{origin: g.camera.Position, direction: g.screenSpaceCoordinates[x][y]}, color.RGBA{255, 0, 0, 255})
 		}
@@ -1528,17 +1528,17 @@ func main() {
 	ebiten.SetVsyncEnabled(false)
 	ebiten.SetTPS(24)
 
-	spheres := GenerateRandomSpheres(15)
+	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(30)
 
-	// obj, err := LoadOBJ("Room.obj")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// obj.Scale(65)
+	obj, err := LoadOBJ("T 90.obj")
+	if err != nil {
+		panic(err)
+	}
+	obj.Scale(65)
 
-	// objects := []object{}
-	// objects = append(objects, obj)
+	objects := []object{}
+	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
 	light := Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1}
@@ -1548,7 +1548,7 @@ func main() {
 	// objects = append(objects, spheres...)
 	// objects = append(objects, cubes...)
 
-	bvh := ConvertObjectsToBVH(spheres, maxDepth)
+	bvh := ConvertObjectsToBVH(objects, maxDepth)
 
 	// Optimize the block size
 	// minBlockSize := 16
@@ -1569,14 +1569,14 @@ func main() {
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
-		scaleFactor:            4,
+		scaleFactor:            3,
 		updateFreq:             0,
 		samples:                0,
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
 		blockSize:              124,
-		depth:                  1,
+		depth:                  2,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
