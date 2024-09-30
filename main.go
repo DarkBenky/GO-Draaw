@@ -42,8 +42,9 @@ import (
 const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
-var maxDepth = 12
-var numCPU = 16
+
+const maxDepth = 64
+const numCPU = 8
 
 type Material struct {
 	name  string
@@ -1148,51 +1149,50 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 }
 
 func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int, depth int) {
-    pixelChan := make(chan Pixel, screenWidth*screenHeight)
-    var wg sync.WaitGroup
-    jobChan := make(chan Job, numCPU)
+	pixelChan := make(chan Pixel, screenWidth*screenHeight)
+	var wg sync.WaitGroup
+	jobChan := make(chan Job, numCPU)
 
-    // Create a pool of worker goroutines
-    for i := 0; i < numCPU; i++ {
-        wg.Add(1)
-        go func() {
-            defer wg.Done()
-            for job := range jobChan {
-                processBlock(job, bvh, camera, light, scaling, samples, screenSpaceCoordinates, depth, pixelChan)
-            }
-        }()
-    }
+	// Create a pool of worker goroutines
+	for i := 0; i < numCPU; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobChan {
+				processBlock(job, bvh, camera, light, scaling, samples, screenSpaceCoordinates, depth, pixelChan)
+			}
+		}()
+	}
 
-    // Distribute work
-    go func() {
-        for startY := 0; startY < screenHeight; startY += blockSize * scaling {
-            for startX := 0; startX < screenWidth; startX += blockSize * scaling {
-                endX := min(startX+blockSize*scaling, screenWidth)
-                endY := min(startY+blockSize*scaling, screenHeight)
-                jobChan <- Job{startX, startY, endX, endY}
-            }
-        }
-        close(jobChan)
-    }()
+	// Distribute work
+	go func() {
+		for startY := 0; startY < screenHeight; startY += blockSize * scaling {
+			for startX := 0; startX < screenWidth; startX += blockSize * scaling {
+				endX := min(startX+blockSize*scaling, screenWidth)
+				endY := min(startY+blockSize*scaling, screenHeight)
+				jobChan <- Job{startX, startY, endX, endY}
+			}
+		}
+		close(jobChan)
+	}()
 
-    // Wait for all workers to finish
-    go func() {
-        wg.Wait()
-        close(pixelChan)
-    }()
+	// Wait for all workers to finish
+	go func() {
+		wg.Wait()
+		close(pixelChan)
+	}()
 
-    // Draw pixels
-    if scaling == 1 {
-        for pixel := range pixelChan {
-            screen.Set(pixel.x, pixel.y, pixel.color)
-        }
-    } else {
-        for pixel := range pixelChan {
-            vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
-        }
-    }
+	// Draw pixels
+	if scaling == 1 {
+		for pixel := range pixelChan {
+			screen.Set(pixel.x, pixel.y, pixel.color)
+		}
+	} else {
+		for pixel := range pixelChan {
+			vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
+		}
+	}
 }
-
 
 type Job struct {
 	startX, startY, endX, endY int
@@ -1215,14 +1215,54 @@ type ColorInt16 struct {
 	A uint16
 }
 
+func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bool {
+	if node == nil {
+		return false
+	}
+
+	// Check if ray intersects the bounding box of the node
+	if !BoundingBoxCollision(node.BoundingBox, &ray) {
+		return false
+	}
+
+	// If this is a leaf node, check the triangles for intersection
+	if len(node.Triangles) > 0 {
+		for i, triangle := range node.Triangles {
+			if _, hit := ray.IntersectTriangle(triangle); hit {
+				fmt.Println("Triangle hit", triangle.color)
+				triangle.color = newColor
+				fmt.Println("Triangle hit", triangle.color)
+				node.Triangles[i] = triangle
+				return true
+			}
+		}
+		return false
+	}
+
+	// Traverse the left and right child nodes
+	leftHit := findIntersectionAndSetColor(node.Left, ray, newColor)
+	rightHit := findIntersectionAndSetColor(node.Right, ray, newColor)
+
+	return leftHit || rightHit
+}
+
 func (g *Game) Update() error {
+	// check if the mouse is pressed
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		// get position of the mouse
+		x, y := ebiten.CursorPosition()
+		fmt.Println("Mouse position", x, y)
+		if x < screenWidth && y < screenHeight {
+			findIntersectionAndSetColor(g.BVHobjects, Ray{origin: g.camera.Position, direction: g.screenSpaceCoordinates[x][y]}, color.RGBA{255, 0, 0, 255})
+		}
+	}
 
 	// Rotate the camera around the object
 	angle := float64(g.updateFreq) * 2 * math.Pi / 600
 	g.camera.Position.x = float32(math.Cos(angle)) * 300
 	g.camera.Position.z = float32(math.Sin(angle)) * 300
 
-	g.camera.yAxis += 0.01
+	g.camera.yAxis += 0.005
 
 	// Update the screen space coordinates
 	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
@@ -1230,11 +1270,11 @@ func (g *Game) Update() error {
 	g.updateFreq++
 
 	// Check if 30 seconds have passed
-	if time.Since(g.startTime).Seconds() >= 30 {
-		fmt.Println("Average FPS:", averageFPS/float64(Frames))
-		// Close the program
-		os.Exit(0)
-	}
+	// if time.Since(g.startTime).Seconds() >= 30 {
+	// 	fmt.Println("Average FPS:", averageFPS/float64(Frames))
+	// 	// Close the program
+	// 	os.Exit(0)
+	// }
 
 	return nil
 }
@@ -1355,7 +1395,7 @@ func OptimizeBVHDepth(objects []object, camera Camera, light Light) int {
 	bestDepth := 1
 	bestFPS := 0.0
 
-	for maxDepth - minDepth > 1 {
+	for maxDepth-minDepth > 1 {
 		mid1 := minDepth + (maxDepth-minDepth)/3
 		mid2 := maxDepth - (maxDepth-minDepth)/3
 
@@ -1406,7 +1446,7 @@ func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) 
 	screenCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
 
 	for time.Since(startTime) < benchmarkDuration {
-		DrawRays(bvh, dummyImage, camera, light, 4, 0, screenCoordinates , 64, 1)
+		DrawRays(bvh, dummyImage, camera, light, 4, 0, screenCoordinates, 64, 1)
 		frameCount++
 	}
 
@@ -1420,7 +1460,7 @@ func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNod
 	bestBlockSize := minBlockSize
 	bestFPS := 0.0
 
-	for maxBlockSize - minBlockSize > 1 && maxIteration > 0 {
+	for maxBlockSize-minBlockSize > 1 && maxIteration > 0 {
 		mid1 := minBlockSize + (maxBlockSize-minBlockSize)/3
 		mid2 := maxBlockSize - (maxBlockSize-minBlockSize)/3
 
@@ -1488,17 +1528,17 @@ func main() {
 	ebiten.SetVsyncEnabled(false)
 	ebiten.SetTPS(24)
 
-	// spheres := GenerateRandomSpheres(15)
-	// cubes := GenerateRandomCubes(10)
+	spheres := GenerateRandomSpheres(15)
+	// cubes := GenerateRandomCubes(30)
 
-	obj, err := LoadOBJ("T 90.obj")
-	if err != nil {
-		panic(err)
-	}
-	obj.Scale(65)
+	// obj, err := LoadOBJ("Room.obj")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// obj.Scale(65)
 
-	objects := []object{}
-	objects = append(objects, obj)
+	// objects := []object{}
+	// objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
 	light := Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1}
@@ -1508,25 +1548,35 @@ func main() {
 	// objects = append(objects, spheres...)
 	// objects = append(objects, cubes...)
 
-	bvh := ConvertObjectsToBVH(objects, 12)
+	bvh := ConvertObjectsToBVH(spheres, maxDepth)
 
 	// Optimize the block size
-	minBlockSize := 16
-	maxBlockSize := 512
-	maxIteration := 8
-	bestBlockSize := OptimizeBlockSize(objects, camera, light, bvh, minBlockSize, maxBlockSize, maxIteration)
-	
+	// minBlockSize := 16
+	// maxBlockSize := 512
+	// maxIteration := 8
+	// bestBlockSize := OptimizeBlockSize(objects, camera, light, bvh, minBlockSize, maxBlockSize, maxIteration)
+	// BlockSize: 181, FPS: 10.30 | BlockSize: 347, FPS: 9.30
+	// BlockSize: 126, FPS: 21.50 | BlockSize: 237, FPS: 9.30
+	// BlockSize: 89, FPS: 18.70 | BlockSize: 164, FPS: 11.50
+	// BlockSize: 65, FPS: 19.30 | BlockSize: 115, FPS: 20.80
+	// BlockSize: 98, FPS: 16.30 | BlockSize: 131, FPS: 20.80
+	// BlockSize: 120, FPS: 15.80 | BlockSize: 142, FPS: 15.60
+	// BlockSize: 112, FPS: 21.20 | BlockSize: 128, FPS: 19.20
+	// BlockSize: 108, FPS: 19.10 | BlockSize: 118, FPS: 22.20
+	// BlockSize: 114, FPS: 20.70 | BlockSize: 122, FPS: 20.70
+	// BlockSize: 118, FPS: 16.80 | BlockSize: 124, FPS: 24.90
+
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
-		scaleFactor:            3,
+		scaleFactor:            4,
 		updateFreq:             0,
 		samples:                0,
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		blockSize:              bestBlockSize,
-		depth:                  2,
+		blockSize:              124,
+		depth:                  1,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
