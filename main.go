@@ -1557,11 +1557,11 @@ func main() {
 	cube5 := CreateCube(Vector{500, 100, -200}, 200, color.RGBA{32, 32, 32, 255}, 1.0)
 	cubeObj4 := CreateObject(cube5)
 
-	obj, err := LoadOBJ("Room.obj")
+	obj, err := LoadOBJ("T 90.obj")
 	if err != nil {
 		panic(err)
 	}
-	obj.Scale(60)
+	obj.Scale(65)
 
 	// bvh := ConvertObjectsToBVH([]object{obj, *cubeObj, *cubeObj1, *cubeObj2, *cubeObj3, *cubeObj4})
 	bvh := ConvertObjectsToBVH([]object{obj})
