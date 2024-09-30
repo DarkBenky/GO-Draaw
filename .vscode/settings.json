@@ -5,6 +5,7 @@
         "loadu",
         "pvec",
         "tmin",
-        "tvec"
+        "tvec",
+        "upscaled"
     ]
 }

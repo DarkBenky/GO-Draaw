@@ -1333,6 +1333,95 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 	return nil
 }
 
+func colorDithering(downscale *ebiten.Image, y int, bayerMatrix [4][4]uint8) []color.RGBA {
+	row := make([]color.RGBA, screenWidth)
+	for x := 0; x < screenWidth; x++ {
+		// Get the color of the pixel
+		c := downscale.At(x, y).(color.RGBA)
+
+		// Apply ordered dithering independently to R, G, and B channels
+		r := c.R
+		g := c.G
+		b := c.B
+
+		// Apply dithering based on the Bayer matrix
+		bayerValue := bayerMatrix[y%4][x%4]
+		if r > bayerValue {
+			r = 255
+		} else {
+			r = 0
+		}
+		if g > bayerValue {
+			g = 255
+		} else {
+			g = 0
+		}
+		if b > bayerValue {
+			b = 255
+		} else {
+			b = 0
+		}
+
+		// Store the dithered color in the row
+		row[x] = color.RGBA{r, g, b, 255}
+	}
+	return row
+}
+
+func grayscaleDithering(downscale *ebiten.Image, y int, bayerMatrix [4][4]uint8) []color.RGBA {
+	row := make([]color.RGBA, screenWidth)
+	for x := 0; x < screenWidth; x++ {
+		// Get the color of the pixel
+		c := downscale.At(x, y).(color.RGBA)
+
+		// Convert the color to grayscale
+		gray := uint8(0.299*float32(c.R) + 0.587*float32(c.G) + 0.114*float32(c.B))
+
+		// Apply ordered dithering using the Bayer matrix
+		bayerValue := bayerMatrix[y%4][x%4]
+		if gray > bayerValue {
+			gray = 255
+		} else {
+			gray = 0
+		}
+
+		// Store the dithered color in the row
+		row[x] = color.RGBA{gray, gray, gray, 255}
+	}
+	return row
+}
+
+func dithering(downscale *ebiten.Image, colorMode bool , scale int) *ebiten.Image {
+	// Bayer matrix for ordered dithering (4x4)
+	bayerMatrix := [4][4]uint8{
+		{15, 195, 60, 240},
+		{135, 75, 180, 120},
+		{45, 225, 30, 210},
+		{165, 105, 150, 90},
+	}
+
+	// Create a new image to hold the dithered and upscaled frame
+	upscaled := ebiten.NewImage(screenWidth, screenHeight)
+
+	// Process each row in the downscaled image
+	for y := 0; y < screenHeight; y+= scale {
+		var row []color.RGBA
+		if colorMode {
+			row = colorDithering(downscale, y, bayerMatrix)
+		} else {
+			row = grayscaleDithering(downscale, y, bayerMatrix)
+		}
+		// Set the colors in the upscaled image
+		for x := 0; x < screenWidth; x++ {
+			upscaled.Set(x, y, row[x])
+		}
+	}
+
+	return upscaled
+}
+
+// TODO - Split the dithering function into two separate functions and add downcasing and blending into frame
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
@@ -1340,31 +1429,46 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Toggle between rendering new frame and interpolating
 	if Frames%2 == 0 {
-		// Create a new image for the current frame
-		g.currentFrame = ebiten.NewImage(800, 600)
+		// Clear the current frame instead of creating a new image
+		if g.currentFrame == nil {
+			g.currentFrame = ebiten.NewImage(800, 600)
+		} else {
+			g.currentFrame.Clear()
+		}
 
 		// Perform path tracing and draw rays into the current frame
 		DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize, g.depth)
+		
+		// Downscale the current frame and apply dithering
+		
 
-		// Move current frame to previous frame
+
+		// Apply dithering and manage frame swapping
+		g.currentFrame = dithering(g.currentFrame, true)
 		if g.prevFrame == nil {
 			g.prevFrame = g.currentFrame
 		} else {
-			// Swap frames instead of creating a new image
 			g.prevFrame, g.currentFrame = g.currentFrame, g.prevFrame
 		}
 
-		// Optionally save the current frame as a PNG image
+		// Optionally save the current frame as a PNG image (if necessary)
 		// saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Tank_New/frame_%d.png", Frames))
 
 		// Draw the newly rendered frame
 		screen.DrawImage(g.currentFrame, nil)
+		// Show the current FPS
+		ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
 	} else {
 		// Interpolate between previous and current frame
-		interpolatedFrame := g.InterpolateFrames(10) // Specify the number of interpolation steps
-		screen.DrawImage(interpolatedFrame, nil)
+		interpolatedFrame := g.InterpolateFrames(10) // Make sure InterpolateFrames returns a valid *ebiten.Image
+		if interpolatedFrame != nil {
+			screen.DrawImage(interpolatedFrame, nil)
+			ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
+		}
 	}
-	averageFPS += fps
+
+	// Update average FPS
+	averageFPS = (averageFPS*float64(Frames-1) + fps) / float64(Frames)
 	Frames++
 }
 
@@ -1467,8 +1571,8 @@ func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNod
 		mid1 := minBlockSize + (maxBlockSize-minBlockSize)/3
 		mid2 := maxBlockSize - (maxBlockSize-minBlockSize)/3
 
-		fps1 := benchmarkBlockSize(objects, camera, light, bvh, mid1)
-		fps2 := benchmarkBlockSize(objects, camera, light, bvh, mid2)
+		fps1 := benchmarkBlockSize(camera, light, bvh, mid1)
+		fps2 := benchmarkBlockSize(camera, light, bvh, mid2)
 
 		fmt.Printf("BlockSize: %d, FPS: %.2f | BlockSize: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
 
@@ -1491,7 +1595,7 @@ func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNod
 
 	// Final check for the boundaries
 	for blockSize := minBlockSize; blockSize <= maxBlockSize; blockSize++ {
-		fps := benchmarkBlockSize(objects, camera, light, bvh, blockSize)
+		fps := benchmarkBlockSize(camera, light, bvh, blockSize)
 		fmt.Printf("Final check - BlockSize: %d, FPS: %.2f\n", blockSize, fps)
 		if fps > bestFPS {
 			bestFPS = fps
@@ -1503,7 +1607,7 @@ func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNod
 	return bestBlockSize
 }
 
-func benchmarkBlockSize(objects []object, camera Camera, light Light, bvh *BVHNode, blockSize int) float64 {
+func benchmarkBlockSize(camera Camera, light Light, bvh *BVHNode, blockSize int) float64 {
 	// Create a dummy image for benchmarking
 	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
 
@@ -1572,14 +1676,14 @@ func main() {
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
-		scaleFactor:            3,
+		scaleFactor:            6,
 		updateFreq:             0,
 		samples:                0,
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
 		blockSize:              124,
-		depth:                  2,
+		depth:                  1,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
