@@ -1205,7 +1205,7 @@ type Job struct {
 	startX, startY, endX, endY int
 }
 
-func processBlock(job Job, bvh *BVHNode, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int, pixelChan chan<- Pixel) {
+func processBlock(job Job, bvh *BVHNode, light Light, scaling int, camera Camera, samples int, screenSpaceCoordinates *ScreenSpaceCoordinates, depth int, pixelChan chan<- Pixel) {
 	for width := job.startX; width < job.endX; width += scaling {
 		for height := job.startY; height < job.endY; height += scaling {
 			rayDirection := screenSpaceCoordinates[width][height]
