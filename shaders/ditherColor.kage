@@ -1,0 +1,43 @@
+package main
+
+const screenWidth = 800
+const screenHeight = 600
+
+// Bayer matrix for ordered dithering (4x4)
+var BayerMatrix [16]float
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Retrieve the pixel color from the texture
+    c := imageSrc0At(texCoord)
+
+    // Scale RGB values to [0, 255]
+    r := c.r * 255.0
+    g := c.g * 255.0
+    b := c.b * 255.0
+
+    // Calculate the index for the flattened Bayer matrix
+    x := int(mod(texCoord.x * screenWidth, 4))
+    y := int(mod(texCoord.y * screenHeight, 4))
+    bayerValue := BayerMatrix[y*4+x] // Access the correct Bayer value
+
+    // Apply Bayer matrix dithering to each color channel
+    if r > bayerValue {
+        r = 1.0
+    } else {
+        r = 0.0
+    }
+
+    if g > bayerValue {
+        g = 1.0
+    } else {
+        g = 0.0
+    }
+
+    if b > bayerValue {
+        b = 1.0
+    } else {
+        b = 0.0
+    }
+
+    return vec4(r, g, b, 1.0) // Return the dithered color
+}

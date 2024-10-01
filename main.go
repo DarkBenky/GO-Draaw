@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"io/ioutil"
 	"math"
 	"math/rand"
 	"os"
@@ -39,7 +40,6 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const screenWidth = 800
@@ -47,7 +47,7 @@ const screenHeight = 600
 const FOV = 90
 
 const maxDepth = 64
-const numCPU = 16
+const numCPU = 8
 
 type Material struct {
 	name  string
@@ -1151,71 +1151,58 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
-func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, blockSize int, depth int) {
+func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	var wg sync.WaitGroup
-	jobChan := make(chan Job, numCPU)
 
-	// Create a pool of worker goroutines
+	rowSize := screenHeight / numCPU
+
+	// Create a pool of worker goroutines, each handling a portion of the image
 	for i := 0; i < numCPU; i++ {
 		wg.Add(1)
-		go func() {
+		go func(startY int , endIndex int) {
 			defer wg.Done()
-			for job := range jobChan {
-				processBlock(job, bvh, camera, light, scaling, samples, screenSpaceCoordinates, depth, pixelChan)
+			for y := startY; y < endIndex; y += scaling {
+				for x := 0; x < screenWidth; x += scaling {
+					// Calculate the ray direction
+					rayDirection := screenSpaceCoordinates[x][y]
+					ray := Ray{origin: camera.Position, direction: rayDirection}
+					color := TraceRay(ray, depth, bvh, light, samples)
+
+					// Send pixel data to the channel
+					pixelChan <- Pixel{x: x, y: y, color: color}
+				}
 			}
-		}()
+		}(i * rowSize, (i + 1) * rowSize)
 	}
 
-	// Distribute work
-	go func() {
-		for startY := 0; startY < screenHeight; startY += blockSize * scaling {
-			for startX := 0; startX < screenWidth; startX += blockSize * scaling {
-				endX := min(startX+blockSize*scaling, screenWidth)
-				endY := min(startY+blockSize*scaling, screenHeight)
-				jobChan <- Job{startX, startY, endX, endY}
-			}
-		}
-		close(jobChan)
-	}()
-
-	// Wait for all workers to finish
+	// Wait for all workers to finish and close the pixel channel
 	go func() {
 		wg.Wait()
 		close(pixelChan)
 	}()
 
-	// Draw pixels
-	if scaling == 1 {
-		for pixel := range pixelChan {
-			screen.Set(pixel.x, pixel.y, pixel.color)
-		}
-	} else {
-		for pixel := range pixelChan {
-			vector.DrawFilledRect(screen, float32(pixel.x), float32(pixel.y), float32(scaling), float32(scaling), pixel.color, true)
-		}
+	// Update the screen with pixel data
+	UpdateImage(screen, pixelChan)
+}
+
+// UpdateImage writes pixels from pixelChan to the screen image efficiently
+func UpdateImage(screen *ebiten.Image, pixelChan <-chan Pixel) {
+	// Create a pixel buffer with width * height * 4 for RGBA
+	width, height := screen.Bounds().Dx(), screen.Bounds().Dy()
+	pixelBuffer := make([]uint8, width*height*4)
+
+	// Fill the pixel buffer based on the channel
+	for pixel := range pixelChan {
+		index := (pixel.y*width + pixel.x) * 4
+		pixelBuffer[index] = pixel.color.R
+		pixelBuffer[index+1] = pixel.color.G
+		pixelBuffer[index+2] = pixel.color.B
+		pixelBuffer[index+3] = pixel.color.A // Alpha channel
 	}
-}
 
-type Job struct {
-	startX, startY, endX, endY int
-}
-
-func processBlock(job Job, bvh *BVHNode, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int, pixelChan chan<- Pixel) {
-	for width := job.startX; width < job.endX; width += scaling {
-		for height := job.startY; height < job.endY; height += scaling {
-			rayDirection := screenSpaceCoordinates[width][height]
-			ray := Ray{origin: camera.Position, direction: rayDirection}
-			pixelChan <- Pixel{x: width, y: height, color: TraceRay(ray, depth, bvh, light, samples)}
-		}
-	}
-}
-
-type ColorInt16 struct {
-	R uint16
-	G uint16
-	B uint16
-	A uint16
+	// Update the image with the modified pixel data
+	screen.WritePixels(pixelBuffer)
 }
 
 func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bool {
@@ -1282,7 +1269,6 @@ func (g *Game) Update() error {
 	return nil
 }
 
-// Mutex to synchronize access to shared resources
 func (g *Game) InterpolateFrames(numInterpolations int) *ebiten.Image {
 	if g.prevFrame == nil || g.currentFrame == nil {
 		return g.currentFrame
@@ -1333,131 +1319,47 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 	return nil
 }
 
-func colorDithering(downscale *ebiten.Image, y int, bayerMatrix [4][4]uint8) []color.RGBA {
-	row := make([]color.RGBA, screenWidth)
-	for x := 0; x < screenWidth; x++ {
-		// Get the color of the pixel
-		c := downscale.At(x, y).(color.RGBA)
-
-		// Apply ordered dithering independently to R, G, and B channels
-		r := c.R
-		g := c.G
-		b := c.B
-
-		// Apply dithering based on the Bayer matrix
-		bayerValue := bayerMatrix[y%4][x%4]
-		if r > bayerValue {
-			r = 255
-		} else {
-			r = 0
-		}
-		if g > bayerValue {
-			g = 255
-		} else {
-			g = 0
-		}
-		if b > bayerValue {
-			b = 255
-		} else {
-			b = 0
-		}
-
-		// Store the dithered color in the row
-		row[x] = color.RGBA{r, g, b, 255}
-	}
-	return row
-}
-
-func grayscaleDithering(downscale *ebiten.Image, y int, bayerMatrix [4][4]uint8) []color.RGBA {
-	row := make([]color.RGBA, screenWidth)
-	for x := 0; x < screenWidth; x++ {
-		// Get the color of the pixel
-		c := downscale.At(x, y).(color.RGBA)
-
-		// Convert the color to grayscale
-		gray := uint8(0.299*float32(c.R) + 0.587*float32(c.G) + 0.114*float32(c.B))
-
-		// Apply ordered dithering using the Bayer matrix
-		bayerValue := bayerMatrix[y%4][x%4]
-		if gray > bayerValue {
-			gray = 255
-		} else {
-			gray = 0
-		}
-
-		// Store the dithered color in the row
-		row[x] = color.RGBA{gray, gray, gray, 255}
-	}
-	return row
-}
-
-func dithering(downscale *ebiten.Image, colorMode bool , scale int) *ebiten.Image {
-	// Bayer matrix for ordered dithering (4x4)
-	bayerMatrix := [4][4]uint8{
-		{15, 195, 60, 240},
-		{135, 75, 180, 120},
-		{45, 225, 30, 210},
-		{165, 105, 150, 90},
-	}
-
-	// Create a new image to hold the dithered and upscaled frame
-	upscaled := ebiten.NewImage(screenWidth, screenHeight)
-
-	// Process each row in the downscaled image
-	for y := 0; y < screenHeight; y+= scale {
-		var row []color.RGBA
-		if colorMode {
-			row = colorDithering(downscale, y, bayerMatrix)
-		} else {
-			row = grayscaleDithering(downscale, y, bayerMatrix)
-		}
-		// Set the colors in the upscaled image
-		for x := 0; x < screenWidth; x++ {
-			upscaled.Set(x, y, row[x])
-		}
-	}
-
-	return upscaled
-}
-
 // TODO - Split the dithering function into two separate functions and add downcasing and blending into frame
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %v", fps))
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
 
 	// Toggle between rendering new frame and interpolating
 	if Frames%2 == 0 {
 		// Clear the current frame instead of creating a new image
 		if g.currentFrame == nil {
-			g.currentFrame = ebiten.NewImage(800, 600)
+			// Create currentFrame with the full screen size
+			g.currentFrame = ebiten.NewImage(screen.Bounds().Dx(), screen.Bounds().Dy())
 		} else {
 			g.currentFrame.Clear()
 		}
 
 		// Perform path tracing and draw rays into the current frame
-		DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.blockSize, g.depth)
-		
-		// Downscale the current frame and apply dithering
-		
+		DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.depth)
 
-
-		// Apply dithering and manage frame swapping
-		g.currentFrame = dithering(g.currentFrame, true)
-		if g.prevFrame == nil {
-			g.prevFrame = g.currentFrame
-		} else {
-			g.prevFrame, g.currentFrame = g.currentFrame, g.prevFrame
+		// Create DrawRectShaderOptions
+		shaderOptions := &ebiten.DrawRectShaderOptions{}
+		shaderOptions.Images[0] = g.currentFrame
+		shaderOptions.Uniforms = map[string]interface{}{
+			"screenSize":  []float32{float32(screen.Bounds().Dx()), float32(screen.Bounds().Dy())},
+			"BayerMatrix": bayerMatrix,
 		}
 
-		// Optionally save the current frame as a PNG image (if necessary)
-		// saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("Render_Tank_New/frame_%d.png", Frames))
+		// Apply the shader to the entire screen
+		screen.DrawRectShader(
+			screen.Bounds().Dx(),
+			screen.Bounds().Dy(),
+			g.ditherColor,
+			shaderOptions,
+		)
 
-		// Draw the newly rendered frame
-		screen.DrawImage(g.currentFrame, nil)
 		// Show the current FPS
 		ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
+
+		// Draw the current frame directly if needed
+		screen.DrawImage(g.currentFrame, nil)
 	} else {
 		// Interpolate between previous and current frame
 		interpolatedFrame := g.InterpolateFrames(10) // Make sure InterpolateFrames returns a valid *ebiten.Image
@@ -1485,10 +1387,11 @@ type Game struct {
 	BVHobjects             *BVHNode
 	startTime              time.Time
 	updateFreq             int
-	blockSize              int
 	prevFrame              *ebiten.Image
 	currentFrame           *ebiten.Image
 	depth                  int
+	ditherColor            *ebiten.Shader
+	ditherGrayScale        *ebiten.Shader
 }
 
 var averageFPS = 0.0
@@ -1553,7 +1456,7 @@ func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) 
 	screenCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
 
 	for time.Since(startTime) < benchmarkDuration {
-		DrawRays(bvh, dummyImage, camera, light, 4, 0, screenCoordinates, 64, 1)
+		DrawRays(bvh, dummyImage, camera, light, 4, 0, screenCoordinates, 1)
 		frameCount++
 	}
 
@@ -1561,72 +1464,47 @@ func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) 
 	return fps
 }
 
-func OptimizeBlockSize(objects []object, camera Camera, light Light, bvh *BVHNode, minBlockSize, maxBlockSize int, maxIteration int) int {
-	fmt.Println("Optimizing block size...")
-
-	bestBlockSize := minBlockSize
-	bestFPS := 0.0
-
-	for maxBlockSize-minBlockSize > 1 && maxIteration > 0 {
-		mid1 := minBlockSize + (maxBlockSize-minBlockSize)/3
-		mid2 := maxBlockSize - (maxBlockSize-minBlockSize)/3
-
-		fps1 := benchmarkBlockSize(camera, light, bvh, mid1)
-		fps2 := benchmarkBlockSize(camera, light, bvh, mid2)
-
-		fmt.Printf("BlockSize: %d, FPS: %.2f | BlockSize: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
-
-		if fps1 > fps2 {
-			maxBlockSize = mid2
-			if fps1 > bestFPS {
-				bestFPS = fps1
-				bestBlockSize = mid1
-				maxIteration--
-			}
-		} else {
-			minBlockSize = mid1
-			if fps2 > bestFPS {
-				bestFPS = fps2
-				bestBlockSize = mid2
-				maxIteration--
-			}
-		}
+// LoadShader reads a shader file from the provided path and returns its content as a byte slice.
+func LoadShader(filePath string) ([]byte, error) {
+	// Read the entire file into memory
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return nil, err
 	}
 
-	// Final check for the boundaries
-	for blockSize := minBlockSize; blockSize <= maxBlockSize; blockSize++ {
-		fps := benchmarkBlockSize(camera, light, bvh, blockSize)
-		fmt.Printf("Final check - BlockSize: %d, FPS: %.2f\n", blockSize, fps)
-		if fps > bestFPS {
-			bestFPS = fps
-			bestBlockSize = blockSize
-		}
-	}
-
-	fmt.Printf("Optimal block size found: %d, Best FPS: %.2f\n", bestBlockSize, bestFPS)
-	return bestBlockSize
+	return data, nil
 }
 
-func benchmarkBlockSize(camera Camera, light Light, bvh *BVHNode, blockSize int) float64 {
-	// Create a dummy image for benchmarking
-	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
-
-	benchmarkDuration := 10 * time.Second
-	frameCount := 0
-	startTime := time.Now()
-
-	screenSpaceCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
-
-	for time.Since(startTime) < benchmarkDuration {
-		DrawRays(bvh, dummyImage, camera, light, 4, 0, screenSpaceCoordinates, blockSize, 1)
-		frameCount++
-	}
-
-	fps := float64(frameCount) / benchmarkDuration.Seconds()
-	return fps
+// Bayer matrix data
+var bayerMatrix = [16]float32{
+	15.0 / 255.0, 195.0 / 255.0, 60.0 / 255.0, 240.0 / 255.0,
+	135.0 / 255.0, 75.0 / 255.0, 180.0 / 255.0, 120.0 / 255.0,
+	45.0 / 255.0, 225.0 / 255.0, 30.0 / 255.0, 210.0 / 255.0,
+	165.0 / 255.0, 105.0 / 255.0, 150.0 / 255.0, 90.0 / 255.0,
 }
 
 func main() {
+	src, err := LoadShader("shaders/ditherColor.kage")
+	if err != nil {
+		panic(err)
+	}
+	ditherShaderColor, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Shader:", ditherShaderColor)
+
+	src, err = LoadShader("shaders/ditherGray.kage")
+	if err != nil {
+		panic(err)
+	}
+	ditherGrayShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Shader:", ditherGrayShader)
 
 	fmt.Println("Number of CPUs:", numCPU)
 
@@ -1676,14 +1554,15 @@ func main() {
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
-		scaleFactor:            6,
+		scaleFactor:            2,
 		updateFreq:             0,
 		samples:                0,
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		blockSize:              124,
 		depth:                  1,
+		ditherColor:            ditherShaderColor,
+		ditherGrayScale:        ditherGrayShader,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
