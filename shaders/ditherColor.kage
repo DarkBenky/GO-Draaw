@@ -11,9 +11,9 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
     c := imageSrc0At(texCoord)
 
     // Scale RGB values to [0, 255]
-    r := c.r * 255.0
-    g := c.g * 255.0
-    b := c.b * 255.0
+    r := c.r
+    g := c.g
+    b := c.b
 
     // Calculate the index for the flattened Bayer matrix
     x := int(mod(texCoord.x * screenWidth, 4))

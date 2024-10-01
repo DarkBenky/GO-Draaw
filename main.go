@@ -1152,49 +1152,48 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 }
 
 func RotationMatrix(angleX, angleY, angleZ float32) [3][3]float32 {
-    cx := math32.Cos(angleX)
-    sx := math32.Sin(angleX)
-    cy := math32.Cos(angleY)
-    sy := math32.Sin(angleY)
-    cz := math32.Cos(angleZ)
-    sz := math32.Sin(angleZ)
+	cx := math32.Cos(angleX)
+	sx := math32.Sin(angleX)
+	cy := math32.Cos(angleY)
+	sy := math32.Sin(angleY)
+	cz := math32.Cos(angleZ)
+	sz := math32.Sin(angleZ)
 
-    return [3][3]float32{
-        {cy * cz, cy * sz, -sy},
-        {sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy},
-        {cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy},
-    }
+	return [3][3]float32{
+		{cy * cz, cy * sz, -sy},
+		{sx*sy*cz - cx*sz, sx*sy*sz + cx*cz, sx * cy},
+		{cx*sy*cz + sx*sz, cx*sy*sz - sx*cz, cx * cy},
+	}
 }
 
-
 func UpdateScreenSpaceCoordinates(screenSpaceCoordinates [][]Vector, camera Camera) [][]Vector {
-    rotationMatrix := RotationMatrix(camera.xAxis, camera.yAxis, camera.zAxis)
+	rotationMatrix := RotationMatrix(camera.xAxis, camera.yAxis, camera.zAxis)
 
-    for width := range screenSpaceCoordinates {
-        for height := range screenSpaceCoordinates[width] {
-            v := screenSpaceCoordinates[width][height]
+	for width := range screenSpaceCoordinates {
+		for height := range screenSpaceCoordinates[width] {
+			v := screenSpaceCoordinates[width][height]
 
-            // Apply the rotation matrix
-            screenSpaceCoordinates[width][height] = Vector{
-                x: rotationMatrix[0][0]*v.x + rotationMatrix[0][1]*v.y + rotationMatrix[0][2]*v.z,
-                y: rotationMatrix[1][0]*v.x + rotationMatrix[1][1]*v.y + rotationMatrix[1][2]*v.z,
-                z: rotationMatrix[2][0]*v.x + rotationMatrix[2][1]*v.y + rotationMatrix[2][2]*v.z,
-            }
-        }
-    }
-    return screenSpaceCoordinates
+			// Apply the rotation matrix
+			screenSpaceCoordinates[width][height] = Vector{
+				x: rotationMatrix[0][0]*v.x + rotationMatrix[0][1]*v.y + rotationMatrix[0][2]*v.z,
+				y: rotationMatrix[1][0]*v.x + rotationMatrix[1][1]*v.y + rotationMatrix[1][2]*v.z,
+				z: rotationMatrix[2][0]*v.x + rotationMatrix[2][1]*v.y + rotationMatrix[2][2]*v.z,
+			}
+		}
+	}
+	return screenSpaceCoordinates
 }
 
 func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	var wg sync.WaitGroup
 
-	rowSize := screenHeight / numCPU
+	const rowSize = screenHeight / numCPU
 
 	// Create a pool of worker goroutines, each handling a portion of the image
 	for i := 0; i < numCPU; i++ {
 		wg.Add(1)
-		go func(startY int , endIndex int) {
+		go func(startY int, endIndex int) {
 			defer wg.Done()
 			for y := startY; y < endIndex; y += scaling {
 				for x := 0; x < screenWidth; x += scaling {
@@ -1202,12 +1201,11 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 					rayDirection := screenSpaceCoordinates[x][y]
 					ray := Ray{origin: camera.Position, direction: rayDirection}
 					color := TraceRay(ray, depth, bvh, light, samples)
-
 					// Send pixel data to the channel
-					pixelChan <- Pixel{x: x, y: y, color: color}
+					pixelChan <- Pixel{x: x / scaling, y: y / scaling, color: color}
 				}
 			}
-		}(i * rowSize, (i + 1) * rowSize)
+		}(i*rowSize, (i+1)*rowSize)
 	}
 
 	// Wait for all workers to finish and close the pixel channel
@@ -1222,20 +1220,21 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 
 // UpdateImage writes pixels from pixelChan to the screen image efficiently
 func UpdateImage(screen *ebiten.Image, pixelChan <-chan Pixel) {
-	// Create a pixel buffer with width * height * 4 for RGBA
 	width, height := screen.Bounds().Dx(), screen.Bounds().Dy()
 	pixelBuffer := make([]uint8, width*height*4)
 
-	// Fill the pixel buffer based on the channel
 	for pixel := range pixelChan {
-		index := (pixel.y*width + pixel.x) * 4
+		// Use modulo to ensure x and y are within bounds
+		x := pixel.x % width
+		y := pixel.y % height
+
+		index := (y*width + x) * 4
 		pixelBuffer[index] = pixel.color.R
 		pixelBuffer[index+1] = pixel.color.G
 		pixelBuffer[index+2] = pixel.color.B
 		pixelBuffer[index+3] = pixel.color.A // Alpha channel
 	}
 
-	// Update the image with the modified pixel data
 	screen.WritePixels(pixelBuffer)
 }
 
@@ -1286,15 +1285,15 @@ func (g *Game) Update() error {
 	g.camera.Position.x = float32(math.Cos(angle)) * 300
 	g.camera.Position.z = float32(math.Sin(angle)) * 300
 
-	g.camera.yAxis += 0.01
+	// g.camera.yAxis += 0.01
+	// g.camera.xAxis += 0.01
+	// g.camera.zAxis += 0.01
 
 	// Update the screen space coordinates
 	// start := time.Now()
 	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
 	// fmt.Println("PrecomputeScreenSpaceCoordinates:", time.Since(start))
-	start := time.Now()
 	g.screenSpaceCoordinates = UpdateScreenSpaceCoordinates(g.screenSpaceCoordinates, g.camera)
-	fmt.Println("UpdateScreenSpaceCoordinates:", time.Since(start))
 
 	g.updateFreq++
 
@@ -1358,59 +1357,70 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 	return nil
 }
 
-// TODO - Split the dithering function into two separate functions and add downcasing and blending into frame
-
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Display frame rate
-	fps := ebiten.ActualFPS()
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
+    // Display frame rate
+    fps := ebiten.ActualFPS()
 
-	// Toggle between rendering new frame and interpolating
-	if Frames%2 == 0 {
-		// Clear the current frame instead of creating a new image
-		if g.currentFrame == nil {
-			// Create currentFrame with the full screen size
-			g.currentFrame = ebiten.NewImage(screen.Bounds().Dx(), screen.Bounds().Dy())
-		} else {
-			g.currentFrame.Clear()
-		}
+    // Ensure currentFrame is initialized and has the correct size
+    if g.currentFrame == nil || g.currentFrame.Bounds().Dx() != screen.Bounds().Dx()/g.scaleFactor || g.currentFrame.Bounds().Dy() != screen.Bounds().Dy()/g.scaleFactor {
+        g.currentFrame = ebiten.NewImage(screen.Bounds().Dx()/g.scaleFactor, screen.Bounds().Dy()/g.scaleFactor)
+    }
 
-		// Perform path tracing and draw rays into the current frame
-		DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, int(g.scaleFactor), g.samples, g.screenSpaceCoordinates, g.depth)
+    // Perform path tracing and draw rays into the current frame
+    DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, g.scaleFactor, g.samples, g.screenSpaceCoordinates, g.depth)
 
-		// Create DrawRectShaderOptions
-		shaderOptions := &ebiten.DrawRectShaderOptions{}
-		shaderOptions.Images[0] = g.currentFrame
-		shaderOptions.Uniforms = map[string]interface{}{
-			"screenSize":  []float32{float32(screen.Bounds().Dx()), float32(screen.Bounds().Dy())},
-			"BayerMatrix": bayerMatrix,
-		}
+    // Create a temporary image for bloom shader
+    bloomImage := ebiten.NewImageFromImage(g.currentFrame)
 
-		// Apply the shader to the entire screen
-		screen.DrawRectShader(
-			screen.Bounds().Dx(),
-			screen.Bounds().Dy(),
-			g.ditherColor,
-			shaderOptions,
-		)
+    // Apply Bloom shader
+    bloomOpts := &ebiten.DrawRectShaderOptions{}
+    bloomOpts.Images[0] = g.currentFrame
+    bloomOpts.Uniforms = map[string]interface{}{
+        "screenSize":     []float32{float32(bloomImage.Bounds().Dx()), float32(bloomImage.Bounds().Dy())},
+        "bloomThreshold": 0.2,
+    }
 
-		// Show the current FPS
-		ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
+    // Apply the bloom shader
+    bloomImage.DrawRectShader(
+        bloomImage.Bounds().Dx(),
+        bloomImage.Bounds().Dy(),
+        g.bloomShader,
+        bloomOpts,
+    )
 
-		// Draw the current frame directly if needed
-		screen.DrawImage(g.currentFrame, nil)
-	} else {
-		// Interpolate between previous and current frame
-		interpolatedFrame := g.InterpolateFrames(10) // Make sure InterpolateFrames returns a valid *ebiten.Image
-		if interpolatedFrame != nil {
-			screen.DrawImage(interpolatedFrame, nil)
-			ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
-		}
-	}
+	screen.DrawImage(bloomImage, nil)
 
-	// Update average FPS
-	averageFPS = (averageFPS*float64(Frames-1) + fps) / float64(Frames)
-	Frames++
+    // Create a temporary image for dither shader
+    ditherImage := ebiten.NewImageFromImage(g.currentFrame)
+
+    // Apply Dither shader
+    ditherOpts := &ebiten.DrawRectShaderOptions{}
+    ditherOpts.Images[0] = bloomImage
+    ditherOpts.Uniforms = map[string]interface{}{
+        "screenSize":  []float32{float32(ditherImage.Bounds().Dx()), float32(ditherImage.Bounds().Dy())},
+        "BayerMatrix": bayerMatrix,
+    }
+
+    // Apply the dither shader
+    ditherImage.DrawRectShader(
+        ditherImage.Bounds().Dx(),
+        ditherImage.Bounds().Dy(),
+        g.ditherColor,
+        ditherOpts,
+    )
+
+    // Show the current FPS
+    ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
+
+    // Scale up the final image to the screen size
+    op := &ebiten.DrawImageOptions{}
+    op.GeoM.Scale(float64(screen.Bounds().Dx())/float64(ditherImage.Bounds().Dx()), 
+                  float64(screen.Bounds().Dy())/float64(ditherImage.Bounds().Dy()))
+    // screen.DrawImage(ditherImage, op)
+
+    // Update average FPS
+    averageFPS = (averageFPS*float64(Frames-1) + fps) / float64(Frames)
+    Frames++
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
@@ -1420,7 +1430,7 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 type Game struct {
 	camera                 Camera
 	light                  Light
-	scaleFactor            float32
+	scaleFactor            int
 	samples                int
 	screenSpaceCoordinates [][]Vector
 	BVHobjects             *BVHNode
@@ -1431,6 +1441,7 @@ type Game struct {
 	depth                  int
 	ditherColor            *ebiten.Shader
 	ditherGrayScale        *ebiten.Shader
+	bloomShader            *ebiten.Shader
 }
 
 var averageFPS = 0.0
@@ -1532,8 +1543,6 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("Shader:", ditherShaderColor)
-
 	src, err = LoadShader("shaders/ditherGray.kage")
 	if err != nil {
 		panic(err)
@@ -1543,7 +1552,17 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("Shader:", ditherGrayShader)
+	src, err = LoadShader("shaders/bloom.kage")
+	if err != nil {
+		panic(err)
+	}
+	bloomShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Shader:", bloomShader)
+	// fmt.Println("Shader:", ditherGrayShader)
 
 	fmt.Println("Number of CPUs:", numCPU)
 
@@ -1555,7 +1574,7 @@ func main() {
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(30)
 
-	obj, err := LoadOBJ("T 90.obj")
+	obj, err := LoadOBJ("Room.obj")
 	if err != nil {
 		panic(err)
 	}
@@ -1565,7 +1584,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
-	light := Light{Position: Vector{0, 1500, 100}, Color: [3]float32{1, 1, 1}, intensity: 1}
+	light := Light{Position: Vector{0, 1500, 1000}, Color: [3]float32{1, 1, 1}, intensity: 5}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -1590,10 +1609,12 @@ func main() {
 	// BlockSize: 114, FPS: 20.70 | BlockSize: 122, FPS: 20.70
 	// BlockSize: 118, FPS: 16.80 | BlockSize: 124, FPS: 24.90
 
+	scale := 4
+
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
-		scaleFactor:            3,
+		scaleFactor:            scale,
 		updateFreq:             0,
 		samples:                0,
 		startTime:              time.Now(),
@@ -1602,6 +1623,8 @@ func main() {
 		depth:                  1,
 		ditherColor:            ditherShaderColor,
 		ditherGrayScale:        ditherGrayShader,
+		bloomShader:            bloomShader,
+		currentFrame:           ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
