@@ -1151,6 +1151,40 @@ func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32
 	return screenSpaceCoordinates
 }
 
+func RotationMatrix(angleX, angleY, angleZ float32) [3][3]float32 {
+    cx := math32.Cos(angleX)
+    sx := math32.Sin(angleX)
+    cy := math32.Cos(angleY)
+    sy := math32.Sin(angleY)
+    cz := math32.Cos(angleZ)
+    sz := math32.Sin(angleZ)
+
+    return [3][3]float32{
+        {cy * cz, cy * sz, -sy},
+        {sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy},
+        {cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy},
+    }
+}
+
+
+func UpdateScreenSpaceCoordinates(screenSpaceCoordinates [][]Vector, camera Camera) [][]Vector {
+    rotationMatrix := RotationMatrix(camera.xAxis, camera.yAxis, camera.zAxis)
+
+    for width := range screenSpaceCoordinates {
+        for height := range screenSpaceCoordinates[width] {
+            v := screenSpaceCoordinates[width][height]
+
+            // Apply the rotation matrix
+            screenSpaceCoordinates[width][height] = Vector{
+                x: rotationMatrix[0][0]*v.x + rotationMatrix[0][1]*v.y + rotationMatrix[0][2]*v.z,
+                y: rotationMatrix[1][0]*v.x + rotationMatrix[1][1]*v.y + rotationMatrix[1][2]*v.z,
+                z: rotationMatrix[2][0]*v.x + rotationMatrix[2][1]*v.y + rotationMatrix[2][2]*v.z,
+            }
+        }
+    }
+    return screenSpaceCoordinates
+}
+
 func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int) {
 	pixelChan := make(chan Pixel, screenWidth*screenHeight)
 	var wg sync.WaitGroup
@@ -1252,10 +1286,15 @@ func (g *Game) Update() error {
 	g.camera.Position.x = float32(math.Cos(angle)) * 300
 	g.camera.Position.z = float32(math.Sin(angle)) * 300
 
-	g.camera.yAxis += 0.005
+	g.camera.yAxis += 0.01
 
 	// Update the screen space coordinates
+	// start := time.Now()
 	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
+	// fmt.Println("PrecomputeScreenSpaceCoordinates:", time.Since(start))
+	start := time.Now()
+	g.screenSpaceCoordinates = UpdateScreenSpaceCoordinates(g.screenSpaceCoordinates, g.camera)
+	fmt.Println("UpdateScreenSpaceCoordinates:", time.Since(start))
 
 	g.updateFreq++
 
@@ -1554,7 +1593,7 @@ func main() {
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
-		scaleFactor:            2,
+		scaleFactor:            3,
 		updateFreq:             0,
 		samples:                0,
 		startTime:              time.Now(),
