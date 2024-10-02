@@ -28,12 +28,12 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
     originalColor := imageSrc0At(texCoord)
 
     // Calculate luminance
-    luminance := originalColor.r + originalColor.g + originalColor.b / 3.0 / 255
+    luminance := originalColor.r * 0.2126 + originalColor.g * 0.7152 + originalColor.b * 0.0722
 
     if luminance > BloomThreshold {
         blurredBrightColor := BoxBlur(texCoord) // Use BoxBlur instead of GaussianBlur
         // Mix original color with blurred color, ensuring we don't saturate
-        resultColor := originalColor * 0.5 + blurredBrightColor * 0.25
+        resultColor := originalColor + blurredBrightColor * 0.25
         return clamp(resultColor, 0.0, 1.0) // Assuming clamp is a defined function
     } else {
         return originalColor
