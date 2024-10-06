@@ -1,0 +1,81 @@
+package main
+
+
+var (
+    TrianglesV1   [1024]vec3
+    TrianglesV2   [1024]vec3
+    TrianglesV3   [1024]vec3
+    TrianglesColor [1024]vec3
+
+    cameraPitch float 
+    cameraYaw float 
+    cameraFov float 
+    cameraPos vec3 
+    cameraDir vec3 
+)
+
+
+
+func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float, bool) {
+    epsilon := 0.000001
+
+    edge1 := v1 - v0
+    edge2 := v2 - v0
+    h := cross(rayDir, edge2)
+    a := dot(edge1, h)
+
+    if a > -epsilon && a < epsilon {
+        return 0.0, false
+    }
+
+    f := 1.0 / a
+    s := rayOrigin - v0
+    u := f * dot(s, h)
+
+    if u < 0.0 || u > 1.0 {
+        return 0.0, false
+    }
+
+    q := cross(s, edge1)
+    v := f * dot(rayDir, q)
+
+    if v < 0.0 || u + v > 1.0 {
+        return 0.0, false
+    }
+
+    t := f * dot(edge2, q)
+
+    if t > epsilon {
+        return t, true
+    }
+
+    return 0.0, false
+}
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    aspectRatio := imageDstTextureSize().x / imageDstTextureSize().y
+
+    
+    // Calculate ray direction
+    x := (2.0 * texCoord.x - 1.0) * aspectRatio * tan(cameraFov / 2.0)
+    y := (1.0 - 2.0 * texCoord.y) * tan(cameraFov / 2.0)
+    
+    // Apply camera rotation
+    rayDir := normalize(vec3(
+        cos(cameraYaw) * cos(cameraPitch) * x + sin(cameraYaw) * y + cos(cameraYaw) * sin(cameraPitch),
+        sin(cameraYaw) * cos(cameraPitch) * x - cos(cameraYaw) * y + sin(cameraYaw) * sin(cameraPitch),
+        -sin(cameraPitch) * x + cos(cameraPitch),
+    ))
+
+    nearestDist := 1000000.0
+    hitColor := vec3(0.0)
+
+    for i := 0; i < 1024; i++ {
+        dist, hit := rayTriangleIntersect(cameraPos, rayDir, TrianglesV1[i], TrianglesV2[i], TrianglesV3[i])
+        if hit && dist < nearestDist {
+            nearestDist = dist
+            hitColor = TrianglesColor[i]
+        }
+    }
+    return vec4(hitColor, 1.0)
+}

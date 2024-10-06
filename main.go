@@ -47,7 +47,7 @@ const screenHeight = 600
 const FOV = 90
 
 const maxDepth = 64
-const numCPU = 8
+const numCPU = 16
 
 type Material struct {
 	name  string
@@ -325,9 +325,39 @@ func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
 	tz2 := (BoundingBox[1].z - ray.origin.z) * invDirZ
 	tmin = max(tmin, min(tz1, tz2))
 	tmax = min(tmax, max(tz1, tz2))
+	return tmax >= max(0.0, tmin)
+}
+
+
+
+func BoundingBoxCollisionDistance(BoundingBox *[2]Vector, ray *Ray) (bool, float32) {
+	// Precompute the inverse direction
+	invDirX := 1.0 / ray.direction.x
+	invDirY := 1.0 / ray.direction.y
+	invDirZ := 1.0 / ray.direction.z
+
+	// Compute the tmin and tmax for each axis directly
+	tx1 := (BoundingBox[0].x - ray.origin.x) * invDirX
+	tx2 := (BoundingBox[1].x - ray.origin.x) * invDirX
+	tmin := min(tx1, tx2)
+	tmax := max(tx1, tx2)
+
+	ty1 := (BoundingBox[0].y - ray.origin.y) * invDirY
+	ty2 := (BoundingBox[1].y - ray.origin.y) * invDirY
+	tmin = max(tmin, min(ty1, ty2))
+	tmax = min(tmax, max(ty1, ty2))
+
+	tz1 := (BoundingBox[0].z - ray.origin.z) * invDirZ
+	tz2 := (BoundingBox[1].z - ray.origin.z) * invDirZ
+	tmin = max(tmin, min(tz1, tz2))
+	tmax = min(tmax, max(tz1, tz2))
 
 	// Final intersection check
-	return tmax >= max(0.0, tmin)
+	if tmax >= max(0.0, tmin) {
+		return true, tmin
+	}
+
+	return false, 0.0 // Return 0 distance if no intersection
 }
 
 func (triangle *Triangle) Rotate(xAngle, yAngle, zAngle float32) {
@@ -529,8 +559,8 @@ type Intersection struct {
 }
 
 type Light struct {
-	Position  Vector
-	Color     [3]float32
+	Position  *Vector
+	Color     *[3]float32
 	intensity float32
 }
 
@@ -581,41 +611,112 @@ func clampUint8(value float32) uint8 {
 	return uint8(value)
 }
 
-var Old int64
-var OldCount int64
-var New int64
-var NewCount int64
+// var Old time.Duration
+// var OldCount int64
+// var New time.Duration
+// var NewCount int64
 
+// Intersect BVH average time: 497ns
+// func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
+// 	if nodeBVH.Triangles != nil {
+// 		return IntersectTriangles(*ray, *nodeBVH.Triangles)
+// 	}
+
+// 	leftHit := nodeBVH.Left != nil && BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
+// 	rightHit := nodeBVH.Right != nil && BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
+
+// 	if leftHit && rightHit {
+// 		leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
+// 		rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
+
+// 		if leftIntersect && rightIntersect {
+// 			if leftIntersection.Distance < rightIntersection.Distance {
+// 				return leftIntersection, true
+// 			}
+// 			return rightIntersection, true
+// 		} else if leftIntersect {
+// 			return leftIntersection, true
+// 		} else if rightIntersect {
+// 			return rightIntersection, true
+// 		}
+// 	} else if leftHit {
+// 		return ray.IntersectBVH(nodeBVH.Left)
+// 	} else if rightHit {
+// 		return ray.IntersectBVH(nodeBVH.Right)
+// 	}
+// 	return Intersection{}, false
+// }
+
+// Intersect BVH average time:  458ns
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
-	if len(nodeBVH.Triangles) > 0 {
-		return IntersectTriangles(*ray, nodeBVH.Triangles)
-	}
+	// type BVHStackItem struct {
+	// 	Node *BVHNode
+	// }
+	// Preallocate a stack large enough for the BVH depth
+	stack := make([]*BVHNode, maxDepth)
+	stackIndex := 0
+	stack[stackIndex] = nodeBVH
+	var closestIntersection Intersection
+	hit := false
 
-	leftHit := nodeBVH.Left != nil && BoundingBoxCollision(nodeBVH.Left.BoundingBox, ray)
-	rightHit := nodeBVH.Right != nil && BoundingBoxCollision(nodeBVH.Right.BoundingBox, ray)
+	for stackIndex >= 0 {
+		// Pop the top item from the stack
+		currentNode := stack[stackIndex]
+		stackIndex--
+		
 
-	if leftHit && rightHit {
-		leftIntersection, leftIntersect := ray.IntersectBVH(nodeBVH.Left)
-		rightIntersection, rightIntersect := ray.IntersectBVH(nodeBVH.Right)
-
-		if leftIntersect && rightIntersect {
-			if leftIntersection.Distance < rightIntersection.Distance {
-				return leftIntersection, true
+		// If the node contains triangles, check for intersections
+		if currentNode.Triangles != nil {
+			intersection, intersects := IntersectTriangles(*ray, *currentNode.Triangles)
+			if intersects {
+				if !hit || intersection.Distance < closestIntersection.Distance {
+					closestIntersection = intersection
+					hit = true
+				}
 			}
-			return rightIntersection, true
-		} else if leftIntersect {
-			return leftIntersection, true
-		} else if rightIntersect {
-			return rightIntersection, true
+			continue
 		}
-	} else if leftHit {
-		return ray.IntersectBVH(nodeBVH.Left)
-	} else if rightHit {
-		return ray.IntersectBVH(nodeBVH.Right)
+
+		// Check for bounding box intersections for left and right children
+		var leftHit, rightHit bool
+		var leftDist, rightDist float32
+
+		if currentNode.Left != nil {
+			leftHit, leftDist = BoundingBoxCollisionDistance(currentNode.Left.BoundingBox, ray)
+		}
+		if currentNode.Right != nil {
+			rightHit, rightDist = BoundingBoxCollisionDistance(currentNode.Right.BoundingBox, ray)
+		}
+
+		// Prioritize traversal based on hit distance (closer node first)
+		if leftHit && rightHit {
+			if leftDist < rightDist {
+				// Left is closer, traverse left first
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+			} else {
+				// Right is closer, traverse right first
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+			}
+		} else if leftHit {
+			// Only left child is hit
+			stackIndex++
+			stack[stackIndex] = currentNode.Left
+		} else if rightHit {
+			// Only right child is hit
+			stackIndex++
+			stack[stackIndex] = currentNode.Right
+		}
 	}
 
-	return Intersection{}, false
+	return closestIntersection, hit
 }
+
 
 func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	// Check if the ray intersects the bounding box of the triangle first
@@ -765,24 +866,24 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 	return color.RGBA{}
 }
 
-func TraceRay(ray Ray, depth int, bvh *BVHNode, light Light, scatter int) color.RGBA {
+func TraceRay(ray Ray, depth int, light Light, scatter int) color.RGBA {
 	if depth == 0 {
 		return color.RGBA{}
 	}
 
-	intersection, intersect := ray.IntersectBVH(bvh)
+	intersection, intersect := ray.IntersectBVH(BVH)
 	if !intersect {
 		return color.RGBA{}
 	}
 
-	scatteredColor := intersection.Scatter(scatter, light, bvh)
+	scatteredColor := intersection.Scatter(scatter, light, BVH)
 
 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
 	reflectDir := intersection.Normal.Mul(2 * lightDir.Dot(intersection.Normal)).Sub(lightDir).Normalize()
 	reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 
-	reflectedColor := color.RGBA{A: uint8(intersection.Color.A)}
-	if tempIntersection, intersect := reflectRay.IntersectBVH(bvh); intersect {
+	reflectedColor := color.RGBA{}
+	if tempIntersection, intersect := reflectRay.IntersectBVH(BVH); intersect {
 		reflectedColor.R = uint8(tempIntersection.Color.R)
 		reflectedColor.G = uint8(tempIntersection.Color.G)
 		reflectedColor.B = uint8(tempIntersection.Color.B)
@@ -792,7 +893,7 @@ func TraceRay(ray Ray, depth int, bvh *BVHNode, light Light, scatter int) color.
 		origin:    intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)),
 		direction: light.Position.Sub(intersection.PointOfIntersection).Normalize(),
 	}
-	_, inShadow := shadowRay.IntersectBVH(bvh)
+	_, inShadow := shadowRay.IntersectBVH(BVH)
 
 	var directColor color.RGBA
 	if !inShadow {
@@ -822,7 +923,7 @@ func TraceRay(ray Ray, depth int, bvh *BVHNode, light Light, scatter int) color.
 	}
 
 	bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
-	bouncedColor := TraceRay(bounceRay, depth-1, bvh, light, scatter)
+	bouncedColor := TraceRay(bounceRay, depth-1, light, scatter)
 
 	finalColor.R = clampUint8((float32(finalColor.R) + float32(bouncedColor.R)) / 2)
 	finalColor.G = clampUint8((float32(finalColor.G) + float32(bouncedColor.G)) / 2)
@@ -847,7 +948,7 @@ func ConvertObjectsToBVH(objects []object, maxDepth int) *BVHNode {
 type BVHNode struct {
 	Left, Right *BVHNode
 	BoundingBox *[2]Vector
-	Triangles   []Triangle
+	Triangles   *[]Triangle
 }
 
 func (object *object) BuildBVH(maxDepth int) *BVHNode {
@@ -887,9 +988,8 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 		// Allocate the slice with the exact capacity needed
 		node := &BVHNode{
 			BoundingBox: &boundingBox,
-			Triangles:   make([]Triangle, len(triangles)), // Set capacity to the exact size
+			Triangles:   &triangles,
 		}
-		copy(node.Triangles, triangles) // Copy the triangles
 		return node
 	}
 
@@ -1184,8 +1284,8 @@ func UpdateScreenSpaceCoordinates(screenSpaceCoordinates [][]Vector, camera Came
 	return screenSpaceCoordinates
 }
 
-func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int) {
-	pixelChan := make(chan Pixel, screenWidth*screenHeight)
+func DrawRays(screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int) {
+	pixelChan := make(chan Pixel, screenWidth/scaling*screenHeight/scaling)
 	var wg sync.WaitGroup
 
 	const rowSize = screenHeight / numCPU
@@ -1200,7 +1300,7 @@ func DrawRays(bvh *BVHNode, screen *ebiten.Image, camera Camera, light Light, sc
 					// Calculate the ray direction
 					rayDirection := screenSpaceCoordinates[x][y]
 					ray := Ray{origin: camera.Position, direction: rayDirection}
-					color := TraceRay(ray, depth, bvh, light, samples)
+					color := TraceRay(ray, depth, light, samples)
 					// Send pixel data to the channel
 					pixelChan <- Pixel{x: x / scaling, y: y / scaling, color: color}
 				}
@@ -1224,17 +1324,12 @@ func UpdateImage(screen *ebiten.Image, pixelChan <-chan Pixel) {
 	pixelBuffer := make([]uint8, width*height*4)
 
 	for pixel := range pixelChan {
-		// Use modulo to ensure x and y are within bounds
-		x := pixel.x % width
-		y := pixel.y % height
-
-		index := (y*width + x) * 4
+		index := (pixel.y*width + pixel.x) * 4
 		pixelBuffer[index] = pixel.color.R
 		pixelBuffer[index+1] = pixel.color.G
 		pixelBuffer[index+2] = pixel.color.B
 		pixelBuffer[index+3] = pixel.color.A // Alpha channel
 	}
-
 	screen.WritePixels(pixelBuffer)
 }
 
@@ -1249,13 +1344,13 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bo
 	}
 
 	// If this is a leaf node, check the triangles for intersection
-	if len(node.Triangles) > 0 {
-		for i, triangle := range node.Triangles {
+	if node.Triangles != nil {
+		for i, triangle := range *node.Triangles {
 			if _, hit := ray.IntersectTriangle(triangle); hit {
 				// fmt.Println("Triangle hit", triangle.color)
 				triangle.color = newColor
-				// fmt.Println("Triangle hit", triangle.color)
-				node.Triangles[i] = triangle
+				// Update the triangle in the slice
+				(*node.Triangles)[i] = triangle // Dereference the pointer to modify the slice
 				return true
 			}
 		}
@@ -1298,11 +1393,11 @@ func (g *Game) Update() error {
 	g.updateFreq++
 
 	// Check if 30 seconds have passed
-	// if time.Since(g.startTime).Seconds() >= 30 {
-	// 	fmt.Println("Average FPS:", averageFPS/float64(Frames))
-	// 	// Close the program
-	// 	os.Exit(0)
-	// }
+	if time.Since(g.startTime).Seconds() >= 30 {
+		fmt.Println("Average FPS:", averageFPS / float64(Frames))
+		// Close the program
+		os.Exit(0)
+	}
 
 	return nil
 }
@@ -1338,13 +1433,20 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 	return nil
 }
 
+var averageFPS float64
+var Frames int
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
+
+	averageFPS += fps
+	Frames++
+
 	g.currentFrame.Clear()
 
 	// Perform path tracing and draw rays into the current frame
-	DrawRays(g.BVHobjects, g.currentFrame, g.camera, g.light, g.scaleFactor, g.samples, g.screenSpaceCoordinates, g.depth)
+	DrawRays(g.currentFrame, g.camera, g.light, g.scaleFactor, g.samples, g.screenSpaceCoordinates, g.depth)
 
 	// Create a temporary image for bloom shader
 	bloomImage := ebiten.NewImageFromImage(g.currentFrame)
@@ -1366,21 +1468,21 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	)
 
 	// Apply Dither shader
-	ditherImage := ebiten.NewImageFromImage(bloomImage)
-	ditherOpts := &ebiten.DrawRectShaderOptions{}
-	ditherOpts.Images[0] = g.currentFrame
-	ditherOpts.Uniforms = map[string]interface{}{
-		"screenSize":  []float32{float32(ditherImage.Bounds().Dx()), float32(ditherImage.Bounds().Dy())},
-		"BayerMatrix": bayerMatrix,
-	}
+	// ditherImage := ebiten.NewImageFromImage(bloomImage)
+	// ditherOpts := &ebiten.DrawRectShaderOptions{}
+	// ditherOpts.Images[0] = g.currentFrame
+	// ditherOpts.Uniforms = map[string]interface{}{
+	// 	"screenSize":  []float32{float32(ditherImage.Bounds().Dx()), float32(ditherImage.Bounds().Dy())},
+	// 	"BayerMatrix": bayerMatrix,
+	// }
 
-	// Apply the dither shader
-	ditherImage.DrawRectShader(
-		ditherImage.Bounds().Dx(),
-		ditherImage.Bounds().Dy(),
-		g.ditherColor,
-		ditherOpts,
-	)
+	// // Apply the dither shader
+	// ditherImage.DrawRectShader(
+	// 	ditherImage.Bounds().Dx(),
+	// 	ditherImage.Bounds().Dy(),
+	// 	g.ditherColor,
+	// 	ditherOpts,
+	// )
 
 	// Draw the current frame (bloomImage) to the screen, scaling it to screen size
 	// Draw bloomImage to the screen, scaling it to screen size
@@ -1390,26 +1492,58 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		float64(screen.Bounds().Dy())/float64(bloomImage.Bounds().Dy()))
 	screen.DrawImage(bloomImage, op1)
 
-	// Prepare the options for ditherImage with darker blending
-	op2 := &ebiten.DrawImageOptions{}
-	op2.GeoM.Scale(float64(screen.Bounds().Dx())/float64(ditherImage.Bounds().Dx()),
-		float64(screen.Bounds().Dy())/float64(ditherImage.Bounds().Dy()))
-	op2.CompositeMode = ebiten.CompositeModeMultiply // Set to multiply for darker blending
 
-	// Draw ditherImage with darker blending
-	screen.DrawImage(ditherImage, op2)
+	// Create Triangle Rendering Shader
+	// triangleImage := ebiten.NewImageFromImage(ditherImage)
+	// triangleOpts := &ebiten.DrawRectShaderOptions{}
+	// triangleOpts.Images[0] = ditherImage
+	// triangleOpts.Uniforms = map[string]interface{}{
+	// 	"cameraPos": []float32{g.camera.Position.x, g.camera.Position.y, g.camera.Position.z},
+	// 	"cameraDir": []float32{g.camera.xAxis, g.camera.yAxis, g.camera.zAxis},
+	// 	"cameraPitch" : g.camera.xAxis,
+	// 	"cameraYaw" : g.camera.yAxis,
+	// 	"cameraRoll" : g.camera.zAxis,
+	// 	"cameraFoe" : FOV,
+
+	// 	"TriangleV1": TrianglesV1,
+	// 	"TriangleV2": TrianglesV2,
+	// 	"TriangleV3": TrianglesV3,
+
+	// 	"epsilon": 0.0001,
+	// 	"maxDist ": 1000.0,
+	// }
+
+	// // Apply the triangle shader
+	// triangleImage.DrawRectShader(
+	// 	triangleImage.Bounds().Dx(),
+	// 	triangleImage.Bounds().Dy(),
+	// 	g.TriangleShader,
+	// 	triangleOpts,
+	// )
+
+	// screen.DrawImage(triangleImage, op1)
+	// // Prepare the options for ditherImage with darker blending
+	// op2 := &ebiten.DrawImageOptions{}
+	// op2.GeoM.Scale(float64(screen.Bounds().Dx())/float64(ditherImage.Bounds().Dx()),
+	// 	float64(screen.Bounds().Dy())/float64(ditherImage.Bounds().Dy()))
+	// op2.CompositeMode = ebiten.CompositeModeMultiply // Set to multiply for darker blending
+
+	// // Draw ditherImage with darker blending
+	// screen.DrawImage(ditherImage, op2)
 
 	// Show the current FPS
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
-
-	// Update average FPS
-	averageFPS = (averageFPS*float64(Frames-1) + fps) / float64(Frames)
-	Frames++
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	return 800, 600
 }
+
+// var TrianglesV1 []Vector
+// var TrianglesV2 []Vector
+// var TrianglesV3 []Vector
+
+var BVH *BVHNode
 
 type Game struct {
 	camera                 Camera
@@ -1425,77 +1559,75 @@ type Game struct {
 	ditherColor            *ebiten.Shader
 	ditherGrayScale        *ebiten.Shader
 	bloomShader            *ebiten.Shader
+	// TriangleShader         *ebiten.Shader
 }
 
-var averageFPS = 0.0
-var Frames = 0
 
-func OptimizeBVHDepth(objects []object, camera Camera, light Light) int {
-	fmt.Println("Optimizing BVH depth...")
+// func OptimizeBVHDepth(objects []object, camera Camera, light Light) int {
+// 	fmt.Println("Optimizing BVH depth...")
 
-	minDepth := 1
-	maxDepth := 32
-	bestDepth := 1
-	bestFPS := 0.0
+// 	minDepth := 1
+// 	maxDepth := 32
+// 	bestDepth := 1
+// 	bestFPS := 0.0
 
-	for maxDepth-minDepth > 1 {
-		mid1 := minDepth + (maxDepth-minDepth)/3
-		mid2 := maxDepth - (maxDepth-minDepth)/3
+// 	for maxDepth-minDepth > 1 {
+// 		mid1 := minDepth + (maxDepth-minDepth)/3
+// 		mid2 := maxDepth - (maxDepth-minDepth)/3
 
-		fps1 := benchmarkBVHDepth(objects, camera, light, mid1)
-		fps2 := benchmarkBVHDepth(objects, camera, light, mid2)
+// 		fps1 := benchmarkBVHDepth(objects, camera, light, mid1)
+// 		fps2 := benchmarkBVHDepth(objects, camera, light, mid2)
 
-		fmt.Printf("BVH Depth: %d, FPS: %.2f | BVH Depth: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
+// 		fmt.Printf("BVH Depth: %d, FPS: %.2f | BVH Depth: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
 
-		if fps1 > fps2 {
-			maxDepth = mid2
-			if fps1 > bestFPS {
-				bestFPS = fps1
-				bestDepth = mid1
-			}
-		} else {
-			minDepth = mid1
-			if fps2 > bestFPS {
-				bestFPS = fps2
-				bestDepth = mid2
-			}
-		}
-	}
+// 		if fps1 > fps2 {
+// 			maxDepth = mid2
+// 			if fps1 > bestFPS {
+// 				bestFPS = fps1
+// 				bestDepth = mid1
+// 			}
+// 		} else {
+// 			minDepth = mid1
+// 			if fps2 > bestFPS {
+// 				bestFPS = fps2
+// 				bestDepth = mid2
+// 			}
+// 		}
+// 	}
 
-	// Final check for the boundaries
-	for depth := minDepth; depth <= maxDepth; depth++ {
-		fps := benchmarkBVHDepth(objects, camera, light, depth)
-		fmt.Printf("Final check - BVH Depth: %d, FPS: %.2f\n", depth, fps)
-		if fps > bestFPS {
-			bestFPS = fps
-			bestDepth = depth
-		}
-	}
+// 	// Final check for the boundaries
+// 	for depth := minDepth; depth <= maxDepth; depth++ {
+// 		fps := benchmarkBVHDepth(objects, camera, light, depth)
+// 		fmt.Printf("Final check - BVH Depth: %d, FPS: %.2f\n", depth, fps)
+// 		if fps > bestFPS {
+// 			bestFPS = fps
+// 			bestDepth = depth
+// 		}
+// 	}
 
-	fmt.Printf("Optimal BVH depth found: %d, Best FPS: %.2f\n", bestDepth, bestFPS)
-	return bestDepth
-}
+// 	fmt.Printf("Optimal BVH depth found: %d, Best FPS: %.2f\n", bestDepth, bestFPS)
+// 	return bestDepth
+// }
 
-func benchmarkBVHDepth(objects []object, camera Camera, light Light, depth int) float64 {
-	bvh := ConvertObjectsToBVH(objects, depth)
+// func benchmarkBVHDepth(camera Camera, light Light, depth int) float64 {
 
-	// Create a dummy image for benchmarking
-	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
+// 	// Create a dummy image for benchmarking
+// 	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
 
-	benchmarkDuration := 10 * time.Second
-	frameCount := 0
-	startTime := time.Now()
+// 	benchmarkDuration := 10 * time.Second
+// 	frameCount := 0
+// 	startTime := time.Now()
 
-	screenCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
+// 	screenCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
 
-	for time.Since(startTime) < benchmarkDuration {
-		DrawRays(bvh, dummyImage, camera, light, 4, 0, screenCoordinates, 1)
-		frameCount++
-	}
+// 	for time.Since(startTime) < benchmarkDuration {
+// 		DrawRays(dummyImage, camera, light, 4, 0, screenCoordinates, 1)
+// 		frameCount++
+// 	}
 
-	fps := float64(frameCount) / benchmarkDuration.Seconds()
-	return fps
-}
+// 	fps := float64(frameCount) / benchmarkDuration.Seconds()
+// 	return fps
+// }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
 func LoadShader(filePath string) ([]byte, error) {
@@ -1535,6 +1667,16 @@ func main() {
 		panic(err)
 	}
 
+	src, err = LoadShader("shaders/RayCaster.kage")
+	if err != nil {
+		panic(err)
+	}
+	rayCasterShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Shader:", rayCasterShader)
+
 	src, err = LoadShader("shaders/bloom.kage")
 	if err != nil {
 		panic(err)
@@ -1552,7 +1694,7 @@ func main() {
 	runtime.GOMAXPROCS(numCPU)
 
 	ebiten.SetVsyncEnabled(false)
-	ebiten.SetTPS(24)
+	ebiten.SetTPS(20)
 
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(30)
@@ -1563,11 +1705,18 @@ func main() {
 	}
 	obj.Scale(65)
 
+	// TrianglesGlobal := obj.ConvertToTriangles()
+	// for i := range TrianglesGlobal {
+	// 	TrianglesV1 = append(TrianglesV1, TrianglesGlobal[i].v1)
+	// 	TrianglesV2 = append(TrianglesV2, TrianglesGlobal[i].v2)
+	// 	TrianglesV3 = append(TrianglesV3, TrianglesGlobal[i].v3)
+	// }
+
 	objects := []object{}
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
-	light := Light{Position: Vector{0, 1500, 1000}, Color: [3]float32{1, 1, 1}, intensity: 1}
+	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 1}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -1575,6 +1724,8 @@ func main() {
 	// objects = append(objects, cubes...)
 
 	bvh := ConvertObjectsToBVH(objects, maxDepth)
+
+	BVH = bvh
 
 	// Optimize the block size
 	// minBlockSize := 16
@@ -1603,11 +1754,12 @@ func main() {
 		startTime:              time.Now(),
 		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
 		BVHobjects:             bvh,
-		depth:                  1,
+		depth:                  2,
 		ditherColor:            ditherShaderColor,
 		ditherGrayScale:        ditherGrayShader,
 		bloomShader:            bloomShader,
 		currentFrame:           ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		// TriangleShader: 	   rayCasterShader,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
