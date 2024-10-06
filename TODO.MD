@@ -11,3 +11,6 @@
         - Order them based on distance
         - Draw Them (maybe add some shading based on normal)
     
+    [ ] Fix Ray Tracer
+        - fix uniforms https://github.com/tinne26/kage-desk/blob/main/docs/tutorials/intro/06_uniforms.md
+    
