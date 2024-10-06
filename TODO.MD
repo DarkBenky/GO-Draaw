@@ -1,6 +1,7 @@
 # TODO List
 
     [ ] Implement SIMD instruction
-    [ ] Merge the newest branch with main
-    [ ] Bloom and other post-processing
+    [X] Merge the newest branch with main
+    [X] Bloom and other post-processing
     [ ] Make it fast
+    [ ] Make Flame graphs

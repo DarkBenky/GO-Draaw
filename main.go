@@ -46,7 +46,7 @@ const screenWidth = 800
 const screenHeight = 600
 const FOV = 90
 
-const maxDepth = 64
+const maxDepth = 16
 const numCPU = 16
 
 type Material struct {
@@ -649,9 +649,6 @@ func clampUint8(value float32) uint8 {
 
 // Intersect BVH average time:  458ns
 func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
-	// type BVHStackItem struct {
-	// 	Node *BVHNode
-	// }
 	// Preallocate a stack large enough for the BVH depth
 	stack := make([]*BVHNode, maxDepth)
 	stackIndex := 0
@@ -676,7 +673,6 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 			}
 			continue
 		}
-
 		// Check for bounding box intersections for left and right children
 		var leftHit, rightHit bool
 		var leftDist, rightDist float32
@@ -1667,15 +1663,15 @@ func main() {
 		panic(err)
 	}
 
-	src, err = LoadShader("shaders/RayCaster.kage")
-	if err != nil {
-		panic(err)
-	}
-	rayCasterShader, err := ebiten.NewShader(src)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Shader:", rayCasterShader)
+	// src, err = LoadShader("shaders/RayCaster.kage")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// rayCasterShader, err := ebiten.NewShader(src)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// fmt.Println("Shader:", rayCasterShader)
 
 	src, err = LoadShader("shaders/bloom.kage")
 	if err != nil {
@@ -1699,7 +1695,7 @@ func main() {
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(30)
 
-	obj, err := LoadOBJ("T 90.obj")
+	obj, err := LoadOBJ("Room.obj")
 	if err != nil {
 		panic(err)
 	}
@@ -1743,7 +1739,7 @@ func main() {
 	// BlockSize: 114, FPS: 20.70 | BlockSize: 122, FPS: 20.70
 	// BlockSize: 118, FPS: 16.80 | BlockSize: 124, FPS: 24.90
 
-	scale := 2
+	scale := 3
 
 	game := &Game{
 		camera:                 camera,
