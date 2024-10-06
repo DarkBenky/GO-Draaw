@@ -5,3 +5,5 @@
     [X] Bloom and other post-processing
     [ ] Make it fast
     [ ] Make Flame graphs
+    [ ] Trace rays to Corners and Draw Triangles
+    

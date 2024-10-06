@@ -6,12 +6,12 @@ var (
     TrianglesV2   [1024]vec3
     TrianglesV3   [1024]vec3
     TrianglesColor [1024]vec3
-
-    cameraPitch float 
-    cameraYaw float 
-    cameraFov float 
-    cameraPos vec3 
-    cameraDir vec3 
+    cameraPos = vec3
+    cameraYaw float
+    cameraPitch float
+    cameraRoll = float
+    cameraFov = float
+    cameraDir = vec3
 )
 
 
