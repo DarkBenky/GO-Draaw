@@ -6,4 +6,8 @@
     [ ] Make it fast
     [ ] Make Flame graphs
     [ ] Trace rays to Corners and Draw Triangles
+        - Create Box/Cone of camera viewing area
+        - Find all Triangles inside it
+        - Order them based on distance
+        - Draw Them (maybe add some shading based on normal)
     
