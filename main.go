@@ -328,8 +328,6 @@ func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
 	return tmax >= max(0.0, tmin)
 }
 
-
-
 func BoundingBoxCollisionDistance(BoundingBox *[2]Vector, ray *Ray) (bool, float32) {
 	// Precompute the inverse direction
 	invDirX := 1.0 / ray.direction.x
@@ -660,7 +658,6 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 		// Pop the top item from the stack
 		currentNode := stack[stackIndex]
 		stackIndex--
-		
 
 		// If the node contains triangles, check for intersections
 		if currentNode.Triangles != nil {
@@ -712,7 +709,6 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 
 	return closestIntersection, hit
 }
-
 
 func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	// Check if the ray intersects the bounding box of the triangle first
@@ -802,6 +798,33 @@ func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
 type Camera struct {
 	Position            Vector
 	xAxis, yAxis, zAxis float32
+}
+
+type Viewport struct {
+	Base     [2]Vector
+	Position Vector
+}
+
+func (v Viewport) CreateViewPort(topLeft, bottomRight Vector, camera Camera, distance float32) Viewport {
+	return Viewport{
+		Base:     [2]Vector{topLeft.Mul(distance), bottomRight.Mul(distance)},
+		Position: camera.Position,
+	}
+}
+
+func (v *Viewport) UpdateViewPort(topLeft, bottomRight Vector, distance float32, camera Camera) {
+	v.Position = camera.Position
+	v.Base = [2]Vector{topLeft.Mul(distance), bottomRight.Mul(distance)}
+}
+
+func (t Triangle) InsideView(viewport Viewport) bool {
+	// Check if the triangle's bounding box is within the viewport's base
+	bboxMin := t.BoundingBox[0]
+	bboxMax := t.BoundingBox[1]
+
+	// Check for overlap with viewport
+	return bboxMin.x >= viewport.Base[0].x && bboxMax.x <= viewport.Base[1].x &&
+		bboxMin.y >= viewport.Base[0].y && bboxMax.y <= viewport.Base[1].y
 }
 
 type Pixel struct {
@@ -933,8 +956,9 @@ type object struct {
 	BoundingBox [2]Vector
 }
 
+var triangles []Triangle
+
 func ConvertObjectsToBVH(objects []object, maxDepth int) *BVHNode {
-	triangles := []Triangle{}
 	for _, object := range objects {
 		triangles = append(triangles, object.triangles...)
 	}
@@ -1386,11 +1410,13 @@ func (g *Game) Update() error {
 	// fmt.Println("PrecomputeScreenSpaceCoordinates:", time.Since(start))
 	g.screenSpaceCoordinates = UpdateScreenSpaceCoordinates(g.screenSpaceCoordinates, g.camera)
 
+	g.Viewport.UpdateViewPort(g.screenSpaceCoordinates[0][0], g.screenSpaceCoordinates[screenWidth-1][screenHeight-1], 1, g.camera)
+
 	g.updateFreq++
 
 	// Check if 30 seconds have passed
 	if time.Since(g.startTime).Seconds() >= 30 {
-		fmt.Println("Average FPS:", averageFPS / float64(Frames))
+		fmt.Println("Average FPS:", averageFPS/float64(Frames))
 		// Close the program
 		os.Exit(0)
 	}
@@ -1431,6 +1457,15 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 
 var averageFPS float64
 var Frames int
+
+func DrawTriangles(viewPort Viewport) {
+	for _ , t := range triangles {
+		if t.InsideView(viewPort) {
+			// calculate the position of the triangle in the screen
+			
+		}
+	}
+}
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
@@ -1488,7 +1523,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		float64(screen.Bounds().Dy())/float64(bloomImage.Bounds().Dy()))
 	screen.DrawImage(bloomImage, op1)
 
-
 	// Create Triangle Rendering Shader
 	// triangleImage := ebiten.NewImageFromImage(ditherImage)
 	// triangleOpts := &ebiten.DrawRectShaderOptions{}
@@ -1535,10 +1569,6 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 	return 800, 600
 }
 
-// var TrianglesV1 []Vector
-// var TrianglesV2 []Vector
-// var TrianglesV3 []Vector
-
 var BVH *BVHNode
 
 type Game struct {
@@ -1555,9 +1585,9 @@ type Game struct {
 	ditherColor            *ebiten.Shader
 	ditherGrayScale        *ebiten.Shader
 	bloomShader            *ebiten.Shader
+	Viewport               Viewport
 	// TriangleShader         *ebiten.Shader
 }
-
 
 // func OptimizeBVHDepth(objects []object, camera Camera, light Light) int {
 // 	fmt.Println("Optimizing BVH depth...")
@@ -1701,13 +1731,6 @@ func main() {
 	}
 	obj.Scale(65)
 
-	// TrianglesGlobal := obj.ConvertToTriangles()
-	// for i := range TrianglesGlobal {
-	// 	TrianglesV1 = append(TrianglesV1, TrianglesGlobal[i].v1)
-	// 	TrianglesV2 = append(TrianglesV2, TrianglesGlobal[i].v2)
-	// 	TrianglesV3 = append(TrianglesV3, TrianglesGlobal[i].v3)
-	// }
-
 	objects := []object{}
 	objects = append(objects, obj)
 
@@ -1739,7 +1762,12 @@ func main() {
 	// BlockSize: 114, FPS: 20.70 | BlockSize: 122, FPS: 20.70
 	// BlockSize: 118, FPS: 16.80 | BlockSize: 124, FPS: 24.90
 
-	scale := 3
+	scale := 2
+	screenSpaceCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
+
+	Corners := [2]Vector{
+		screenSpaceCoordinates[0][0], screenSpaceCoordinates[screenWidth-1][screenHeight-1],
+	}
 
 	game := &Game{
 		camera:                 camera,
@@ -1748,13 +1776,14 @@ func main() {
 		updateFreq:             0,
 		samples:                0,
 		startTime:              time.Now(),
-		screenSpaceCoordinates: PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera),
+		screenSpaceCoordinates: screenSpaceCoordinates,
 		BVHobjects:             bvh,
 		depth:                  2,
 		ditherColor:            ditherShaderColor,
 		ditherGrayScale:        ditherGrayShader,
 		bloomShader:            bloomShader,
 		currentFrame:           ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		Viewport:               Viewport{Corners, camera.Position},
 		// TriangleShader: 	   rayCasterShader,
 	}
 
