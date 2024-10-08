@@ -1,16 +1,18 @@
+
 # TODO List
 
-    [ ] Implement SIMD instruction
-    [X] Merge the newest branch with main
-    [X] Bloom and other post-processing
-    [ ] Make it fast
-    [ ] Make Flame graphs
-    [ ] Trace rays to Corners and Draw Triangles
-        - Create Box/Cone of camera viewing area
-        - Find all Triangles inside it
-        - Order them based on distance
-        - Draw Them (maybe add some shading based on normal)
+- [ ] Implement SIMD instructions
+- [X] Merge the latest branch with main
+- [X] Implement bloom and other post-processing effects
+- [ ] Optimize for speed
+- [ ] Create flame graphs
+- [ ] Trace rays to corners and draw triangles:
+    - Create a box/cone representing the camera's viewing area
+    - Find all triangles inside it
+    - Order them based on distance
+    - Draw them (consider adding shading based on normals)
     
-    [ ] Fix Ray Tracer
-        - fix uniforms https://github.com/tinne26/kage-desk/blob/main/docs/tutorials/intro/06_uniforms.md
-    
+- [ ] Fix ray tracer:
+    - Fix uniforms ([link](https://github.com/tinne26/kage-desk/blob/main/docs/tutorials/intro/06_uniforms.md))
+        - Note: Uniforms start with capital letters
+- [ ] Implement specular lighting
