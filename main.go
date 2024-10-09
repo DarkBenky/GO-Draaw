@@ -800,31 +800,22 @@ type Camera struct {
 	xAxis, yAxis, zAxis float32
 }
 
-type Viewport struct {
-	Base     [2]Vector
-	Position Vector
+func degreesToRadians(degrees float32) float32 {
+	return degrees * (math.Pi / 180.0)
 }
 
-func (v Viewport) CreateViewPort(topLeft, bottomRight Vector, camera Camera, distance float32) Viewport {
-	return Viewport{
-		Base:     [2]Vector{topLeft.Mul(distance), bottomRight.Mul(distance)},
-		Position: camera.Position,
-	}
-}
+// Calculate the direction of the camera based on pitch, yaw, and roll
+func (c Camera) Direction() Vector {
+	// Convert pitch, yaw, and roll from degrees to radians
+	pitchRad := degreesToRadians(c.xAxis)
+	yawRad := degreesToRadians(c.yAxis)
 
-func (v *Viewport) UpdateViewPort(topLeft, bottomRight Vector, distance float32, camera Camera) {
-	v.Position = camera.Position
-	v.Base = [2]Vector{topLeft.Mul(distance), bottomRight.Mul(distance)}
-}
+	// Calculate direction vector using pitch and yaw
+	x := float32(math.Cos(float64(pitchRad)) * math.Cos(float64(yawRad)))
+	y := float32(math.Sin(float64(pitchRad)))
+	z := float32(math.Cos(float64(pitchRad)) * math.Sin(float64(yawRad)))
 
-func (t Triangle) InsideView(viewport Viewport) bool {
-	// Check if the triangle's bounding box is within the viewport's base
-	bboxMin := t.BoundingBox[0]
-	bboxMax := t.BoundingBox[1]
-
-	// Check for overlap with viewport
-	return bboxMin.x >= viewport.Base[0].x && bboxMax.x <= viewport.Base[1].x &&
-		bboxMin.y >= viewport.Base[0].y && bboxMax.y <= viewport.Base[1].y
+	return Vector{x, y, z}
 }
 
 type Pixel struct {
@@ -1409,9 +1400,6 @@ func (g *Game) Update() error {
 	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
 	// fmt.Println("PrecomputeScreenSpaceCoordinates:", time.Since(start))
 	g.screenSpaceCoordinates = UpdateScreenSpaceCoordinates(g.screenSpaceCoordinates, g.camera)
-
-	g.Viewport.UpdateViewPort(g.screenSpaceCoordinates[0][0], g.screenSpaceCoordinates[screenWidth-1][screenHeight-1], 1, g.camera)
-
 	g.updateFreq++
 
 	// Check if 30 seconds have passed
@@ -1458,15 +1446,6 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 var averageFPS float64
 var Frames int
 
-func DrawTriangles(viewPort Viewport) {
-	for _ , t := range triangles {
-		if t.InsideView(viewPort) {
-			// calculate the position of the triangle in the screen
-			
-		}
-	}
-}
-
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
@@ -1477,26 +1456,26 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.currentFrame.Clear()
 
 	// Perform path tracing and draw rays into the current frame
-	DrawRays(g.currentFrame, g.camera, g.light, g.scaleFactor, g.samples, g.screenSpaceCoordinates, g.depth)
+	// DrawRays(g.currentFrame, g.camera, g.light, g.scaleFactor, g.samples, g.screenSpaceCoordinates, g.depth)
 
-	// Create a temporary image for bloom shader
-	bloomImage := ebiten.NewImageFromImage(g.currentFrame)
+	// // Create a temporary image for bloom shader
+	// bloomImage := ebiten.NewImageFromImage(g.currentFrame)
 
-	// Apply Bloom shader
-	bloomOpts := &ebiten.DrawRectShaderOptions{}
-	bloomOpts.Images[0] = g.currentFrame
-	bloomOpts.Uniforms = map[string]interface{}{
-		"screenSize":     []float32{float32(bloomImage.Bounds().Dx()), float32(bloomImage.Bounds().Dy())},
-		"bloomThreshold": 1,
-	}
+	// // Apply Bloom shader
+	// bloomOpts := &ebiten.DrawRectShaderOptions{}
+	// bloomOpts.Images[0] = g.currentFrame
+	// bloomOpts.Uniforms = map[string]interface{}{
+	// 	"screenSize":     []float32{float32(bloomImage.Bounds().Dx()), float32(bloomImage.Bounds().Dy())},
+	// 	"bloomThreshold": 1,
+	// }
 
-	// Apply the bloom shader
-	bloomImage.DrawRectShader(
-		bloomImage.Bounds().Dx(),
-		bloomImage.Bounds().Dy(),
-		g.bloomShader,
-		bloomOpts,
-	)
+	// // Apply the bloom shader
+	// bloomImage.DrawRectShader(
+	// 	bloomImage.Bounds().Dx(),
+	// 	bloomImage.Bounds().Dy(),
+	// 	g.bloomShader,
+	// 	bloomOpts,
+	// )
 
 	// Apply Dither shader
 	// ditherImage := ebiten.NewImageFromImage(bloomImage)
@@ -1518,38 +1497,36 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Draw the current frame (bloomImage) to the screen, scaling it to screen size
 	// Draw bloomImage to the screen, scaling it to screen size
 	// Draw bloomImage to the screen, scaling it to screen size
-	op1 := &ebiten.DrawImageOptions{}
-	op1.GeoM.Scale(float64(screen.Bounds().Dx())/float64(bloomImage.Bounds().Dx()),
-		float64(screen.Bounds().Dy())/float64(bloomImage.Bounds().Dy()))
-	screen.DrawImage(bloomImage, op1)
+	// op1 := &ebiten.DrawImageOptions{}
+	// op1.GeoM.Scale(float64(screen.Bounds().Dx())/float64(bloomImage.Bounds().Dx()),
+	// 	float64(screen.Bounds().Dy())/float64(bloomImage.Bounds().Dy()))
+	// screen.DrawImage(bloomImage, op1)
+	triangleImage := ebiten.NewImageFromImage(g.currentFrame)
 
-	// Create Triangle Rendering Shader
-	// triangleImage := ebiten.NewImageFromImage(ditherImage)
-	// triangleOpts := &ebiten.DrawRectShaderOptions{}
-	// triangleOpts.Images[0] = ditherImage
-	// triangleOpts.Uniforms = map[string]interface{}{
-	// 	"cameraPos": []float32{g.camera.Position.x, g.camera.Position.y, g.camera.Position.z},
-	// 	"cameraDir": []float32{g.camera.xAxis, g.camera.yAxis, g.camera.zAxis},
-	// 	"cameraPitch" : g.camera.xAxis,
-	// 	"cameraYaw" : g.camera.yAxis,
-	// 	"cameraRoll" : g.camera.zAxis,
-	// 	"cameraFoe" : FOV,
+    // Create Triangle Rendering Shader
+    for _, triangle := range triangles {
+        tempImage := ebiten.NewImageFromImage(triangleImage)
+        triangleOpts := &ebiten.DrawRectShaderOptions{}
+        triangleOpts.Images[0] = tempImage
+        triangleOpts.Uniforms = map[string]interface{}{
+            "TrianglesV1":    []float32{triangle.v1.x, triangle.v1.y, triangle.v1.z},
+            "TrianglesV2":    []float32{triangle.v2.x, triangle.v2.y, triangle.v2.z},
+            "TrianglesV3":    []float32{triangle.v3.x, triangle.v3.y, triangle.v3.z},
+            "TrianglesColor": []float32{float32(triangle.color.R), float32(triangle.color.G), float32(triangle.color.B)},
+            "CameraPos":      []float32{g.camera.Position.x, g.camera.Position.y, g.camera.Position.z},
+            "CameraYaw":      float32(g.camera.yAxis),
+            "CameraPitch":    float32(g.camera.xAxis),
+            "CameraFov":      FOV,
+        }
 
-	// 	"TriangleV1": TrianglesV1,
-	// 	"TriangleV2": TrianglesV2,
-	// 	"TriangleV3": TrianglesV3,
-
-	// 	"epsilon": 0.0001,
-	// 	"maxDist ": 1000.0,
-	// }
-
-	// // Apply the triangle shader
-	// triangleImage.DrawRectShader(
-	// 	triangleImage.Bounds().Dx(),
-	// 	triangleImage.Bounds().Dy(),
-	// 	g.TriangleShader,
-	// 	triangleOpts,
-	// )
+        // Apply the triangle shader
+        triangleImage.DrawRectShader(
+            triangleImage.Bounds().Dx(),
+            triangleImage.Bounds().Dy(),
+            g.TriangleShader,
+            triangleOpts,
+        )
+    }
 
 	// screen.DrawImage(triangleImage, op1)
 	// // Prepare the options for ditherImage with darker blending
@@ -1585,75 +1562,8 @@ type Game struct {
 	ditherColor            *ebiten.Shader
 	ditherGrayScale        *ebiten.Shader
 	bloomShader            *ebiten.Shader
-	Viewport               Viewport
-	// TriangleShader         *ebiten.Shader
+	TriangleShader         *ebiten.Shader
 }
-
-// func OptimizeBVHDepth(objects []object, camera Camera, light Light) int {
-// 	fmt.Println("Optimizing BVH depth...")
-
-// 	minDepth := 1
-// 	maxDepth := 32
-// 	bestDepth := 1
-// 	bestFPS := 0.0
-
-// 	for maxDepth-minDepth > 1 {
-// 		mid1 := minDepth + (maxDepth-minDepth)/3
-// 		mid2 := maxDepth - (maxDepth-minDepth)/3
-
-// 		fps1 := benchmarkBVHDepth(objects, camera, light, mid1)
-// 		fps2 := benchmarkBVHDepth(objects, camera, light, mid2)
-
-// 		fmt.Printf("BVH Depth: %d, FPS: %.2f | BVH Depth: %d, FPS: %.2f\n", mid1, fps1, mid2, fps2)
-
-// 		if fps1 > fps2 {
-// 			maxDepth = mid2
-// 			if fps1 > bestFPS {
-// 				bestFPS = fps1
-// 				bestDepth = mid1
-// 			}
-// 		} else {
-// 			minDepth = mid1
-// 			if fps2 > bestFPS {
-// 				bestFPS = fps2
-// 				bestDepth = mid2
-// 			}
-// 		}
-// 	}
-
-// 	// Final check for the boundaries
-// 	for depth := minDepth; depth <= maxDepth; depth++ {
-// 		fps := benchmarkBVHDepth(objects, camera, light, depth)
-// 		fmt.Printf("Final check - BVH Depth: %d, FPS: %.2f\n", depth, fps)
-// 		if fps > bestFPS {
-// 			bestFPS = fps
-// 			bestDepth = depth
-// 		}
-// 	}
-
-// 	fmt.Printf("Optimal BVH depth found: %d, Best FPS: %.2f\n", bestDepth, bestFPS)
-// 	return bestDepth
-// }
-
-// func benchmarkBVHDepth(camera Camera, light Light, depth int) float64 {
-
-// 	// Create a dummy image for benchmarking
-// 	dummyImage := ebiten.NewImage(screenWidth, screenHeight)
-
-// 	benchmarkDuration := 10 * time.Second
-// 	frameCount := 0
-// 	startTime := time.Now()
-
-// 	screenCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
-
-// 	for time.Since(startTime) < benchmarkDuration {
-// 		DrawRays(dummyImage, camera, light, 4, 0, screenCoordinates, 1)
-// 		frameCount++
-// 	}
-
-// 	fps := float64(frameCount) / benchmarkDuration.Seconds()
-// 	return fps
-// }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
 func LoadShader(filePath string) ([]byte, error) {
@@ -1693,15 +1603,15 @@ func main() {
 		panic(err)
 	}
 
-	// src, err = LoadShader("shaders/RayCaster.kage")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// rayCasterShader, err := ebiten.NewShader(src)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// fmt.Println("Shader:", rayCasterShader)
+	src, err = LoadShader("shaders/RayCaster.kage")
+	if err != nil {
+		panic(err)
+	}
+	rayCasterShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Shader:", rayCasterShader)
 
 	src, err = LoadShader("shaders/bloom.kage")
 	if err != nil {
@@ -1765,10 +1675,6 @@ func main() {
 	scale := 2
 	screenSpaceCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
 
-	Corners := [2]Vector{
-		screenSpaceCoordinates[0][0], screenSpaceCoordinates[screenWidth-1][screenHeight-1],
-	}
-
 	game := &Game{
 		camera:                 camera,
 		light:                  light,
@@ -1783,8 +1689,7 @@ func main() {
 		ditherGrayScale:        ditherGrayShader,
 		bloomShader:            bloomShader,
 		currentFrame:           ebiten.NewImage(screenWidth/scale, screenHeight/scale),
-		Viewport:               Viewport{Corners, camera.Position},
-		// TriangleShader: 	   rayCasterShader,
+		TriangleShader:         rayCasterShader,
 	}
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)

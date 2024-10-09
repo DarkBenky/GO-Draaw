@@ -1,26 +1,30 @@
 package main
 
-
-var (
-    TrianglesV1   [1024]vec3
-    TrianglesV2   [1024]vec3
-    TrianglesV3   [1024]vec3
-    TrianglesColor [1024]vec3
-    cameraPos = vec3
-    cameraYaw float
-    cameraPitch float
-    cameraRoll = float
-    cameraFov = float
-    cameraDir = vec3
+import (
+    "math"
 )
 
+var (
+    TrianglesV1    [65536]vec3
+    TrianglesV2    [65536]vec3
+    TrianglesV3    [65536]vec3
+    TrianglesColor [65536]vec3
+    CameraPos      vec3
+    CameraYaw      float64
+    CameraPitch    float64
+    CameraFov      float64
+    NumTriangles   int
+)
 
+// vec3 represents a 3D vector
+type vec3 [3]float64
 
-func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float, bool) {
+// Function to calculate ray-triangle intersection
+func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float64, bool) {
     epsilon := 0.000001
 
-    edge1 := v1 - v0
-    edge2 := v2 - v0
+    edge1 := sub(v1, v0)
+    edge2 := sub(v2, v0)
     h := cross(rayDir, edge2)
     a := dot(edge1, h)
 
@@ -29,7 +33,7 @@ func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float, bool) {
     }
 
     f := 1.0 / a
-    s := rayOrigin - v0
+    s := sub(rayOrigin, v0)
     u := f * dot(s, h)
 
     if u < 0.0 || u > 1.0 {
@@ -39,7 +43,7 @@ func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float, bool) {
     q := cross(s, edge1)
     v := f * dot(rayDir, q)
 
-    if v < 0.0 || u + v > 1.0 {
+    if v < 0.0 || u+v > 1.0 {
         return 0.0, false
     }
 
@@ -52,30 +56,54 @@ func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float, bool) {
     return 0.0, false
 }
 
-func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
-    aspectRatio := imageDstTextureSize().x / imageDstTextureSize().y
+// Vector operations
+func sub(a, b vec3) vec3 {
+    return vec3{a[0] - b[0], a[1] - b[1], a[2] - b[2]}
+}
 
-    
+func cross(a, b vec3) vec3 {
+    return vec3{
+        a[1]*b[2] - a[2]*b[1],
+        a[2]*b[0] - a[0]*b[2],
+        a[0]*b[1] - a[1]*b[0],
+    }
+}
+
+func dot(a, b vec3) float64 {
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+}
+
+func normalize(v vec3) vec3 {
+    length := math.Sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
+    return vec3{v[0] / length, v[1] / length, v[2] / length}
+}
+
+// Fragment shader logic
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    aspectRatio := float64(imageDstTextureSize()[0]) / float64(imageDstTextureSize()[1])
+
     // Calculate ray direction
-    x := (2.0 * texCoord.x - 1.0) * aspectRatio * tan(cameraFov / 2.0)
-    y := (1.0 - 2.0 * texCoord.y) * tan(cameraFov / 2.0)
-    
+    x := (2.0*texCoord[0] - 1.0) * aspectRatio * math.Tan(CameraFov/2.0)
+    y := (1.0 - 2.0*texCoord[1]) * math.Tan(CameraFov/2.0)
+
     // Apply camera rotation
-    rayDir := normalize(vec3(
-        cos(cameraYaw) * cos(cameraPitch) * x + sin(cameraYaw) * y + cos(cameraYaw) * sin(cameraPitch),
-        sin(cameraYaw) * cos(cameraPitch) * x - cos(cameraYaw) * y + sin(cameraYaw) * sin(cameraPitch),
-        -sin(cameraPitch) * x + cos(cameraPitch),
-    ))
+    rayDir := normalize(vec3{
+        math.Cos(CameraYaw)*math.Cos(CameraPitch)*x + math.Sin(CameraYaw)*y + math.Cos(CameraYaw)*math.Sin(CameraPitch),
+        math.Sin(CameraYaw)*math.Cos(CameraPitch)*x - math.Cos(CameraYaw)*y + math.Sin(CameraYaw)*math.Sin(CameraPitch),
+        -math.Sin(CameraPitch)*x + math.Cos(CameraPitch),
+    })
 
     nearestDist := 1000000.0
-    hitColor := vec3(0.0)
+    hitColor := vec3{0.0, 0.0, 0.0}
 
-    for i := 0; i < 1024; i++ {
-        dist, hit := rayTriangleIntersect(cameraPos, rayDir, TrianglesV1[i], TrianglesV2[i], TrianglesV3[i])
+    // Iterate through all triangles
+    for i := 0; i < NumTriangles; i++ {
+        dist, hit := rayTriangleIntersect(CameraPos, rayDir, TrianglesV1[i], TrianglesV2[i], TrianglesV3[i])
         if hit && dist < nearestDist {
             nearestDist = dist
             hitColor = TrianglesColor[i]
         }
     }
-    return vec4(hitColor, 1.0)
+
+    return vec4{hitColor[0], hitColor[1], hitColor[2], 1.0}
 }
