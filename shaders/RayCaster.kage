@@ -1,30 +1,34 @@
 package main
 
-import (
-    "math"
-)
-
 var (
-    TrianglesV1    [65536]vec3
-    TrianglesV2    [65536]vec3
-    TrianglesV3    [65536]vec3
-    TrianglesColor [65536]vec3
-    CameraPos      vec3
-    CameraYaw      float64
-    CameraPitch    float64
-    CameraFov      float64
-    NumTriangles   int
+    TrianglesV1X    [32]float
+    TrianglesV1Y    [32]float
+    TrianglesV1Z    [32]float
+    TrianglesV2X    [32]float
+    TrianglesV2Y    [32]float
+    TrianglesV2Z    [32]float
+    TrianglesV3X    [32]float
+    TrianglesV3Y    [32]float
+    TrianglesV3Z    [32]float
+    TrianglesColorR [32]float
+    TrianglesColorG [32]float
+    TrianglesColorB [32]float
+    CameraPos       vec3
+    CameraYaw       float
+    CameraPitch     float
+    CameraFov       float
 )
-
-// vec3 represents a 3D vector
-type vec3 [3]float64
 
 // Function to calculate ray-triangle intersection
-func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float64, bool) {
-    epsilon := 0.000001
+func rayTriangleIntersect(rayOrigin, rayDir vec3, v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z float) (float, bool) {
+    epsilon := float(0.000001)
 
-    edge1 := sub(v1, v0)
-    edge2 := sub(v2, v0)
+    v0Vec := vec3(v0x, v0y, v0z)
+    v1Vec := vec3(v1x, v1y, v1z)
+    v2Vec := vec3(v2x, v2y, v2z)
+
+    edge1 := v1Vec - v0Vec
+    edge2 := v2Vec - v0Vec
     h := cross(rayDir, edge2)
     a := dot(edge1, h)
 
@@ -33,7 +37,7 @@ func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float64, bool) {
     }
 
     f := 1.0 / a
-    s := sub(rayOrigin, v0)
+    s := rayOrigin - v0Vec
     u := f * dot(s, h)
 
     if u < 0.0 || u > 1.0 {
@@ -56,54 +60,38 @@ func rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2 vec3) (float64, bool) {
     return 0.0, false
 }
 
-// Vector operations
-func sub(a, b vec3) vec3 {
-    return vec3{a[0] - b[0], a[1] - b[1], a[2] - b[2]}
-}
-
-func cross(a, b vec3) vec3 {
-    return vec3{
-        a[1]*b[2] - a[2]*b[1],
-        a[2]*b[0] - a[0]*b[2],
-        a[0]*b[1] - a[1]*b[0],
-    }
-}
-
-func dot(a, b vec3) float64 {
-    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
-}
-
-func normalize(v vec3) vec3 {
-    length := math.Sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
-    return vec3{v[0] / length, v[1] / length, v[2] / length}
-}
-
 // Fragment shader logic
 func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
-    aspectRatio := float64(imageDstTextureSize()[0]) / float64(imageDstTextureSize()[1])
+    aspectRatio := imageDstTextureSize().x / imageDstTextureSize().y
 
     // Calculate ray direction
-    x := (2.0*texCoord[0] - 1.0) * aspectRatio * math.Tan(CameraFov/2.0)
-    y := (1.0 - 2.0*texCoord[1]) * math.Tan(CameraFov/2.0)
+    x := (2.0*texCoord.x - 1.0) * aspectRatio * tan(CameraFov/2.0)
+    y := (1.0 - 2.0*texCoord.y) * tan(CameraFov/2.0)
 
     // Apply camera rotation
-    rayDir := normalize(vec3{
-        math.Cos(CameraYaw)*math.Cos(CameraPitch)*x + math.Sin(CameraYaw)*y + math.Cos(CameraYaw)*math.Sin(CameraPitch),
-        math.Sin(CameraYaw)*math.Cos(CameraPitch)*x - math.Cos(CameraYaw)*y + math.Sin(CameraYaw)*math.Sin(CameraPitch),
-        -math.Sin(CameraPitch)*x + math.Cos(CameraPitch),
-    })
+    rayDir := normalize(vec3(
+        cos(CameraYaw)*cos(CameraPitch)*x + sin(CameraYaw)*y + cos(CameraYaw)*sin(CameraPitch),
+        sin(CameraYaw)*cos(CameraPitch)*x - cos(CameraYaw)*y + sin(CameraYaw)*sin(CameraPitch),
+        -sin(CameraPitch)*x + cos(CameraPitch),
+    ))
 
-    nearestDist := 1000000.0
-    hitColor := vec3{0.0, 0.0, 0.0}
+    nearestDist := float(1000000.0)
+    hitColorR := float(0.0)
+    hitColorG := float(0.0)
+    hitColorB := float(0.0)
 
-    // Iterate through all triangles
-    for i := 0; i < NumTriangles; i++ {
-        dist, hit := rayTriangleIntersect(CameraPos, rayDir, TrianglesV1[i], TrianglesV2[i], TrianglesV3[i])
+    // Ray-triangle intersection
+    for i := 0; i < 32; i++ {
+        dist, hit := rayTriangleIntersect(CameraPos, rayDir, 
+            TrianglesV1X[i], TrianglesV1Y[i], TrianglesV1Z[i],
+            TrianglesV2X[i], TrianglesV2Y[i], TrianglesV2Z[i],
+            TrianglesV3X[i], TrianglesV3Y[i], TrianglesV3Z[i])
         if hit && dist < nearestDist {
             nearestDist = dist
-            hitColor = TrianglesColor[i]
+            hitColorR = TrianglesColorR[i]
+            hitColorG = TrianglesColorG[i]
+            hitColorB = TrianglesColorB[i]
         }
     }
-
-    return vec4{hitColor[0], hitColor[1], hitColor[2], 1.0}
+    return vec4(hitColorR, hitColorG, hitColorB, 1.0)
 }

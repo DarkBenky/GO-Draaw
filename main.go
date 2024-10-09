@@ -1446,6 +1446,71 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 var averageFPS float64
 var Frames int
 
+func (g *Game) setupTriangleShader(triangles []Triangle, triangleImage *ebiten.Image) {
+    TrianglesV1X := [32]float32{}
+    TrianglesV1Y := [32]float32{}
+    TrianglesV1Z := [32]float32{}
+    TrianglesV2X := [32]float32{}
+    TrianglesV2Y := [32]float32{}
+    TrianglesV2Z := [32]float32{}
+    TrianglesV3X := [32]float32{}
+    TrianglesV3Y := [32]float32{}
+    TrianglesV3Z := [32]float32{}
+    TrianglesColorR := [32]float32{}
+    TrianglesColorG := [32]float32{}
+    TrianglesColorB := [32]float32{}
+
+    // Create Triangle Rendering Shader
+    for i, triangle := range triangles {
+        if i >= 32 {
+            break
+        }
+        TrianglesV1X[i] = triangle.v1.x
+        TrianglesV1Y[i] = triangle.v1.y
+        TrianglesV1Z[i] = triangle.v1.z
+        TrianglesV2X[i] = triangle.v2.x
+        TrianglesV2Y[i] = triangle.v2.y
+        TrianglesV2Z[i] = triangle.v2.z
+        TrianglesV3X[i] = triangle.v3.x
+        TrianglesV3Y[i] = triangle.v3.y
+        TrianglesV3Z[i] = triangle.v3.z
+        TrianglesColorR[i] = float32(triangle.color.R)
+        TrianglesColorG[i] = float32(triangle.color.G)
+        TrianglesColorB[i] = float32(triangle.color.B)
+    }
+
+    tempImage := ebiten.NewImageFromImage(triangleImage)
+    triangleOpts := &ebiten.DrawRectShaderOptions{}
+    triangleOpts.Images[0] = tempImage
+    triangleOpts.Uniforms = map[string]interface{}{
+        "TrianglesV1X":    TrianglesV1X,
+        "TrianglesV1Y":    TrianglesV1Y,
+        "TrianglesV1Z":    TrianglesV1Z,
+        "TrianglesV2X":    TrianglesV2X,
+        "TrianglesV2Y":    TrianglesV2Y,
+        "TrianglesV2Z":    TrianglesV2Z,
+        "TrianglesV3X":    TrianglesV3X,
+        "TrianglesV3Y":    TrianglesV3Y,
+        "TrianglesV3Z":    TrianglesV3Z,
+        "TrianglesColorR": TrianglesColorR,
+        "TrianglesColorG": TrianglesColorG,
+        "TrianglesColorB": TrianglesColorB,
+        "CameraPos":       []float32{g.camera.Position.x, g.camera.Position.y, g.camera.Position.z},
+        "CameraYaw":       float32(g.camera.yAxis),
+        "CameraPitch":     float32(g.camera.xAxis),
+        "CameraFov":       FOV,
+    }
+
+    // Apply the triangle shader
+    triangleImage.DrawRectShader(
+        triangleImage.Bounds().Dx(),
+        triangleImage.Bounds().Dy(),
+        g.TriangleShader,
+        triangleOpts,
+    )
+}
+
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
@@ -1503,30 +1568,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// screen.DrawImage(bloomImage, op1)
 	triangleImage := ebiten.NewImageFromImage(g.currentFrame)
 
-    // Create Triangle Rendering Shader
-    for _, triangle := range triangles {
-        tempImage := ebiten.NewImageFromImage(triangleImage)
-        triangleOpts := &ebiten.DrawRectShaderOptions{}
-        triangleOpts.Images[0] = tempImage
-        triangleOpts.Uniforms = map[string]interface{}{
-            "TrianglesV1":    []float32{triangle.v1.x, triangle.v1.y, triangle.v1.z},
-            "TrianglesV2":    []float32{triangle.v2.x, triangle.v2.y, triangle.v2.z},
-            "TrianglesV3":    []float32{triangle.v3.x, triangle.v3.y, triangle.v3.z},
-            "TrianglesColor": []float32{float32(triangle.color.R), float32(triangle.color.G), float32(triangle.color.B)},
-            "CameraPos":      []float32{g.camera.Position.x, g.camera.Position.y, g.camera.Position.z},
-            "CameraYaw":      float32(g.camera.yAxis),
-            "CameraPitch":    float32(g.camera.xAxis),
-            "CameraFov":      FOV,
-        }
-
-        // Apply the triangle shader
-        triangleImage.DrawRectShader(
-            triangleImage.Bounds().Dx(),
-            triangleImage.Bounds().Dy(),
-            g.TriangleShader,
-            triangleOpts,
-        )
-    }
+	// Apply the triangle shader
+	g.setupTriangleShader(triangles, triangleImage)
+	screen.DrawImage(triangleImage, nil)
 
 	// screen.DrawImage(triangleImage, op1)
 	// // Prepare the options for ditherImage with darker blending
@@ -1633,18 +1677,18 @@ func main() {
 	ebiten.SetTPS(20)
 
 	// spheres := GenerateRandomSpheres(15)
-	// cubes := GenerateRandomCubes(30)
+	cubes := GenerateRandomCubes(30)
 
-	obj, err := LoadOBJ("Room.obj")
-	if err != nil {
-		panic(err)
-	}
-	obj.Scale(65)
+	// obj, err := LoadOBJ("Room.obj")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// obj.Scale(65)
 
-	objects := []object{}
-	objects = append(objects, obj)
+	// objects := []object{}
+	// objects = append(objects, obj)
 
-	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
+	camera := Camera{Position: Vector{0, 100, -1000}, xAxis: 0, yAxis: 0, zAxis: 0}
 	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 1}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
@@ -1652,7 +1696,7 @@ func main() {
 	// objects = append(objects, spheres...)
 	// objects = append(objects, cubes...)
 
-	bvh := ConvertObjectsToBVH(objects, maxDepth)
+	bvh := ConvertObjectsToBVH(cubes, maxDepth)
 
 	BVH = bvh
 
