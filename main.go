@@ -1304,38 +1304,32 @@ func UpdateScreenSpaceCoordinates(screenSpaceCoordinates [][]Vector, camera Came
 	return screenSpaceCoordinates
 }
 
-func DrawRays(screen *ebiten.Image, camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int) {
-	pixelChan := make(chan Pixel, screenWidth/scaling*screenHeight/scaling)
+func DrawRays(camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int, subImages []*ebiten.Image) []*ebiten.Image {
 	var wg sync.WaitGroup
-
 	const rowSize = screenHeight / numCPU
 
 	// Create a pool of worker goroutines, each handling a portion of the image
 	for i := 0; i < numCPU; i++ {
 		wg.Add(1)
-		go func(startY int, endIndex int) {
+		go func(startY int, endIndex int, subImage *ebiten.Image) {
 			defer wg.Done()
 			for y := startY; y < endIndex; y += scaling {
 				for x := 0; x < screenWidth; x += scaling {
-					// Calculate the ray direction
-					rayDirection := screenSpaceCoordinates[x][y]
-					ray := Ray{origin: camera.Position, direction: rayDirection}
-					color := TraceRay(ray, depth, light, samples)
-					// Send pixel data to the channel
-					pixelChan <- Pixel{x: x / scaling, y: y / scaling, color: color}
+					// rayDirection := screenSpaceCoordinates[x][y]
+					// ray := Ray{origin: camera.Position, direction: rayDirection}
+					// color := TraceRay(ray, depth, light, samples)
+
+					// Set the pixel color in the sub-image
+					subImage.Set(x/scaling, y/scaling, color.RGBA{255, 255, 255, 255})
 				}
 			}
-		}(i*rowSize, (i+1)*rowSize)
+		}(i*rowSize, (i+1)*rowSize, subImages[i])
 	}
 
-	// Wait for all workers to finish and close the pixel channel
-	go func() {
-		wg.Wait()
-		close(pixelChan)
-	}()
+	// Wait for all workers to finish
+	wg.Wait()
 
-	// Update the screen with pixel data
-	UpdateImage(screen, pixelChan)
+	return subImages
 }
 
 // UpdateImage writes pixels from pixelChan to the screen image efficiently
@@ -1458,15 +1452,6 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 var averageFPS float64
 var Frames int
 
-func DrawTriangles(viewPort Viewport) {
-	for _ , t := range triangles {
-		if t.InsideView(viewPort) {
-			// calculate the position of the triangle in the screen
-			
-		}
-	}
-}
-
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
@@ -1477,26 +1462,38 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.currentFrame.Clear()
 
 	// Perform path tracing and draw rays into the current frame
-	DrawRays(g.currentFrame, g.camera, g.light, g.scaleFactor, g.samples, g.screenSpaceCoordinates, g.depth)
+	g.subImages = DrawRays(g.camera, g.light, g.scaleFactor, g.samples, g.screenSpaceCoordinates, g.depth, g.subImages)
 
-	// Create a temporary image for bloom shader
-	bloomImage := ebiten.NewImageFromImage(g.currentFrame)
-
-	// Apply Bloom shader
-	bloomOpts := &ebiten.DrawRectShaderOptions{}
-	bloomOpts.Images[0] = g.currentFrame
-	bloomOpts.Uniforms = map[string]interface{}{
-		"screenSize":     []float32{float32(bloomImage.Bounds().Dx()), float32(bloomImage.Bounds().Dy())},
-		"bloomThreshold": 1,
+	// Draw the current frame to the screen
+	
+	// scale image by scale factor
+	
+	// fix drawing
+	for i, subImage := range g.subImages {
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(float64(g.scaleFactor), float64(g.scaleFactor))
+		op.GeoM.Translate(0, float64(i)*50) // Use the outer loop variable directly
+		screen.DrawImage(subImage, op)
 	}
 
-	// Apply the bloom shader
-	bloomImage.DrawRectShader(
-		bloomImage.Bounds().Dx(),
-		bloomImage.Bounds().Dy(),
-		g.bloomShader,
-		bloomOpts,
-	)
+	// Create a temporary image for bloom shader
+	// bloomImage := ebiten.NewImageFromImage(g.currentFrame)
+
+	// Apply Bloom shader
+	// bloomOpts := &ebiten.DrawRectShaderOptions{}
+	// bloomOpts.Images[0] = g.currentFrame
+	// bloomOpts.Uniforms = map[string]interface{}{
+	// 	"screenSize":     []float32{float32(bloomImage.Bounds().Dx()), float32(bloomImage.Bounds().Dy())},
+	// 	"bloomThreshold": 1,
+	// }
+
+	// // Apply the bloom shader
+	// bloomImage.DrawRectShader(
+	// 	bloomImage.Bounds().Dx(),
+	// 	bloomImage.Bounds().Dy(),
+	// 	g.bloomShader,
+	// 	bloomOpts,
+	// )
 
 	// Apply Dither shader
 	// ditherImage := ebiten.NewImageFromImage(bloomImage)
@@ -1518,10 +1515,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Draw the current frame (bloomImage) to the screen, scaling it to screen size
 	// Draw bloomImage to the screen, scaling it to screen size
 	// Draw bloomImage to the screen, scaling it to screen size
-	op1 := &ebiten.DrawImageOptions{}
-	op1.GeoM.Scale(float64(screen.Bounds().Dx())/float64(bloomImage.Bounds().Dx()),
-		float64(screen.Bounds().Dy())/float64(bloomImage.Bounds().Dy()))
-	screen.DrawImage(bloomImage, op1)
+	// op1 := &ebiten.DrawImageOptions{}
+	// op1.GeoM.Scale(float64(screen.Bounds().Dx())/float64(bloomImage.Bounds().Dx()),
+	// 	float64(screen.Bounds().Dy())/float64(bloomImage.Bounds().Dy()))
+	// screen.DrawImage(bloomImage, op1)
 
 	// Create Triangle Rendering Shader
 	// triangleImage := ebiten.NewImageFromImage(ditherImage)
@@ -1572,6 +1569,7 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 var BVH *BVHNode
 
 type Game struct {
+	subImages              []*ebiten.Image
 	camera                 Camera
 	light                  Light
 	scaleFactor            int
@@ -1769,7 +1767,14 @@ func main() {
 		screenSpaceCoordinates[0][0], screenSpaceCoordinates[screenWidth-1][screenHeight-1],
 	}
 
+	subImages := make([]*ebiten.Image, numCPU)
+
+	for i := range numCPU {
+		subImages[i] = ebiten.NewImage(screenWidth/scale, screenHeight/numCPU/scale)
+	}
+
 	game := &Game{
+		subImages:              subImages,
 		camera:                 camera,
 		light:                  light,
 		scaleFactor:            scale,
