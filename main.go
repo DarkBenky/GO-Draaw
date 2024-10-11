@@ -196,6 +196,7 @@ func LoadOBJ(filename string) (object, error) {
 						v2:         vertices[indices[i]],
 						v3:         vertices[indices[i+1]],
 						reflection: 0.09,
+						specular:   0.5,
 					}
 
 					// Apply the current material color if available
@@ -297,6 +298,7 @@ type Triangle struct {
 	BoundingBox [2]Vector
 	Normal      Vector
 	reflection  float32
+	specular    float32
 }
 
 func (t *Triangle) CalculateNormal() {
@@ -403,7 +405,7 @@ func applyRotationMatrix(v Vector, matrix [3][3]float32) Vector {
 	}
 }
 
-func CreateCube(center Vector, size float32, color color.RGBA, refection float32) []Triangle {
+func CreateCube(center Vector, size float32, color color.RGBA, refection float32, specular float32) []Triangle {
 	halfSize := size / 2
 
 	vertices := [8]Vector{
@@ -418,27 +420,27 @@ func CreateCube(center Vector, size float32, color color.RGBA, refection float32
 	}
 
 	return []Triangle{
-		NewTriangle(vertices[0], vertices[1], vertices[2], color, refection), // Front face
-		NewTriangle(vertices[0], vertices[2], vertices[3], color, refection),
+		NewTriangle(vertices[0], vertices[1], vertices[2], color, refection, specular), // Front face
+		NewTriangle(vertices[0], vertices[2], vertices[3], color, refection, specular),
 
-		NewTriangle(vertices[4], vertices[5], vertices[6], color, refection), // Back face
-		NewTriangle(vertices[4], vertices[6], vertices[7], color, refection),
+		NewTriangle(vertices[4], vertices[5], vertices[6], color, refection, specular), // Back face
+		NewTriangle(vertices[4], vertices[6], vertices[7], color, refection, specular),
 
-		NewTriangle(vertices[0], vertices[1], vertices[5], color, refection), // Bottom face
-		NewTriangle(vertices[0], vertices[5], vertices[4], color, refection),
+		NewTriangle(vertices[0], vertices[1], vertices[5], color, refection, specular), // Bottom face
+		NewTriangle(vertices[0], vertices[5], vertices[4], color, refection, specular),
 
-		NewTriangle(vertices[2], vertices[3], vertices[7], color, refection), // Top face
-		NewTriangle(vertices[2], vertices[7], vertices[6], color, refection),
+		NewTriangle(vertices[2], vertices[3], vertices[7], color, refection, specular), // Top face
+		NewTriangle(vertices[2], vertices[7], vertices[6], color, refection, specular),
 
-		NewTriangle(vertices[1], vertices[2], vertices[6], color, refection), // Right face
-		NewTriangle(vertices[1], vertices[6], vertices[5], color, refection),
+		NewTriangle(vertices[1], vertices[2], vertices[6], color, refection, specular), // Right face
+		NewTriangle(vertices[1], vertices[6], vertices[5], color, refection, specular),
 
-		NewTriangle(vertices[0], vertices[3], vertices[7], color, refection), // Left face
-		NewTriangle(vertices[0], vertices[7], vertices[4], color, refection),
+		NewTriangle(vertices[0], vertices[3], vertices[7], color, refection, specular), // Left face
+		NewTriangle(vertices[0], vertices[7], vertices[4], color, refection, specular),
 	}
 }
 
-func CreatePlane(center Vector, normal Vector, width, height float32, color color.RGBA, reflection float32) []Triangle {
+func CreatePlane(center Vector, normal Vector, width, height float32, color color.RGBA, reflection float32, specular float32) []Triangle {
 	// Calculate the tangent vectors
 	var tangent, bitangent Vector
 	if math32.Abs(normal.x) > math32.Abs(normal.y) {
@@ -457,12 +459,12 @@ func CreatePlane(center Vector, normal Vector, width, height float32, color colo
 	v4 := center.Add(tangent.Mul(-halfWidth)).Add(bitangent.Mul(halfHeight))
 
 	return []Triangle{
-		NewTriangle(v1, v2, v3, color, reflection),
-		NewTriangle(v1, v3, v4, color, reflection),
+		NewTriangle(v1, v2, v3, color, reflection, specular),
+		NewTriangle(v1, v3, v4, color, reflection, specular),
 	}
 }
 
-func CreateSphere(center Vector, radius float32, color color.RGBA, reflection float32) []Triangle {
+func CreateSphere(center Vector, radius float32, color color.RGBA, reflection float32, specular float32) []Triangle {
 	var triangles []Triangle
 	latitudeBands := 20
 	longitudeBands := 20
@@ -493,8 +495,8 @@ func CreateSphere(center Vector, radius float32, color color.RGBA, reflection fl
 			x3 := math32.Cos(float32(lng3)) * zr1
 			y3 := math32.Sin(float32(lng3)) * zr1
 
-			triangles = append(triangles, NewTriangle(Vector{x0 + center.x, y0 + center.y, z0 + center.z}, Vector{x1 + center.x, y1 + center.y, z0 + center.z}, Vector{x2 + center.x, y2 + center.y, z1 + center.z}, color, reflection))
-			triangles = append(triangles, NewTriangle(Vector{x1 + center.x, y1 + center.y, z0 + center.z}, Vector{x3 + center.x, y3 + center.y, z1 + center.z}, Vector{x2 + center.x, y2 + center.y, z1 + center.z}, color, reflection))
+			triangles = append(triangles, NewTriangle(Vector{x0 + center.x, y0 + center.y, z0 + center.z}, Vector{x1 + center.x, y1 + center.y, z0 + center.z}, Vector{x2 + center.x, y2 + center.y, z1 + center.z}, color, reflection, specular))
+			triangles = append(triangles, NewTriangle(Vector{x1 + center.x, y1 + center.y, z0 + center.z}, Vector{x3 + center.x, y3 + center.y, z1 + center.z}, Vector{x2 + center.x, y2 + center.y, z1 + center.z}, color, reflection, specular))
 		}
 	}
 
@@ -515,8 +517,8 @@ func (triangle *Triangle) CalculateBoundingBox() {
 	triangle.BoundingBox[1] = Vector{maxX, maxY, maxZ}
 }
 
-func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32) Triangle {
-	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection}
+func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32, specular float32) Triangle {
+	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection, specular: specular}
 	triangle.CalculateBoundingBox()
 	triangle.CalculateNormal()
 	return triangle
@@ -555,6 +557,7 @@ type Intersection struct {
 	Direction           Vector
 	Distance            float32
 	reflection          float32
+	specular            float32
 }
 
 type Light struct {
@@ -783,6 +786,7 @@ func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
 				Direction:           ray.direction,
 				Distance:            t,
 				reflection:          triangle.reflection,
+				specular:            triangle.specular,
 			}
 
 			// Update the closest intersection if the new one is closer
@@ -801,19 +805,18 @@ type Camera struct {
 	xAxis, yAxis, zAxis float32
 }
 
-type Pixel struct {
-	x, y  int
-	color color.RGBA
-}
+func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
+	if depth == 0 {
+		return color.RGBA{}
+	}
 
-func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode) color.RGBA {
-	var Red, Green, Blue float32
+	intersection, intersect := ray.IntersectBVH(BVH)
+	if !intersect {
+		return color.RGBA{}
+	}
 
-	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
-	reflectDir := intersection.Normal.Mul(2 * lightDir.Dot(intersection.Normal)).Sub(lightDir).Normalize()
-	reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
-
-	reflectedIntersection, _ := reflectRay.IntersectBVH(bvh)
+	// Scatter calculation
+	var scatteredRed, scatteredGreen, scatteredBlue float32
 
 	for i := 0; i < samples; i++ {
 		u := rand.Float32()
@@ -833,50 +836,41 @@ func (intersection *Intersection) Scatter(samples int, light Light, bvh *BVHNode
 		directionLocal := uVec.Mul(r * math32.Cos(theta)).Add(vVec.Mul(r * math32.Sin(theta))).Add(intersection.Normal.Mul(math32.Sqrt(1 - u)))
 		direction := directionLocal.Normalize()
 
-		ray := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: direction}
+		scatterRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: direction}
 
-		if bvhIntersection, intersect := ray.IntersectBVH(bvh); intersect && bvhIntersection.Distance != math32.MaxFloat32 {
-			Red += float32(bvhIntersection.Color.R)
-			Green += float32(bvhIntersection.Color.G)
-			Blue += float32(bvhIntersection.Color.B)
+		if bvhIntersection, scatterIntersect := scatterRay.IntersectBVH(BVH); scatterIntersect && bvhIntersection.Distance != math32.MaxFloat32 {
+			scatteredRed += float32(bvhIntersection.Color.R)
+			scatteredGreen += float32(bvhIntersection.Color.G)
+			scatteredBlue += float32(bvhIntersection.Color.B)
 		}
 	}
 
 	if samples > 0 {
 		s := float32(samples)
-		Red /= s
-		Green /= s
-		Blue /= s
-
-		ratioScatterToDirect := 1 - intersection.reflection
-		return color.RGBA{
-			R: clampUint8(Red*ratioScatterToDirect + float32(reflectedIntersection.Color.R)*intersection.reflection),
-			G: clampUint8(Green*ratioScatterToDirect + float32(reflectedIntersection.Color.G)*intersection.reflection),
-			B: clampUint8(Blue*ratioScatterToDirect + float32(reflectedIntersection.Color.B)*intersection.reflection),
-			A: intersection.Color.A,
-		}
-	}
-	return color.RGBA{}
-}
-
-func TraceRay(ray Ray, depth int, light Light, scatter int) color.RGBA {
-	if depth == 0 {
-		return color.RGBA{}
+		scatteredRed /= s
+		scatteredGreen /= s
+		scatteredBlue /= s
 	}
 
-	intersection, intersect := ray.IntersectBVH(BVH)
-	if !intersect {
-		return color.RGBA{}
+	ratioScatterToDirect := 1 - intersection.reflection
+	scatteredColor := color.RGBA{
+		R: clampUint8(scatteredRed * ratioScatterToDirect),
+		G: clampUint8(scatteredGreen * ratioScatterToDirect),
+		B: clampUint8(scatteredBlue * ratioScatterToDirect),
+		A: intersection.Color.A,
 	}
 
-	scatteredColor := intersection.Scatter(scatter, light, BVH)
-
+	// Reflection and specular calculations
 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+	viewDir := ray.origin.Sub(intersection.PointOfIntersection).Normalize()
 	reflectDir := intersection.Normal.Mul(2 * lightDir.Dot(intersection.Normal)).Sub(lightDir).Normalize()
+
+	specularFactor := math32.Pow(math32.Max(0.0, viewDir.Dot(reflectDir)), intersection.specular)
+
 	reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 
 	reflectedColor := color.RGBA{}
-	if tempIntersection, intersect := reflectRay.IntersectBVH(BVH); intersect {
+	if tempIntersection, reflectIntersect := reflectRay.IntersectBVH(BVH); reflectIntersect {
 		reflectedColor.R = uint8(tempIntersection.Color.R)
 		reflectedColor.G = uint8(tempIntersection.Color.G)
 		reflectedColor.B = uint8(tempIntersection.Color.B)
@@ -891,23 +885,27 @@ func TraceRay(ray Ray, depth int, light Light, scatter int) color.RGBA {
 	var directColor color.RGBA
 	if !inShadow {
 		lightIntensity := light.intensity * math32.Max(0.0, lightDir.Dot(intersection.Normal))
+		specularIntensity := light.intensity * specularFactor
+
 		directColor = color.RGBA{
-			R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R)) * lightIntensity * float32(light.Color[0])),
-			G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G)) * lightIntensity * float32(light.Color[1])),
-			B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B)) * lightIntensity * float32(light.Color[2])),
+			R: clampUint8((float32(scatteredColor.R)+float32(intersection.Color.R))*lightIntensity*float32(light.Color[0]) +
+				255*specularIntensity*float32(light.Color[0])),
+			G: clampUint8((float32(scatteredColor.G)+float32(intersection.Color.G))*lightIntensity*float32(light.Color[1]) +
+				255*specularIntensity*float32(light.Color[1])),
+			B: clampUint8((float32(scatteredColor.B)+float32(intersection.Color.B))*lightIntensity*float32(light.Color[2]) +
+				255*specularIntensity*float32(light.Color[2])),
 			A: intersection.Color.A,
 		}
 	} else {
-		lightIntensity := float32(0.05)
+		ambientIntensity := float32(0.05)
 		directColor = color.RGBA{
-			R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R)) * lightIntensity * float32(light.Color[0])),
-			G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G)) * lightIntensity * float32(light.Color[1])),
-			B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B)) * lightIntensity * float32(light.Color[2])),
+			R: clampUint8((float32(scatteredColor.R) + float32(intersection.Color.R)) * ambientIntensity * float32(light.Color[0])),
+			G: clampUint8((float32(scatteredColor.G) + float32(intersection.Color.G)) * ambientIntensity * float32(light.Color[1])),
+			B: clampUint8((float32(scatteredColor.B) + float32(intersection.Color.B)) * ambientIntensity * float32(light.Color[2])),
 			A: intersection.Color.A,
 		}
 	}
 
-	ratioScatterToDirect := 1 - intersection.reflection
 	finalColor := color.RGBA{
 		R: clampUint8(float32(directColor.R)*ratioScatterToDirect + float32(reflectedColor.R)*intersection.reflection),
 		G: clampUint8(float32(directColor.G)*ratioScatterToDirect + float32(reflectedColor.G)*intersection.reflection),
@@ -916,7 +914,7 @@ func TraceRay(ray Ray, depth int, light Light, scatter int) color.RGBA {
 	}
 
 	bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
-	bouncedColor := TraceRay(bounceRay, depth-1, light, scatter)
+	bouncedColor := TraceRay(bounceRay, depth-1, light, samples)
 
 	finalColor.R = clampUint8((float32(finalColor.R) + float32(bouncedColor.R)) / 2)
 	finalColor.G = clampUint8((float32(finalColor.G) + float32(bouncedColor.G)) / 2)
@@ -1139,7 +1137,8 @@ func GenerateRandomSpheres(numSpheres int) []object {
 		color := color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
 		reflection := rand.Float32()
 		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32()*400 - 200}
-		sphere := CreateSphere(position, radius, color, reflection)
+		specular := rand.Float32()
+		sphere := CreateSphere(position, radius, color, reflection, specular)
 		spheres[i] = *CreateObject(sphere)
 	}
 	return spheres
@@ -1151,8 +1150,9 @@ func GenerateRandomCubes(numCubes int) []object {
 		size := rand.Float32()*50 + 10
 		color := color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
 		reflection := rand.Float32()
+		specular := rand.Float32()
 		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32()*400 - 200}
-		cube := CreateCube(position, size, color, reflection)
+		cube := CreateCube(position, size, color, reflection, specular)
 		obj := CreateObject(cube)
 		obj.Rotate(rand.Float32()*math.Pi, rand.Float32()*math.Pi, rand.Float32()*math.Pi)
 		cubes[i] = *obj
@@ -1252,7 +1252,6 @@ func RotationMatrix(angleX, angleY, angleZ float32) [3][3]float32 {
 	sy := math32.Sin(angleY)
 	cz := math32.Cos(angleZ)
 	sz := math32.Sin(angleZ)
-
 	return [3][3]float32{
 		{cy * cz, cy * sz, -sy},
 		{sx*sy*cz - cx*sz, sx*sy*sz + cx*cz, sx * cy},
@@ -1278,11 +1277,8 @@ func UpdateScreenSpaceCoordinates(screenSpaceCoordinates [][]Vector, camera Came
 	return screenSpaceCoordinates
 }
 
-
-
 func DrawRays(camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int, subImages []*ebiten.Image) {
 	var wg sync.WaitGroup
-	
 
 	// Create a pool of worker goroutines, each handling a portion of the image
 	for i := 0; i < numCPU; i++ {
@@ -1366,39 +1362,57 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bo
 }
 
 func (g *Game) Update() error {
-	// check if the mouse is pressed
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		// get position of the mouse
-		x, y := ebiten.CursorPosition()
-		// fmt.Println("Mouse position", x, y)
-		if x < screenWidth && y < screenHeight {
-			findIntersectionAndSetColor(g.BVHobjects, Ray{origin: g.camera.Position, direction: g.screenSpaceCoordinates[x][y]}, color.RGBA{255, 0, 0, 255})
-		}
+	// Mouse look sensitivity (adjust as needed)
+	const sensitivity = 0.002
+
+	// Get the current mouse position
+	mouseX, mouseY := ebiten.CursorPosition()
+
+	if ebiten.IsKeyPressed(ebiten.KeyR) {
+		g.axis = !g.axis
 	}
 
-	// Rotate the camera around the object
-	angle := float64(g.updateFreq) * 2 * math.Pi / 600
-	g.camera.Position.x = float32(math.Cos(angle)) * 300
-	g.camera.Position.z = float32(math.Sin(angle)) * 300
+	// if g.axis {
+	dx := float32(mouseX-g.cursorX) * sensitivity
+	g.camera.yAxis = float32(dx) // Horizontal rotation (yaw)
+	g.cursorX = mouseX
+	// } else {
+	dy := float32(mouseY-g.cursorY) * sensitivity
+	g.camera.xAxis = dy
+	g.camera.zAxis = -dy
+	g.cursorY = mouseY
+	// }
 
-	// g.camera.yAxis += 0.01
-	// g.camera.xAxis += 0.01
-	// g.camera.zAxis += 0.01
+	forward := g.screenSpaceCoordinates[screenHeight/2][screenWidth/2]
+	right := g.screenSpaceCoordinates[screenHeight/2][screenWidth/2].Cross(Vector{0, 1, 0})
 
-	// Update the screen space coordinates
-	// start := time.Now()
-	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
-	// fmt.Println("PrecomputeScreenSpaceCoordinates:", time.Since(start))
+	// Optionally move the camera based on input (e.g., WASD for movement)
+	if ebiten.IsKeyPressed(ebiten.KeyW) {
+		g.camera.Position = g.camera.Position.Add(forward) // Move forward
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyS) {
+		g.camera.Position = g.camera.Position.Sub(forward) // Move backward
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyD) {
+		g.camera.Position = g.camera.Position.Add(right) // Move right
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyA) {
+		g.camera.Position = g.camera.Position.Sub(right) // Move left
+	}
+
+	// Handle vertical movement (e.g., up and down)
+	if ebiten.IsKeyPressed(ebiten.KeyE) {
+		g.camera.Position = g.camera.Position.Add(Vector{0, 1, 0}) // Move up
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyQ) {
+		g.camera.Position = g.camera.Position.Sub(Vector{0, 1, 0}) // Move down
+	}
+
+	// Update the screen space coordinates based on the camera's new orientation
 	g.screenSpaceCoordinates = UpdateScreenSpaceCoordinates(g.screenSpaceCoordinates, g.camera)
+	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
 
 	g.updateFreq++
-
-	// Check if 30 seconds have passed
-	if time.Since(g.startTime).Seconds() >= 30 {
-		fmt.Println("Average FPS:", averageFPS/float64(Frames))
-		// Close the program
-		os.Exit(0)
-	}
 
 	return nil
 }
@@ -1551,6 +1565,8 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 var BVH *BVHNode
 
 type Game struct {
+	axis                   bool
+	cursorX, cursorY       int
 	subImages              []*ebiten.Image
 	camera                 Camera
 	light                  Light
@@ -1641,7 +1657,7 @@ func main() {
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(30)
 
-	obj, err := LoadOBJ("T 90.obj")
+	obj, err := LoadOBJ("Room.obj")
 	if err != nil {
 		panic(err)
 	}
@@ -1662,22 +1678,6 @@ func main() {
 
 	BVH = bvh
 
-	// Optimize the block size
-	// minBlockSize := 16
-	// maxBlockSize := 512
-	// maxIteration := 8
-	// bestBlockSize := OptimizeBlockSize(objects, camera, light, bvh, minBlockSize, maxBlockSize, maxIteration)
-	// BlockSize: 181, FPS: 10.30 | BlockSize: 347, FPS: 9.30
-	// BlockSize: 126, FPS: 21.50 | BlockSize: 237, FPS: 9.30
-	// BlockSize: 89, FPS: 18.70 | BlockSize: 164, FPS: 11.50
-	// BlockSize: 65, FPS: 19.30 | BlockSize: 115, FPS: 20.80
-	// BlockSize: 98, FPS: 16.30 | BlockSize: 131, FPS: 20.80
-	// BlockSize: 120, FPS: 15.80 | BlockSize: 142, FPS: 15.60
-	// BlockSize: 112, FPS: 21.20 | BlockSize: 128, FPS: 19.20
-	// BlockSize: 108, FPS: 19.10 | BlockSize: 118, FPS: 22.20
-	// BlockSize: 114, FPS: 20.70 | BlockSize: 122, FPS: 20.70
-	// BlockSize: 118, FPS: 16.80 | BlockSize: 124, FPS: 24.90
-
 	scale := 2
 	screenSpaceCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
 
@@ -1691,6 +1691,9 @@ func main() {
 	}
 
 	game := &Game{
+		axis:                   true,
+		cursorX:                screenHeight / 2,
+		cursorY:                screenWidth / 2,
 		subImages:              subImages,
 		camera:                 camera,
 		light:                  light,
@@ -1700,7 +1703,7 @@ func main() {
 		startTime:              time.Now(),
 		screenSpaceCoordinates: screenSpaceCoordinates,
 		BVHobjects:             bvh,
-		depth:                  2,
+		depth:                  3,
 		ditherColor:            ditherShaderColor,
 		ditherGrayScale:        ditherGrayShader,
 		bloomShader:            bloomShader,
