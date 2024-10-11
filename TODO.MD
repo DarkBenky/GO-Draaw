@@ -15,3 +15,6 @@
   - Fix uniforms ([link](https://github.com/tinne26/kage-desk/blob/main/docs/tutorials/intro/06_uniforms.md))
     - Note: Uniforms start with capital letters
 - [ ] Implement specular lighting
+- [ ] Add Coloring of Triangles
+- [ ] Fix camera movement 
+  - https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc
