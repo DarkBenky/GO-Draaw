@@ -1342,16 +1342,17 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bo
 
 func (g *Game) Update() error {
 	// Mouse look sensitivity (adjust as needed)
-	const sensitivity = 0.001
+	const sensitivityX = 0.001
+	const sensitivityY = 0.01
 
 	// Get the current mouse position
 	mouseX, mouseY := ebiten.CursorPosition()
 
-	dx := float32(mouseX-g.cursorX) * sensitivity
+	dx := float32(mouseX-g.cursorX) * sensitivityX
 	g.camera.xAxis += float32(dx)
 	g.cursorX = mouseX
 
-	dy := float32(mouseY-g.cursorY) * sensitivity
+	dy := float32(mouseY-g.cursorY) * sensitivityY
 	g.camera.yAxis += dy
 	g.cursorY = mouseY
 
