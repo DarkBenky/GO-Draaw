@@ -4,6 +4,7 @@
 - [ ] Implement SIMD instructions
 - [X] Merge the latest branch with main
 - [X] Implement bloom and other post-processing effects
+- [ ] Implement Shaders for Color Grating, Contract etc.
 - [ ] Optimize for speed
 - [ ] Create flame graphs
 - [ ] Trace rays to corners and draw triangles:
@@ -17,4 +18,5 @@
 - [X] Implement specular lighting
 - [X] Add Coloring of Triangles
 - [X] Fix camera movement(It work not greatly)
+  - [ ] Add the previous camera Projection
   - <https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc>
