@@ -45,7 +45,9 @@ import (
 const screenWidth = 800
 const screenHeight = 608
 const rowSize = screenHeight / numCPU
-const FOV = 90
+const FOV = 45
+
+var ScreenSpaceCoordinates [screenWidth][screenHeight]Ray
 
 const maxDepth = 16
 const numCPU = 16
@@ -801,8 +803,8 @@ func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
 }
 
 type Camera struct {
-	Position            Vector
-	xAxis, yAxis, zAxis float32
+	Position     Vector
+	xAxis, yAxis float32
 }
 
 func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
@@ -1215,34 +1217,31 @@ func (object *object) ConvertToTriangles() []Triangle {
 	return triangles
 }
 
-func PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight int, FOV float32, camera Camera) [][]Vector {
-	aspectRatio := float32(screenWidth) / float32(screenHeight)
-	scale := math32.Tan(FOV * 0.5 * math32.Pi / 180.0) // Convert FOV to radians
+// PositionOnSphere calculates the 3D position on a unit sphere given two angles.
+func PositionOnSphere(theta, phi float32) Vector {
+	x := math32.Sin(phi) * math32.Cos(theta)
+	y := math32.Sin(phi) * math32.Sin(theta)
+	z := math32.Cos(phi)
+	return Vector{x: x, y: y, z: z}
+}
 
-	screenSpaceCoordinates := make([][]Vector, screenWidth)
+const FOVRadians = FOV * math32.Pi / 180
+
+func PrecomputeScreenSpaceCoordinates(camera Camera) {
 	for width := 0; width < screenWidth; width++ {
-		screenSpaceCoordinates[width] = make([]Vector, screenHeight)
+		theta := (FOVRadians * float32(width) / float32(screenWidth)) + camera.xAxis
 		for height := 0; height < screenHeight; height++ {
-			// Normalize screen coordinates to [-1, 1]
-			pixelNDCX := (float32(width) + 0.5) / float32(screenWidth)
-			pixelNDCY := (float32(height) + 0.5) / float32(screenHeight)
+			// Map the screen dimensions to angles, scaled by FOV
+			phi := (FOVRadians * float32(height) / float32(screenHeight)) + camera.yAxis
 
-			// Screen space coordinates [-1, 1]
-			pixelScreenX := 2.0*pixelNDCX - 1.0
-			pixelScreenY := 1.0 - 2.0*pixelNDCY
+			// Compute direction vector on the unit sphere
+			point := PositionOnSphere(theta, phi)
 
-			// Apply aspect ratio and FOV scale
-			pixelCameraX := pixelScreenX * aspectRatio * scale
-			pixelCameraY := pixelScreenY * scale
-
-			screenSpaceCoordinates[width][height] = Vector{pixelCameraX, pixelCameraY, -1}.Normalize()
-
-			// Rotate the screen space coordinates based on the direction of the camera
-			screenSpaceCoordinates[width][height] = screenSpaceCoordinates[width][height].Rotate(camera.xAxis, camera.yAxis, camera.zAxis)
+			// Store in ScreenSpaceCoordinates
+			ScreenSpaceCoordinates[width][height].direction = point
+			ScreenSpaceCoordinates[width][height].origin = camera.Position
 		}
 	}
-
-	return screenSpaceCoordinates
 }
 
 func RotationMatrix(angleX, angleY, angleZ float32) [3][3]float32 {
@@ -1258,26 +1257,7 @@ func RotationMatrix(angleX, angleY, angleZ float32) [3][3]float32 {
 		{cx*sy*cz + sx*sz, cx*sy*sz - sx*cz, cx * cy},
 	}
 }
-
-func UpdateScreenSpaceCoordinates(screenSpaceCoordinates [][]Vector, camera Camera) [][]Vector {
-	rotationMatrix := RotationMatrix(camera.xAxis, camera.yAxis, camera.zAxis)
-
-	for width := range screenSpaceCoordinates {
-		for height := range screenSpaceCoordinates[width] {
-			v := screenSpaceCoordinates[width][height]
-
-			// Apply the rotation matrix
-			screenSpaceCoordinates[width][height] = Vector{
-				x: rotationMatrix[0][0]*v.x + rotationMatrix[0][1]*v.y + rotationMatrix[0][2]*v.z,
-				y: rotationMatrix[1][0]*v.x + rotationMatrix[1][1]*v.y + rotationMatrix[1][2]*v.z,
-				z: rotationMatrix[2][0]*v.x + rotationMatrix[2][1]*v.y + rotationMatrix[2][2]*v.z,
-			}
-		}
-	}
-	return screenSpaceCoordinates
-}
-
-func DrawRays(camera Camera, light Light, scaling int, samples int, screenSpaceCoordinates [][]Vector, depth int, subImages []*ebiten.Image) {
+func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, subImages []*ebiten.Image) {
 	var wg sync.WaitGroup
 
 	// Create a pool of worker goroutines, each handling a portion of the image
@@ -1292,8 +1272,7 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, screenSpaceC
 			for y := startY; y < endIndex; y += scaling {
 				xColumn := 0
 				for x := 0; x < screenWidth; x += scaling {
-					rayDirection := screenSpaceCoordinates[x][y]
-					ray := Ray{origin: camera.Position, direction: rayDirection}
+					ray := ScreenSpaceCoordinates[x][y]
 					c := TraceRay(ray, depth, light, samples)
 
 					// Write the pixel color to the pixel buffer
@@ -1363,56 +1342,55 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bo
 
 func (g *Game) Update() error {
 	// Mouse look sensitivity (adjust as needed)
-	const sensitivity = 0.002
+	const sensitivity = 0.001
 
 	// Get the current mouse position
 	mouseX, mouseY := ebiten.CursorPosition()
 
-	if ebiten.IsKeyPressed(ebiten.KeyR) {
-		g.axis = !g.axis
-	}
-
-	// if g.axis {
 	dx := float32(mouseX-g.cursorX) * sensitivity
-	g.camera.yAxis = float32(dx) // Horizontal rotation (yaw)
+	g.camera.xAxis += float32(dx)
 	g.cursorX = mouseX
-	// } else {
+
 	dy := float32(mouseY-g.cursorY) * sensitivity
-	g.camera.xAxis = dy
-	g.camera.zAxis = -dy
+	g.camera.yAxis += dy
 	g.cursorY = mouseY
-	// }
 
-	forward := g.screenSpaceCoordinates[screenHeight/2][screenWidth/2]
-	right := g.screenSpaceCoordinates[screenHeight/2][screenWidth/2].Cross(Vector{0, 1, 0})
+	forward := ScreenSpaceCoordinates[screenHeight/2][screenWidth/2].direction
+	right := forward.Cross(Vector{0, 1, 0})
+	right = right.Normalize()
+	up := right.Cross(forward)
+	up = up.Normalize()
+	// right = Vector{-right.x, -forward.y, 0}
+	speed := float32(5)
 
-	// Optionally move the camera based on input (e.g., WASD for movement)
 	if ebiten.IsKeyPressed(ebiten.KeyW) {
-		g.camera.Position = g.camera.Position.Add(forward) // Move forward
+		g.camera.Position = g.camera.Position.Add(forward.Mul(speed)) // Move forward
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyS) {
-		g.camera.Position = g.camera.Position.Sub(forward) // Move backward
+		g.camera.Position = g.camera.Position.Sub(forward.Mul(speed)) // Move backward
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyD) {
-		g.camera.Position = g.camera.Position.Add(right) // Move right
+		g.camera.Position = g.camera.Position.Add(right.Mul(speed)) // Move right
+		fmt.Println(right)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyA) {
-		g.camera.Position = g.camera.Position.Sub(right) // Move left
+		g.camera.Position = g.camera.Position.Sub(right.Mul(speed)) // Move left
 	}
-
-	// Handle vertical movement (e.g., up and down)
 	if ebiten.IsKeyPressed(ebiten.KeyE) {
-		g.camera.Position = g.camera.Position.Add(Vector{0, 1, 0}) // Move up
+		g.camera.Position = g.camera.Position.Add(up.Mul(speed)) // Move up
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyQ) {
-		g.camera.Position = g.camera.Position.Sub(Vector{0, 1, 0}) // Move down
+		g.camera.Position = g.camera.Position.Sub(up.Mul(speed)) // Move down
 	}
 
-	// Update the screen space coordinates based on the camera's new orientation
-	g.screenSpaceCoordinates = UpdateScreenSpaceCoordinates(g.screenSpaceCoordinates, g.camera)
-	// g.screenSpaceCoordinates = PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, g.camera)
+	PrecomputeScreenSpaceCoordinates(g.camera)
 
 	g.updateFreq++
+
+	// check if mouse button is pressed
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		findIntersectionAndSetColor(BVH, ScreenSpaceCoordinates[screenHeight/2][screenWidth/2], color.RGBA{255, 0, 0, 255})
+	}
 
 	return nil
 }
@@ -1461,7 +1439,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.currentFrame.Clear()
 
 	// Perform path tracing and draw rays into the current frame
-	DrawRays(g.camera, g.light, g.scaleFactor, g.samples, g.screenSpaceCoordinates, g.depth, g.subImages)
+	DrawRays(g.camera, g.light, g.scaleFactor, g.samples, g.depth, g.subImages)
 	for i, subImage := range g.subImages {
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Translate(0, float64(subImageHeight)*float64(i)) // Use the outer loop variable directly
@@ -1565,22 +1543,19 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 var BVH *BVHNode
 
 type Game struct {
-	axis                   bool
-	cursorX, cursorY       int
-	subImages              []*ebiten.Image
-	camera                 Camera
-	light                  Light
-	scaleFactor            int
-	samples                int
-	screenSpaceCoordinates [][]Vector
-	BVHobjects             *BVHNode
-	startTime              time.Time
-	updateFreq             int
-	currentFrame           *ebiten.Image
-	depth                  int
-	ditherColor            *ebiten.Shader
-	ditherGrayScale        *ebiten.Shader
-	bloomShader            *ebiten.Shader
+	cursorX, cursorY int
+	subImages        []*ebiten.Image
+	camera           Camera
+	light            Light
+	scaleFactor      int
+	samples          int
+	startTime        time.Time
+	updateFreq       int
+	currentFrame     *ebiten.Image
+	depth            int
+	ditherColor      *ebiten.Shader
+	ditherGrayScale  *ebiten.Shader
+	bloomShader      *ebiten.Shader
 	// TriangleShader         *ebiten.Shader
 }
 
@@ -1666,7 +1641,7 @@ func main() {
 	objects := []object{}
 	objects = append(objects, obj)
 
-	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0, zAxis: 0}
+	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
 	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 1}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
@@ -1675,11 +1650,9 @@ func main() {
 	// objects = append(objects, cubes...)
 
 	bvh := ConvertObjectsToBVH(objects, maxDepth)
-
 	BVH = bvh
-
+	PrecomputeScreenSpaceCoordinates(camera)
 	scale := 2
-	screenSpaceCoordinates := PrecomputeScreenSpaceCoordinates(screenWidth, screenHeight, FOV, camera)
 
 	subImages := make([]*ebiten.Image, numCPU)
 
@@ -1691,23 +1664,20 @@ func main() {
 	}
 
 	game := &Game{
-		axis:                   true,
-		cursorX:                screenHeight / 2,
-		cursorY:                screenWidth / 2,
-		subImages:              subImages,
-		camera:                 camera,
-		light:                  light,
-		scaleFactor:            scale,
-		updateFreq:             0,
-		samples:                0,
-		startTime:              time.Now(),
-		screenSpaceCoordinates: screenSpaceCoordinates,
-		BVHobjects:             bvh,
-		depth:                  3,
-		ditherColor:            ditherShaderColor,
-		ditherGrayScale:        ditherGrayShader,
-		bloomShader:            bloomShader,
-		currentFrame:           ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		cursorX:         screenHeight / 2,
+		cursorY:         screenWidth / 2,
+		subImages:       subImages,
+		camera:          camera,
+		light:           light,
+		scaleFactor:     scale,
+		updateFreq:      0,
+		samples:         0,
+		startTime:       time.Now(),
+		depth:           2,
+		ditherColor:     ditherShaderColor,
+		ditherGrayScale: ditherGrayShader,
+		bloomShader:     bloomShader,
+		currentFrame:    ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		// TriangleShader: 	   rayCasterShader,
 	}
 
