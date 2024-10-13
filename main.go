@@ -1342,8 +1342,8 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bo
 
 func (g *Game) Update() error {
 	// Mouse look sensitivity (adjust as needed)
-	const sensitivityX = 0.001
-	const sensitivityY = 0.01
+	const sensitivityX = 0.005
+	const sensitivityY = 0.005
 
 	// Get the current mouse position
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -1356,12 +1356,21 @@ func (g *Game) Update() error {
 	g.camera.yAxis += dy
 	g.cursorY = mouseY
 
-	forward := ScreenSpaceCoordinates[screenHeight/2][screenWidth/2].direction
-	right := forward.Cross(Vector{0, 1, 0})
-	right = right.Normalize()
-	up := right.Cross(forward)
-	up = up.Normalize()
-	// right = Vector{-right.x, -forward.y, 0}
+	forward := Vector{1, 0, 0}
+	right := Vector{0, 1, 0}
+	up := Vector{0, 0, 1}
+
+	if ebiten.IsKeyPressed(ebiten.KeyTab) {
+		g.xyzLock = !g.xyzLock
+	}
+	
+	if g.xyzLock{
+		forward = ScreenSpaceCoordinates[screenHeight/2][screenWidth/2].direction
+		right = forward.Cross(Vector{0, 1, 0})
+		right = right.Normalize()
+		up = right.Cross(forward)
+		up = up.Normalize()
+	}
 	speed := float32(5)
 
 	if ebiten.IsKeyPressed(ebiten.KeyW) {
@@ -1544,6 +1553,7 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 var BVH *BVHNode
 
 type Game struct {
+	xyzLock          bool
 	cursorX, cursorY int
 	subImages        []*ebiten.Image
 	camera           Camera
@@ -1583,23 +1593,21 @@ var subImageHeight int
 var subImageWidth int
 
 func main() {
-	src, err := LoadShader("shaders/ditherColor.kage")
-	if err != nil {
-		panic(err)
-	}
-	ditherShaderColor, err := ebiten.NewShader(src)
-	if err != nil {
-		panic(err)
-	}
+	// src, err := LoadShader("shaders/ditherColor.kage")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// ditherShaderColor, err := ebiten.NewShader(src)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	src, err = LoadShader("shaders/ditherGray.kage")
-	if err != nil {
-		panic(err)
-	}
-	ditherGrayShader, err := ebiten.NewShader(src)
-	if err != nil {
-		panic(err)
-	}
+	// src, err = LoadShader("shaders/ditherGray.kage")
+	// if err != nil {RotationMatrix
+	// ditherGrayShader, err := ebiten.NewShader(src)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	// src, err = LoadShader("shaders/RayCaster.kage")
 	// if err != nil {
@@ -1611,16 +1619,16 @@ func main() {
 	// }
 	// fmt.Println("Shader:", rayCasterShader)
 
-	src, err = LoadShader("shaders/bloom.kage")
-	if err != nil {
-		panic(err)
-	}
-	bloomShader, err := ebiten.NewShader(src)
-	if err != nil {
-		panic(err)
-	}
+	// src, err = LoadShader("shaders/bloom.kage")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// bloomShader, err := ebiten.NewShader(src)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	fmt.Println("Shader:", bloomShader)
+	// fmt.Println("Shader:", bloomShader)
 	// fmt.Println("Shader:", ditherGrayShader)
 
 	fmt.Println("Number of CPUs:", numCPU)
@@ -1650,8 +1658,7 @@ func main() {
 	// objects = append(objects, spheres...)
 	// objects = append(objects, cubes...)
 
-	bvh := ConvertObjectsToBVH(objects, maxDepth)
-	BVH = bvh
+	BVH = ConvertObjectsToBVH(objects, maxDepth)
 	PrecomputeScreenSpaceCoordinates(camera)
 	scale := 2
 
@@ -1665,6 +1672,7 @@ func main() {
 	}
 
 	game := &Game{
+		xyzLock:         true,
 		cursorX:         screenHeight / 2,
 		cursorY:         screenWidth / 2,
 		subImages:       subImages,
@@ -1675,9 +1683,9 @@ func main() {
 		samples:         0,
 		startTime:       time.Now(),
 		depth:           2,
-		ditherColor:     ditherShaderColor,
-		ditherGrayScale: ditherGrayShader,
-		bloomShader:     bloomShader,
+		// ditherColor:     ditherShaderColor,
+		// ditherGrayScale: ditherGrayShader,
+		// bloomShader:     bloomShader,
 		currentFrame:    ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		// TriangleShader: 	   rayCasterShader,
 	}
