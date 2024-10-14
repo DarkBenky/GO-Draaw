@@ -32,7 +32,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"image/png"
 
@@ -47,7 +46,7 @@ const screenHeight = 608
 const rowSize = screenHeight / numCPU
 const FOV = 45
 
-var ScreenSpaceCoordinates [screenWidth][screenHeight]Ray
+var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 
 const maxDepth = 16
 const numCPU = 16
@@ -1227,7 +1226,7 @@ func PositionOnSphere(theta, phi float32) Vector {
 
 const FOVRadians = FOV * math32.Pi / 180
 
-func PrecomputeScreenSpaceCoordinates(camera Camera) {
+func PrecomputeScreenSpaceCoordinatesSphere(camera Camera) {
 	for width := 0; width < screenWidth; width++ {
 		theta := (FOVRadians * float32(width) / float32(screenWidth)) + camera.xAxis
 		for height := 0; height < screenHeight; height++ {
@@ -1238,25 +1237,11 @@ func PrecomputeScreenSpaceCoordinates(camera Camera) {
 			point := PositionOnSphere(theta, phi)
 
 			// Store in ScreenSpaceCoordinates
-			ScreenSpaceCoordinates[width][height].direction = point
-			ScreenSpaceCoordinates[width][height].origin = camera.Position
+			ScreenSpaceCoordinates[width][height] = point
 		}
 	}
 }
 
-func RotationMatrix(angleX, angleY, angleZ float32) [3][3]float32 {
-	cx := math32.Cos(angleX)
-	sx := math32.Sin(angleX)
-	cy := math32.Cos(angleY)
-	sy := math32.Sin(angleY)
-	cz := math32.Cos(angleZ)
-	sz := math32.Sin(angleZ)
-	return [3][3]float32{
-		{cy * cz, cy * sz, -sy},
-		{sx*sy*cz - cx*sz, sx*sy*sz + cx*cz, sx * cy},
-		{cx*sy*cz + sx*sz, cx*sy*sz - sx*cz, cx * cy},
-	}
-}
 func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, subImages []*ebiten.Image) {
 	var wg sync.WaitGroup
 
@@ -1272,8 +1257,8 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 			for y := startY; y < endIndex; y += scaling {
 				xColumn := 0
 				for x := 0; x < screenWidth; x += scaling {
-					ray := ScreenSpaceCoordinates[x][y]
-					c := TraceRay(ray, depth, light, samples)
+					rayDir := ScreenSpaceCoordinates[x][y]
+					c := TraceRay(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
 
 					// Write the pixel color to the pixel buffer
 					index := ((yRow*width + xColumn) * 4)
@@ -1363,13 +1348,12 @@ func (g *Game) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyTab) {
 		g.xyzLock = !g.xyzLock
 	}
-	
-	if g.xyzLock{
-		forward = ScreenSpaceCoordinates[screenHeight/2][screenWidth/2].direction
+
+	if g.xyzLock {
+		forward = ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]
+		forward = Vector{forward.x, forward.y, 0}.Normalize()
 		right = forward.Cross(Vector{0, 1, 0})
-		right = right.Normalize()
 		up = right.Cross(forward)
-		up = up.Normalize()
 	}
 	speed := float32(5)
 
@@ -1393,13 +1377,26 @@ func (g *Game) Update() error {
 		g.camera.Position = g.camera.Position.Sub(up.Mul(speed)) // Move down
 	}
 
-	PrecomputeScreenSpaceCoordinates(g.camera)
+	// if ebiten.IsKeyPressed(ebiten.KeyShiftLeft) {
+	// 	g.projectionType = !g.projectionType
+	// }
+
+	// if g.projectionType {
+	// 	start := time.Now()
+	// 	PrecomputeScreenSpaceCoordinates(g.camera)
+	// 	fmt.Println("PrecomputeScreenSpaceCoordinates took " + time.Since(start).String(), g.camera.Position, g.camera.xAxis, g.camera.yAxis , ScreenSpaceCoordinates[screenHeight/2][screenWidth/2])
+	// } else {
+	// 	start := time.Now()
+	PrecomputeScreenSpaceCoordinatesSphere(g.camera)
+	
+	// 	fmt.Println("UpdateScreenSpaceCoordinates took " + time.Since(start).String(), g.camera.Position, g.camera.xAxis, g.camera.yAxis, ScreenSpaceCoordinates[screenHeight/2][screenWidth/2])
+	// }
 
 	g.updateFreq++
 
 	// check if mouse button is pressed
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		findIntersectionAndSetColor(BVH, ScreenSpaceCoordinates[screenHeight/2][screenWidth/2], color.RGBA{255, 0, 0, 255})
+		findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]}, color.RGBA{255, 0, 0, 255})
 	}
 
 	return nil
@@ -1560,7 +1557,6 @@ type Game struct {
 	light            Light
 	scaleFactor      int
 	samples          int
-	startTime        time.Time
 	updateFreq       int
 	currentFrame     *ebiten.Image
 	depth            int
@@ -1645,7 +1641,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	obj.Scale(65)
+	obj.Scale(75)
 
 	objects := []object{}
 	objects = append(objects, obj)
@@ -1659,7 +1655,7 @@ func main() {
 	// objects = append(objects, cubes...)
 
 	BVH = ConvertObjectsToBVH(objects, maxDepth)
-	PrecomputeScreenSpaceCoordinates(camera)
+	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
 	subImages := make([]*ebiten.Image, numCPU)
@@ -1672,21 +1668,20 @@ func main() {
 	}
 
 	game := &Game{
-		xyzLock:         true,
-		cursorX:         screenHeight / 2,
-		cursorY:         screenWidth / 2,
-		subImages:       subImages,
-		camera:          camera,
-		light:           light,
-		scaleFactor:     scale,
-		updateFreq:      0,
-		samples:         0,
-		startTime:       time.Now(),
-		depth:           2,
+		xyzLock:     true,
+		cursorX:     screenHeight / 2,
+		cursorY:     screenWidth / 2,
+		subImages:   subImages,
+		camera:      camera,
+		light:       light,
+		scaleFactor: scale,
+		updateFreq:  0,
+		samples:     0,
+		depth:       2,
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
 		// bloomShader:     bloomShader,
-		currentFrame:    ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		currentFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		// TriangleShader: 	   rayCasterShader,
 	}
 
