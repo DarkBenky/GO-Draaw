@@ -18,6 +18,6 @@
 - [X] Implement specular lighting
 - [X] Add Coloring of Triangles
 - [X] Fix camera movement(It work not greatly)
-  - [ ] Add the previous camera Projection
+  - [X] Add the previous camera Projection - Done but i don't like it maybe look again in to it
   - <https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc>
 - [ ] Optimize  PrecomputeScreenSpaceCoordinatesSphere ( go routines, if no movement no change)
