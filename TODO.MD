@@ -20,3 +20,4 @@
 - [X] Fix camera movement(It work not greatly)
   - [ ] Add the previous camera Projection
   - <https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc>
+- [ ] Optimize  PrecomputeScreenSpaceCoordinatesSphere ( go routines, if no movement no change)
