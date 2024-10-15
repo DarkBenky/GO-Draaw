@@ -1227,17 +1227,31 @@ func PositionOnSphere(theta, phi float32) Vector {
 const FOVRadians = FOV * math32.Pi / 180
 
 func PrecomputeScreenSpaceCoordinatesSphere(camera Camera) {
+	// Calculate corners
+	topLeft := PositionOnSphere(camera.xAxis, camera.yAxis)
+	topRight := PositionOnSphere(camera.xAxis+FOVRadians, camera.yAxis)
+	bottomLeft := PositionOnSphere(camera.xAxis, camera.yAxis+FOVRadians)
+
+	// Calculate steps
+	xStep := Vector{
+		x: (topRight.x - topLeft.x) / float32(screenWidth-1),
+		y: (topRight.y - topLeft.y) / float32(screenWidth-1),
+		z: (topRight.z - topLeft.z) / float32(screenWidth-1),
+	}
+	yStep := Vector{
+		x: (bottomLeft.x - topLeft.x) / float32(screenHeight-1),
+		y: (bottomLeft.y - topLeft.y) / float32(screenHeight-1),
+		z: (bottomLeft.z - topLeft.z) / float32(screenHeight-1),
+	}
+
+	// Interpolate
 	for width := 0; width < screenWidth; width++ {
-		theta := (FOVRadians * float32(width) / float32(screenWidth)) + camera.xAxis
 		for height := 0; height < screenHeight; height++ {
-			// Map the screen dimensions to angles, scaled by FOV
-			phi := (FOVRadians * float32(height) / float32(screenHeight)) + camera.yAxis
-
-			// Compute direction vector on the unit sphere
-			point := PositionOnSphere(theta, phi)
-
-			// Store in ScreenSpaceCoordinates
-			ScreenSpaceCoordinates[width][height] = point
+			ScreenSpaceCoordinates[width][height] = Vector{
+				x: topLeft.x + float32(width)*xStep.x + float32(height)*yStep.x,
+				y: topLeft.y + float32(width)*xStep.y + float32(height)*yStep.y,
+				z: topLeft.z + float32(width)*xStep.z + float32(height)*yStep.z,
+			}
 		}
 	}
 }
@@ -1365,7 +1379,6 @@ func (g *Game) Update() error {
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyD) {
 		g.camera.Position = g.camera.Position.Add(right.Mul(speed)) // Move right
-		fmt.Println(right)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyA) {
 		g.camera.Position = g.camera.Position.Sub(right.Mul(speed)) // Move left
@@ -1377,20 +1390,7 @@ func (g *Game) Update() error {
 		g.camera.Position = g.camera.Position.Sub(up.Mul(speed)) // Move down
 	}
 
-	// if ebiten.IsKeyPressed(ebiten.KeyShiftLeft) {
-	// 	g.projectionType = !g.projectionType
-	// }
-
-	// if g.projectionType {
-	// 	start := time.Now()
-	// 	PrecomputeScreenSpaceCoordinates(g.camera)
-	// 	fmt.Println("PrecomputeScreenSpaceCoordinates took " + time.Since(start).String(), g.camera.Position, g.camera.xAxis, g.camera.yAxis , ScreenSpaceCoordinates[screenHeight/2][screenWidth/2])
-	// } else {
-	// 	start := time.Now()
 	PrecomputeScreenSpaceCoordinatesSphere(g.camera)
-	
-	// 	fmt.Println("UpdateScreenSpaceCoordinates took " + time.Since(start).String(), g.camera.Position, g.camera.xAxis, g.camera.yAxis, ScreenSpaceCoordinates[screenHeight/2][screenWidth/2])
-	// }
 
 	g.updateFreq++
 
