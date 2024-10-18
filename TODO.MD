@@ -21,3 +21,5 @@
   - [X] Add the previous camera Projection - Done but i don't like it maybe look again in to it
   - <https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc>
 - [X] Optimize  PrecomputeScreenSpaceCoordinatesSphere ( go routines, if no movement no change)
+- [ ] Implement GUI with ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
+- [ ] Fix RayTracing on GPU
