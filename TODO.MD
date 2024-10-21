@@ -7,7 +7,7 @@
 - [ ] Implement Shaders for Color Grating, Contract etc.
 - [ ] Optimize for speed
 - [ ] Create flame graphs
-- [ ] Trace rays to corners and draw triangles:
+- [X] Trace rays to corners and draw triangles:
   - Create a box/cone representing the camera's viewing area
   - Find all triangles inside it
   - Order them based on distance
