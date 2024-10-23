@@ -1,10 +1,12 @@
 
 # TODO List
 
-- [ ] Implement SIMD instructions
+- [ ] Implement GUI ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
+- [ ] Fix Shaders
+- [ ] Implement SIMD instructions ([link](https://github.com/viterin/vek))
 - [X] Merge the latest branch with main
 - [X] Implement bloom and other post-processing effects
-- [ ] Implement Shaders for Color Grating, Contract etc.
+- [X] Implement Shaders for Color Grating, Contract etc.
 - [ ] Optimize for speed
 - [ ] Create flame graphs
 - [X] Trace rays to corners and draw triangles:
