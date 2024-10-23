@@ -1,0 +1,19 @@
+package main
+
+// Uniform variables to set the RGB tint and tint strength
+var TintColor vec3
+var TintStrength float
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Get the original color of the pixel
+    originalColor := imageSrc0At(texCoord)
+
+    // Create the tint color by applying the TintColor RGB values
+    tint := vec4(TintColor, 1.0)
+
+    // Blend the original color with the tint color based on TintStrength
+    resultColor := mix(originalColor, tint, TintStrength)
+
+    // Return the final tinted color
+    return clamp(resultColor, 0.0, 1.0)
+}
