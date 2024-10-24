@@ -33,6 +33,8 @@ import (
 	"strings"
 	"sync"
 
+	"image/draw"
+
 	"image/png"
 
 	"github.com/chewxy/math32"
@@ -1293,20 +1295,60 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 	wg.Wait()
 }
 
-// // UpdateImage writes pixels from pixelChan to the screen image efficiently
-// func UpdateImage(screen *ebiten.Image, pixelChan <-chan Pixel) {
-// 	width, height := screen.Bounds().Dx(), screen.Bounds().Dy()
-// 	pixelBuffer := make([]uint8, width*height*4)
+func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *float64, mouseX, mouseY int, mousePressed bool) {
+	// Draw background
+	bgColor := color.RGBA{50, 50, 50, 255}
+	bgRect := image.Rect(x, y, x+width, y+height)
+	draw.Draw(screen, bgRect, &image.Uniform{bgColor}, image.Point{}, draw.Src)
 
-// 	for pixel := range pixelChan {
-// 		index := (pixel.y*width + pixel.x) * 4
-// 		pixelBuffer[index] = pixel.color.R
-// 		pixelBuffer[index+1] = pixel.color.G
-// 		pixelBuffer[index+2] = pixel.color.B
-// 		pixelBuffer[index+3] = pixel.color.A // Alpha channel
-// 	}
-// 	screen.WritePixels(pixelBuffer)
-// }
+	// Preview area
+	previewRect := image.Rect(x, y, x+width, y+height/2)
+	draw.Draw(screen, previewRect, &image.Uniform{color.RGBA{uint8(*r * 255), uint8(*g * 255), uint8(*b * 255), uint8(*a * 255)}}, image.Point{}, draw.Src)
+
+	// Draw sliders
+	sliderWidth := width - 20
+	sliderHeight := 20       // Height of the slider track
+	indicatorHeight := 15    // Height of the indicator
+	sliderY := y + height/2 + 10
+	padding := 10            // Vertical padding between sliders
+
+	// Create sliders for R, G, B, and Alpha
+	sliders := []struct {
+		label string
+		value *float64
+	}{
+		{"R", r},
+		{"G", g},
+		{"B", b},
+		{"A", a},
+	}
+
+	for i, slider := range sliders {
+		// Draw the slider track
+		trackRect := image.Rect(x+10, sliderY+20*i+(padding*i), x+10+sliderWidth, sliderY+20*i+(padding*i)+sliderHeight)
+		draw.Draw(screen, trackRect, &image.Uniform{color.RGBA{200, 200, 200, 255}}, image.Point{}, draw.Src)
+
+		// Calculate the current slider position
+		valueX := int(*slider.value*float64(sliderWidth)) + x + 10
+		valueRect := image.Rect(valueX-5, sliderY+20*i+(padding*i)+(sliderHeight-indicatorHeight)/2, valueX+5, sliderY+20*i+(padding*i)+(sliderHeight-indicatorHeight)/2+indicatorHeight)
+		draw.Draw(screen, valueRect, &image.Uniform{color.RGBA{255, 0, 0, 255}}, image.Point{}, draw.Src) // Use red for the current value
+
+		// Draw label
+		ebitenutil.DebugPrintAt(screen, slider.label, x+10, sliderY+20*i+(padding*i)+5)
+
+		// Check for mouse collision and update value
+		if mousePressed && trackRect.Overlaps(image.Rect(mouseX, mouseY, mouseX+1, mouseY+1)) {
+			// Calculate the new value based on mouse position
+			newValue := float64(mouseX-x-10) / float64(sliderWidth)
+			if newValue < 0 {
+				newValue = 0
+			} else if newValue > 1 {
+				newValue = 1
+			}
+			*slider.value = newValue
+		}
+	}
+}
 
 func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bool {
 	if node == nil {
@@ -1396,7 +1438,7 @@ func (g *Game) Update() error {
 
 	// check if mouse button is pressed
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]}, color.RGBA{255, 0, 0, 255})
+		findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]}, color.RGBA{uint8(g.r *255 ), uint8(g.g * 255), uint8(g.b * 255), uint8(g.a * 255)})
 	}
 
 	if ebiten.IsKeyPressed(ebiten.KeyTab) {
@@ -1448,7 +1490,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	for i, subImage := range g.subImages {
 		op := &ebiten.DrawImageOptions{}
 		if !g.fullScreen {
-			op.GeoM.Translate(0, float64(subImageHeight/2)*float64(i)) 
+			op.GeoM.Translate(0, float64(subImageHeight/2)*float64(i))
 		} else {
 			op.GeoM.Translate(0, float64(subImageHeight)*float64(i)) // Use the outer loop variable directly
 		}
@@ -1466,6 +1508,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	screen.DrawImage(g.currentFrame, op)
+
+	// Get mouse position
+	mouseX, mouseY := ebiten.CursorPosition()
+	// Get mouse pressed
+	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	if !g.fullScreen {
+		ColorSlider(400, 0, screen, 400, 300,  &g.r, &g.g, &g.b, &g.a , mouseX, mouseY, mousePressed) // Example usage with RGBA values
+	}
+	
 
 	// Create a temporary image for bloom shader
 	// bloomImage := ebiten.NewImageFromImage(g.currentFrame)
@@ -1577,6 +1629,7 @@ type Game struct {
 	tintShader       *ebiten.Shader
 	sharpnessShader  *ebiten.Shader
 	fullScreen       bool
+	r, g, b, a float64
 	// TriangleShader         *ebiten.Shader
 }
 
