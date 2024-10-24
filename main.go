@@ -1359,7 +1359,7 @@ func (g *Game) Update() error {
 	right := Vector{0, 1, 0}
 	up := Vector{0, 0, 1}
 
-	if ebiten.IsKeyPressed(ebiten.KeyTab) {
+	if ebiten.IsKeyPressed(ebiten.KeyShift) {
 		g.xyzLock = !g.xyzLock
 	}
 
@@ -1447,15 +1447,21 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	DrawRays(g.camera, g.light, g.scaleFactor, g.samples, g.depth, g.subImages)
 	for i, subImage := range g.subImages {
 		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(0, float64(subImageHeight)*float64(i)) // Use the outer loop variable directly
+		if !g.fullScreen {
+			op.GeoM.Translate(0, float64(subImageHeight/2)*float64(i)) 
+		} else {
+			op.GeoM.Translate(0, float64(subImageHeight)*float64(i)) // Use the outer loop variable directly
+		}
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
 	op := &ebiten.DrawImageOptions{}
 	if g.fullScreen {
+		g.scaleFactor = 2
 		op.GeoM.Scale(float64(screen.Bounds().Dx())/float64(g.currentFrame.Bounds().Dx()), float64(screen.Bounds().Dy())/float64(g.currentFrame.Bounds().Dy()))
 	} else {
-		op.GeoM.Scale((float64(screenWidth) / float64(g.currentFrame.Bounds().Dx()) / 1.5), (float64(screenHeight)/float64(g.currentFrame.Bounds().Dy()) / 1.5))
+		g.scaleFactor = 4
+		op.GeoM.Scale((float64(screenWidth) / float64(g.currentFrame.Bounds().Dx())), (float64(screenHeight) / float64(g.currentFrame.Bounds().Dy())))
 		// Draw GUI Element
 	}
 
@@ -1716,7 +1722,7 @@ func main() {
 		light:       light,
 		scaleFactor: scale,
 		updateFreq:  0,
-		samples:     0,
+		samples:     4,
 		depth:       2,
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
