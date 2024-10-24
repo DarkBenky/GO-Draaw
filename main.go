@@ -1307,10 +1307,10 @@ func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *
 
 	// Draw sliders
 	sliderWidth := width - 20
-	sliderHeight := 20       // Height of the slider track
-	indicatorHeight := 15    // Height of the indicator
+	sliderHeight := 20    // Height of the slider track
+	indicatorHeight := 15 // Height of the indicator
 	sliderY := y + height/2 + 10
-	padding := 10            // Vertical padding between sliders
+	padding := 10 // Vertical padding between sliders
 
 	// Create sliders for R, G, B, and Alpha
 	sliders := []struct {
@@ -1381,68 +1381,74 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA) bo
 	return leftHit || rightHit
 }
 
+const sensitivityX = 0.005
+const sensitivityY = 0.005
+
 func (g *Game) Update() error {
-	// Mouse look sensitivity (adjust as needed)
-	const sensitivityX = 0.005
-	const sensitivityY = 0.005
-
-	// Get the current mouse position
 	mouseX, mouseY := ebiten.CursorPosition()
+	if g.fullScreen {
+		// Get the current mouse position
+		dx := float32(mouseX-g.cursorX) * sensitivityX
+		g.camera.xAxis += float32(dx)
+		g.cursorX = mouseX
 
-	dx := float32(mouseX-g.cursorX) * sensitivityX
-	g.camera.xAxis += float32(dx)
-	g.cursorX = mouseX
+		dy := float32(mouseY-g.cursorY) * sensitivityY
+		g.camera.yAxis += dy
+		g.cursorY = mouseY
 
-	dy := float32(mouseY-g.cursorY) * sensitivityY
-	g.camera.yAxis += dy
-	g.cursorY = mouseY
+		forward := Vector{1, 0, 0}
+		right := Vector{0, 1, 0}
+		up := Vector{0, 0, 1}
 
-	forward := Vector{1, 0, 0}
-	right := Vector{0, 1, 0}
-	up := Vector{0, 0, 1}
+		if ebiten.IsKeyPressed(ebiten.KeyShift) {
+			g.xyzLock = !g.xyzLock
+		}
 
-	if ebiten.IsKeyPressed(ebiten.KeyShift) {
-		g.xyzLock = !g.xyzLock
-	}
+		if g.xyzLock {
+			forward = ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]
+			forward = Vector{forward.x, forward.y, 0}.Normalize()
+			right = forward.Cross(Vector{0, 1, 0})
+			up = right.Cross(forward)
+		}
+		speed := float32(5)
 
-	if g.xyzLock {
-		forward = ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]
-		forward = Vector{forward.x, forward.y, 0}.Normalize()
-		right = forward.Cross(Vector{0, 1, 0})
-		up = right.Cross(forward)
-	}
-	speed := float32(5)
+		if ebiten.IsKeyPressed(ebiten.KeyW) {
+			g.camera.Position = g.camera.Position.Add(forward.Mul(speed)) // Move forward
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyS) {
+			g.camera.Position = g.camera.Position.Sub(forward.Mul(speed)) // Move backward
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyD) {
+			g.camera.Position = g.camera.Position.Add(right.Mul(speed)) // Move right
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyA) {
+			g.camera.Position = g.camera.Position.Sub(right.Mul(speed)) // Move left
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyE) {
+			g.camera.Position = g.camera.Position.Add(up.Mul(speed)) // Move up
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyQ) {
+			g.camera.Position = g.camera.Position.Sub(up.Mul(speed)) // Move down
+		}
 
-	if ebiten.IsKeyPressed(ebiten.KeyW) {
-		g.camera.Position = g.camera.Position.Add(forward.Mul(speed)) // Move forward
+		PrecomputeScreenSpaceCoordinatesSphere(g.camera)
+	} else {
+		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mouseX >= 0 && mouseY >= 0 && mouseX < screenWidth/2 && mouseY < screenHeight/2 {
+			findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, color.RGBA{uint8(g.r * 255), uint8(g.g * 255), uint8(g.b * 255), uint8(g.a * 255)})
+		}
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyS) {
-		g.camera.Position = g.camera.Position.Sub(forward.Mul(speed)) // Move backward
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyD) {
-		g.camera.Position = g.camera.Position.Add(right.Mul(speed)) // Move right
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyA) {
-		g.camera.Position = g.camera.Position.Sub(right.Mul(speed)) // Move left
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyE) {
-		g.camera.Position = g.camera.Position.Add(up.Mul(speed)) // Move up
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyQ) {
-		g.camera.Position = g.camera.Position.Sub(up.Mul(speed)) // Move down
-	}
-
-	PrecomputeScreenSpaceCoordinatesSphere(g.camera)
-
 	g.updateFreq++
 
 	// check if mouse button is pressed
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]}, color.RGBA{uint8(g.r *255 ), uint8(g.g * 255), uint8(g.b * 255), uint8(g.a * 255)})
-	}
+	
 
 	if ebiten.IsKeyPressed(ebiten.KeyTab) {
 		g.fullScreen = !g.fullScreen
+		if g.fullScreen {
+			g.samples = 2
+		} else {
+			g.samples = 0
+		}
 	}
 
 	return nil
@@ -1515,9 +1521,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
 	if !g.fullScreen {
-		ColorSlider(400, 0, screen, 400, 300,  &g.r, &g.g, &g.b, &g.a , mouseX, mouseY, mousePressed) // Example usage with RGBA values
+		ColorSlider(400, 0, screen, 400, 300, &g.r, &g.g, &g.b, &g.a, mouseX, mouseY, mousePressed) // Example usage with RGBA values
 	}
-	
 
 	// Create a temporary image for bloom shader
 	// bloomImage := ebiten.NewImageFromImage(g.currentFrame)
@@ -1629,7 +1634,7 @@ type Game struct {
 	tintShader       *ebiten.Shader
 	sharpnessShader  *ebiten.Shader
 	fullScreen       bool
-	r, g, b, a float64
+	r, g, b, a       float64
 	// TriangleShader         *ebiten.Shader
 }
 
@@ -1775,7 +1780,7 @@ func main() {
 		light:       light,
 		scaleFactor: scale,
 		updateFreq:  0,
-		samples:     4,
+		samples:     0,
 		depth:       2,
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
