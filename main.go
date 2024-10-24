@@ -1399,6 +1399,10 @@ func (g *Game) Update() error {
 		findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]}, color.RGBA{255, 0, 0, 255})
 	}
 
+	if ebiten.IsKeyPressed(ebiten.KeyTab) {
+		g.fullScreen = !g.fullScreen
+	}
+
 	return nil
 }
 
@@ -1433,15 +1437,9 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 	return nil
 }
 
-var averageFPS float64
-var Frames int
-
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Display frame rate
 	fps := ebiten.ActualFPS()
-
-	averageFPS += fps
-	Frames++
 
 	g.currentFrame.Clear()
 
@@ -1454,7 +1452,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(float64(screen.Bounds().Dx())/float64(g.currentFrame.Bounds().Dx()), float64(screen.Bounds().Dy())/float64(g.currentFrame.Bounds().Dy()))
+	if g.fullScreen {
+		op.GeoM.Scale(float64(screen.Bounds().Dx())/float64(g.currentFrame.Bounds().Dx()), float64(screen.Bounds().Dy())/float64(g.currentFrame.Bounds().Dy()))
+	} else {
+		op.GeoM.Scale((float64(screenWidth) / float64(g.currentFrame.Bounds().Dx()) / 1.5), (float64(screenHeight)/float64(g.currentFrame.Bounds().Dy()) / 1.5))
+	}
+
 	screen.DrawImage(g.currentFrame, op)
 
 	// Create a temporary image for bloom shader
@@ -1566,6 +1569,7 @@ type Game struct {
 	contrastShader   *ebiten.Shader
 	tintShader       *ebiten.Shader
 	sharpnessShader  *ebiten.Shader
+	fullScreen       bool
 	// TriangleShader         *ebiten.Shader
 }
 
