@@ -1456,6 +1456,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		op.GeoM.Scale(float64(screen.Bounds().Dx())/float64(g.currentFrame.Bounds().Dx()), float64(screen.Bounds().Dy())/float64(g.currentFrame.Bounds().Dy()))
 	} else {
 		op.GeoM.Scale((float64(screenWidth) / float64(g.currentFrame.Bounds().Dx()) / 1.5), (float64(screenHeight)/float64(g.currentFrame.Bounds().Dy()) / 1.5))
+		// Draw GUI Element
 	}
 
 	screen.DrawImage(g.currentFrame, op)
