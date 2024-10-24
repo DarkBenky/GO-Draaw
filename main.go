@@ -1563,6 +1563,9 @@ type Game struct {
 	ditherColor      *ebiten.Shader
 	ditherGrayScale  *ebiten.Shader
 	bloomShader      *ebiten.Shader
+	contrastShader   *ebiten.Shader
+	tintShader       *ebiten.Shader
+	sharpnessShader  *ebiten.Shader
 	// TriangleShader         *ebiten.Shader
 }
 
@@ -1624,6 +1627,38 @@ func main() {
 	// 	panic(err)
 	// }
 
+	src, err := LoadShader("shaders/contrast.kage")
+	if err != nil {
+		panic(err)
+	}
+	contrastShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Shader:", contrastShader)
+
+	src, err = LoadShader("shaders/tint.kage")
+	if err != nil {
+		panic(err)
+	}
+	tintShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Shader:", tintShader)
+
+	src, err = LoadShader("shaders/sharpness.kage")
+	if err != nil {
+		panic(err)
+	}
+	sharpnessShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Shader:", sharpnessShader)
 	// fmt.Println("Shader:", bloomShader)
 	// fmt.Println("Shader:", ditherGrayShader)
 
