@@ -1400,7 +1400,7 @@ func (g *Game) Update() error {
 		right := Vector{0, 1, 0}
 		up := Vector{0, 0, 1}
 
-		if ebiten.IsKeyPressed(ebiten.KeyShift) {
+		if ebiten.IsKeyPressed(ebiten.KeyShiftLeft) {
 			g.xyzLock = !g.xyzLock
 		}
 
