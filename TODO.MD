@@ -1,7 +1,8 @@
 
 # TODO List
 
-- [ ] Implement GUI ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
+- [X] Implement GUI ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
+  - NOTE : scraped for now. Currently working on my own custom GUI
 - [ ] Fix Shaders
 - [ ] Implement SIMD instructions ([link](https://github.com/viterin/vek))
 - [X] Merge the latest branch with main
@@ -15,8 +16,8 @@
   - Order them based on distance
   - Draw them (consider adding shading based on normals)
 - [ ] Fix ray tracer:
-  - Fix uniforms ([link](https://github.com/tinne26/kage-desk/blob/main/docs/tutorials/intro/06_uniforms.md))
-    - Note: Uniforms start with capital letters
+  - [X] Fix uniforms ([link](https://github.com/tinne26/kage-desk/blob/main/docs/tutorials/intro/06_uniforms.md))
+  - [X] Note: Uniforms start with capital letters
 - [X] Implement specular lighting
 - [X] Add Coloring of Triangles
 - [X] Fix camera movement(It work not greatly)
@@ -27,3 +28,4 @@
   - [ ] Shader Menu
   - [ ] Color Menu
   - [ ] Painter Menu
+- [ ] Add painting utils to the renderer
