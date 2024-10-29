@@ -28,6 +28,7 @@
   - [ ] Color Menu
   - [ ] Painter Menu
 - [ ] Add painting utilities to the renderer
+- [ ] Update Split os Screen and Num of Go routines based on number of CPUs
 - [ ] Fix pointer dereference issue after long runs
   - **Note** Test on more system maybe it is only problem with instability when OC
   - **Error**:
