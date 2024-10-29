@@ -1,13 +1,12 @@
-
 # TODO List
 
 - [X] Implement GUI ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
-  - NOTE : scraped for now. Currently working on my own custom GUI
+  - **NOTE**: Scraped for now. Currently working on my own custom GUI.
 - [ ] Fix Shaders
 - [ ] Implement SIMD instructions ([link](https://github.com/viterin/vek))
 - [X] Merge the latest branch with main
 - [X] Implement bloom and other post-processing effects
-- [X] Implement Shaders for Color Grating, Contract etc.
+- [X] Implement shaders for color grading, contrast, etc.
 - [ ] Optimize for speed
 - [ ] Create flame graphs
 - [X] Trace rays to corners and draw triangles:
@@ -17,15 +16,40 @@
   - Draw them (consider adding shading based on normals)
 - [ ] Fix ray tracer:
   - [X] Fix uniforms ([link](https://github.com/tinne26/kage-desk/blob/main/docs/tutorials/intro/06_uniforms.md))
-  - [X] Note: Uniforms start with capital letters
+  - **Note**: Uniforms start with capital letters.
 - [X] Implement specular lighting
-- [X] Add Coloring of Triangles
-- [X] Fix camera movement(It work not greatly)
-  - [X] Add the previous camera Projection - Done but i don't like it maybe look again in to it
-  - <https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc>
-- [X] Optimize  PrecomputeScreenSpaceCoordinatesSphere ( go routines, if no movement no change)
+- [X] Add coloring of triangles
+- [X] Fix camera movement (it works, but not perfectly)
+  - [X] Add the previous camera projection - Done, but might need revisiting
+  - [ChatGPT Link](https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc)
+- [X] Optimize `PrecomputeScreenSpaceCoordinatesSphere` (goroutines; if no movement, no change)
 - [ ] Implement Custom GUI
   - [ ] Shader Menu
   - [ ] Color Menu
   - [ ] Painter Menu
-- [ ] Add painting utils to the renderer
+- [ ] Add painting utilities to the renderer
+- [ ] Fix pointer dereference issue after long runs
+  - **Error**:
+    ```plaintext
+    panic: runtime error: invalid memory address or nil pointer dereference
+    [signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x473b71]
+    
+    goroutine 91998 [running]:
+    math/rand.(*runtimeSource).Int63(0x0?)
+            /snap/go/10730/src/math/rand/rand.go:360 +0xf
+    math/rand.(*Rand).Int63(...)
+            /snap/go/10730/src/math/rand/rand.go:96
+    math/rand.(*Rand).Float64(...)
+            /snap/go/10730/src/math/rand/rand.go:207
+    math/rand.(*Rand).Float32(0xc000628390)
+            /snap/go/10730/src/math/rand/rand.go:220 +0x46
+    math/rand.Float32()
+            /snap/go/10730/src/math/rand/rand.go:461 +0x18
+    main.TraceRay({{0x42678478, 0x439347d8, 0x418f8f2e}, {0xbed36efb, 0xbf460b12, 0xbc58c440}}, 0x2, {0xc00011d450?, 0xc00011d460?, 0xff4e4e4e?}, ...)
+            /home/user/Desktop/GO-Draaw/main.go:826 +0x1ff
+    main.DrawRays.func1(0x17c, 0x1a2, 0xc0005a6600)
+            /home/user/Desktop/GO-Draaw/main.go:1277 +0x2ae
+    created by main.DrawRays in goroutine 11
+            /home/user/Desktop/GO-Draaw/main.go:1267 +0xb0
+    exit status 2
+    ```
