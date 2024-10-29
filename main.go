@@ -1440,7 +1440,6 @@ func (g *Game) Update() error {
 	g.updateFreq++
 
 	// check if mouse button is pressed
-	
 
 	if ebiten.IsKeyPressed(ebiten.KeyTab) {
 		g.fullScreen = !g.fullScreen

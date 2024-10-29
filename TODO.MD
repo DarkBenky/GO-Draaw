@@ -29,7 +29,9 @@
   - [ ] Painter Menu
 - [ ] Add painting utilities to the renderer
 - [ ] Fix pointer dereference issue after long runs
+  - **Note** Test on more system maybe it is only problem with instability when OC
   - **Error**:
+
     ```plaintext
     panic: runtime error: invalid memory address or nil pointer dereference
     [signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x473b71]
