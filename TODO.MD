@@ -11,6 +11,16 @@
       reflection  float32
       specular    float32
   }
+  
+  # Simple Triangle
+  type Triangle struct {
+      v1, v2, v3  Vector
+      color       color.RGBA
+      Normal      Vector
+      reflection  float32
+      specular    float32
+  }
+
   ```
 
   - Test The changes Crete function for benchmarking
@@ -44,7 +54,7 @@
 - [ ] Implement Custom GUI
   - [ ] Shader Menu
   - [ ] Color Menu
-    - Add menu for Specular lighting etc.
+    - [ ] Add menu for Specular lighting etc.
   - [ ] Painter Menu
 - [ ] Add painting utilities to the renderer
 - [ ] Update Split os Screen and Num of Go routines based on number of CPUs
