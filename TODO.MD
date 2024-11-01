@@ -1,8 +1,26 @@
 # TODO List
 
+- [ ] Remove Triangle Bounding Box out of struct
+
+  ```go
+  type Triangle struct {
+      v1, v2, v3  Vector
+      color       color.RGBA
+      BoundingBox [2]Vector
+      Normal      Vector
+      reflection  float32
+      specular    float32
+  }
+  ```
+
+  - Test The changes Crete function for benchmarking
+  
+- [ ] Try Multiple BOX of Triangle intersection in on function using SIMD
+  - Example ([link](https://claude.ai/chat/b6e783ca-1044-4c96-a412-845b8b56465f))
+- [ ] Try BVH leaf notes with different number of triangles inside
 - [X] Implement GUI ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
   - **NOTE**: Scraped for now. Currently working on my own custom GUI.
-- [ ] Fix Shaders
+- [ ] Fix Shaders and Test Shaders
 - [ ] Implement SIMD instructions ([link](https://github.com/viterin/vek))
 - [X] Merge the latest branch with main
 - [X] Implement bloom and other post-processing effects
@@ -26,6 +44,7 @@
 - [ ] Implement Custom GUI
   - [ ] Shader Menu
   - [ ] Color Menu
+    - Add menu for Specular lighting etc.
   - [ ] Painter Menu
 - [ ] Add painting utilities to the renderer
 - [ ] Update Split os Screen and Num of Go routines based on number of CPUs
