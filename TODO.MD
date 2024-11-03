@@ -1,6 +1,6 @@
 # TODO List
 
-- [ ] Create Universal benchmarking function to judge the changes of performance
+- [X] Create Universal benchmarking function to judge the changes of performance
 - [ ] Remove Triangle Bounding Box out of struct
 
   ```go
