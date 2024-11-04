@@ -1,5 +1,6 @@
 # TODO List
 
+- ***NOTE*** Spliting array for each go routine does not make sense besed on the Benchmark ([link](https://github.com/DarkBenky/Benchmark-GO-multiple-arrays))
 - [ ] Add option to move light to camera position
 - [ ] Split Code to multiple files
 - [X] Create Universal benchmarking function to judge the changes of performance

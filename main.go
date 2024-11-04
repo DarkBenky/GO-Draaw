@@ -37,8 +37,6 @@ import (
 
 	"image/draw"
 
-	"image/png"
-
 	"github.com/chewxy/math32"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -1660,36 +1658,36 @@ func (g *Game) Update() error {
 	return nil
 }
 
-func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
-	// Get the size of the Ebiten image
-	width, height := ebitenImg.Size()
+// func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
+// 	// Get the size of the Ebiten image
+// 	width, height := ebitenImg.Size()
 
-	// Create an RGBA image to hold the pixel data
-	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+// 	// Create an RGBA image to hold the pixel data
+// 	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	// Iterate over the pixels in the Ebiten image and copy them to the RGBA image
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			c := ebitenImg.At(x, y).(color.RGBA)
-			rgba.Set(x, y, c)
-		}
-	}
+// 	// Iterate over the pixels in the Ebiten image and copy them to the RGBA image
+// 	for y := 0; y < height; y++ {
+// 		for x := 0; x < width; x++ {
+// 			c := ebitenImg.At(x, y).(color.RGBA)
+// 			rgba.Set(x, y, c)
+// 		}
+// 	}
 
-	// Create the output file
-	outFile, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
+// 	// Create the output file
+// 	outFile, err := os.Create(filename)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer outFile.Close()
 
-	// Encode the RGBA image as a PNG and save it
-	err = png.Encode(outFile, rgba)
-	if err != nil {
-		return err
-	}
+// 	// Encode the RGBA image as a PNG and save it
+// 	err = png.Encode(outFile, rgba)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 var (
 	GUI              = ebiten.NewImage(400, 300)
@@ -1873,16 +1871,16 @@ type Game struct {
 	samples          int
 	currentFrame     *ebiten.Image
 	depth            int
-	ditherColor      *ebiten.Shader
-	ditherGrayScale  *ebiten.Shader
-	bloomShader      *ebiten.Shader
-	contrastShader   *ebiten.Shader
-	tintShader       *ebiten.Shader
-	sharpnessShader  *ebiten.Shader
-	r, g, b, a       float64
-	specular         float32
-	reflection       float32
-	previousFrame    *ebiten.Image
+	// ditherColor      *ebiten.Shader
+	// ditherGrayScale  *ebiten.Shader
+	// bloomShader      *ebiten.Shader
+	// contrastShader   *ebiten.Shader
+	// tintShader       *ebiten.Shader
+	// sharpnessShader  *ebiten.Shader
+	r, g, b, a    float64
+	specular      float32
+	reflection    float32
+	previousFrame *ebiten.Image
 	// TriangleShader         *ebiten.Shader
 }
 
@@ -1898,12 +1896,12 @@ func LoadShader(filePath string) ([]byte, error) {
 }
 
 // Bayer matrix data
-var bayerMatrix = [16]float32{
-	15.0 / 255.0, 195.0 / 255.0, 60.0 / 255.0, 240.0 / 255.0,
-	135.0 / 255.0, 75.0 / 255.0, 180.0 / 255.0, 120.0 / 255.0,
-	45.0 / 255.0, 225.0 / 255.0, 30.0 / 255.0, 210.0 / 255.0,
-	165.0 / 255.0, 105.0 / 255.0, 150.0 / 255.0, 90.0 / 255.0,
-}
+// var bayerMatrix = [16]float32{
+// 	15.0 / 255.0, 195.0 / 255.0, 60.0 / 255.0, 240.0 / 255.0,
+// 	135.0 / 255.0, 75.0 / 255.0, 180.0 / 255.0, 120.0 / 255.0,
+// 	45.0 / 255.0, 225.0 / 255.0, 30.0 / 255.0, 210.0 / 255.0,
+// 	165.0 / 255.0, 105.0 / 255.0, 150.0 / 255.0, 90.0 / 255.0,
+// }
 
 var subImageHeight int
 var subImageWidth int
