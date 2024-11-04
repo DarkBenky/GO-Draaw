@@ -1530,23 +1530,42 @@ func dumpBenchmarkData() error {
 	// Check if the code already exists in the CSV
 	for i, record := range records {
 		if len(record) > 0 && record[0] == codeString {
-			fmt.Println("Code already exists in CSV. Updating average FPS only...")
+			fmt.Println("Code already exists in CSV. Updating averages...")
 
-			// Parse the existing average FPS
+			// Parse existing FPS and framerate values
 			existingFPS, err := strconv.ParseFloat(record[1], 64)
 			if err != nil {
 				return err
 			}
+			existingMinFPS, err := strconv.ParseFloat(record[2], 64)
+			if err != nil {
+				return err
+			}
+			existingMaxFPS, err := strconv.ParseFloat(record[3], 64)
+			if err != nil {
+				return err
+			}
+			existingMin10PercentFPS, err := strconv.ParseFloat(record[4], 64)
+			if err != nil {
+				return err
+			}
 
-			// Calculate new averaged FPS (only updating the average)
+			// Calculate new averages
 			newAvgFPS := (existingFPS + currentAvgFPS) / 2
-			fmt.Printf("Old FPS: %.2f, New FPS: %.2f, Updated Average FPS: %.2f\n", existingFPS, currentAvgFPS, newAvgFPS)
+			newMinFPS := (existingMinFPS + MinFrameRate) / 2
+			newMaxFPS := (existingMaxFPS + MaxFrameRate) / 2
+			newMin10PercentFPS := (existingMin10PercentFPS + min10PercentFPS) / 2
 
-			// Update the record with new average FPS only
+			fmt.Printf("Old FPS: %.2f, New FPS: %.2f, Updated Average FPS: %.2f\n", existingFPS, currentAvgFPS, newAvgFPS)
+			fmt.Printf("Old Min FPS: %.2f, New Min FPS: %.2f\n", existingMinFPS, newMinFPS)
+			fmt.Printf("Old Max FPS: %.2f, New Max FPS: %.2f\n", existingMaxFPS, newMaxFPS)
+			fmt.Printf("Old Min 15%% FPS: %.2f, New Min 15%% FPS: %.2f\n", existingMin10PercentFPS, newMin10PercentFPS)
+
+			// Update the record with new averages
 			records[i][1] = fmt.Sprintf("%.2f", newAvgFPS)
-			records[i][2] = fmt.Sprintf("%.2f", MinFrameRate)    // Update min FPS
-			records[i][3] = fmt.Sprintf("%.2f", MaxFrameRate)    // Update max FPS
-			records[i][4] = fmt.Sprintf("%.2f", min10PercentFPS) // Update min 15% FPS
+			records[i][2] = fmt.Sprintf("%.2f", newMinFPS)
+			records[i][3] = fmt.Sprintf("%.2f", newMaxFPS)
+			records[i][4] = fmt.Sprintf("%.2f", newMin10PercentFPS)
 
 			// Write updated data back to CSV
 			return writeCSV(csvFileName, records)
