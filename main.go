@@ -1305,124 +1305,123 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 }
 
 var (
-    bgColor        = color.RGBA{50, 50, 50, 255}
-    trackColor     = color.RGBA{200, 200, 200, 255}
-    colorSliderInd = color.RGBA{255, 0, 0, 255}
-    propSliderInd  = color.RGBA{0, 255, 255, 255}
-    
-    bgUniform        = &image.Uniform{bgColor}
-    trackUniform     = &image.Uniform{trackColor}
-    colorSliderUnif  = &image.Uniform{colorSliderInd}
-    propSliderUnif   = &image.Uniform{propSliderInd}
+	bgColor        = color.RGBA{50, 50, 50, 255}
+	trackColor     = color.RGBA{200, 200, 200, 255}
+	colorSliderInd = color.RGBA{255, 0, 0, 255}
+	propSliderInd  = color.RGBA{0, 255, 255, 255}
+
+	bgUniform       = &image.Uniform{bgColor}
+	trackUniform    = &image.Uniform{trackColor}
+	colorSliderUnif = &image.Uniform{colorSliderInd}
+	propSliderUnif  = &image.Uniform{propSliderInd}
 )
 
 type SliderLayout struct {
-    sliderWidth     int
-    sliderHeight    int
-    indicatorHeight int
-    padding         int
-    startX          int
-    startY          int
+	sliderWidth     int
+	sliderHeight    int
+	indicatorHeight int
+	padding         int
+	startX          int
+	startY          int
 }
 
 // ColorSlider handles color, reflection and specular value adjustments
-func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *float64, 
-    reflection, specular *float32, mouseX, mouseY int, mousePressed bool) {
-    
-    // Calculate layout once
-    layout := SliderLayout{
-        sliderWidth:     width - 20,
-        sliderHeight:    18,
-        indicatorHeight: 15,
-        padding:         5,
-        startX:          x + 10,
-        startY:          y + height/2 + 10,
-    }
+func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *float64,
+	reflection, specular *float32, mouseX, mouseY int, mousePressed bool) {
 
-    // Draw background (single allocation)
-    draw.Draw(screen, image.Rect(x, y, x+width, y+height), bgUniform, image.Point{}, draw.Src)
+	// Calculate layout once
+	layout := SliderLayout{
+		sliderWidth:     width - 20,
+		sliderHeight:    18,
+		indicatorHeight: 15,
+		padding:         5,
+		startX:          x + 10,
+		startY:          y + height/2 + 10,
+	}
 
-    // Draw preview area
-    previewColor := &image.Uniform{color.RGBA{
-        uint8(*r * 255),
-        uint8(*g * 255),
-        uint8(*b * 255),
-        uint8(*a * 255),
-    }}
-    draw.Draw(screen, image.Rect(x, y, x+width, y+height/2), previewColor, image.Point{}, draw.Src)
+	// Draw background (single allocation)
+	draw.Draw(screen, image.Rect(x, y, x+width, y+height), bgUniform, image.Point{}, draw.Src)
 
-    // Process sliders
-    processSlider(screen, layout, "R", r, false, 0, mouseX, mouseY, mousePressed)
-    processSlider(screen, layout, "G", g, false, 1, mouseX, mouseY, mousePressed)
-    processSlider(screen, layout, "B", b, false, 2, mouseX, mouseY, mousePressed)
-    processSlider(screen, layout, "A", a, false, 3, mouseX, mouseY, mousePressed)
-    processSlider(screen, layout, "Reflection", reflection, true, 4, mouseX, mouseY, mousePressed)
-    processSlider(screen, layout, "Specular", specular, true, 5, mouseX, mouseY, mousePressed)
+	// Draw preview area
+	previewColor := &image.Uniform{color.RGBA{
+		uint8(*r * 255),
+		uint8(*g * 255),
+		uint8(*b * 255),
+		uint8(*a * 255),
+	}}
+	draw.Draw(screen, image.Rect(x, y, x+width, y+height/2), previewColor, image.Point{}, draw.Src)
+
+	// Process sliders
+	processSlider(screen, layout, "R", r, false, 0, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "G", g, false, 1, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "B", b, false, 2, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "A", a, false, 3, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "Reflection", reflection, true, 4, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "Specular", specular, true, 5, mouseX, mouseY, mousePressed)
 }
 
-func processSlider(screen *ebiten.Image, layout SliderLayout, label string, value interface{}, 
-    isFloat32 bool, index int, mouseX, mouseY int, mousePressed bool) {
-    
-    // Calculate positions
-    yOffset := layout.startY + (layout.sliderHeight+layout.padding)*index
-    trackRect := image.Rect(
-        layout.startX,
-        yOffset,
-        layout.startX+layout.sliderWidth,
-        yOffset+layout.sliderHeight,
-    )
+func processSlider(screen *ebiten.Image, layout SliderLayout, label string, value interface{},
+	isFloat32 bool, index int, mouseX, mouseY int, mousePressed bool) {
 
-    // Draw track
-    draw.Draw(screen, trackRect, trackUniform, image.Point{}, draw.Src)
+	// Calculate positions
+	yOffset := layout.startY + (layout.sliderHeight+layout.padding)*index
+	trackRect := image.Rect(
+		layout.startX,
+		yOffset,
+		layout.startX+layout.sliderWidth,
+		yOffset+layout.sliderHeight,
+	)
 
-    // Get current value
-    var currentValue float64
-    if isFloat32 {
-        currentValue = float64(*value.(*float32))
-    } else {
-        currentValue = *value.(*float64)
-    }
+	// Draw track
+	draw.Draw(screen, trackRect, trackUniform, image.Point{}, draw.Src)
 
-    // Calculate and draw indicator
-    valueX := int(currentValue*float64(layout.sliderWidth)) + layout.startX
-    indicatorRect := image.Rect(
-        valueX-5,
-        yOffset+(layout.sliderHeight-layout.indicatorHeight)/2,
-        valueX+5,
-        yOffset+(layout.sliderHeight-layout.indicatorHeight)/2+layout.indicatorHeight,
-    )
+	// Get current value
+	var currentValue float64
+	if isFloat32 {
+		currentValue = float64(*value.(*float32))
+	} else {
+		currentValue = *value.(*float64)
+	}
 
-    // Draw indicator with appropriate color
-    if isFloat32 {
-        draw.Draw(screen, indicatorRect, propSliderUnif, image.Point{}, draw.Src)
-    } else {
-        draw.Draw(screen, indicatorRect, colorSliderUnif, image.Point{}, draw.Src)
-    }
+	// Calculate and draw indicator
+	valueX := int(currentValue*float64(layout.sliderWidth)) + layout.startX
+	indicatorRect := image.Rect(
+		valueX-5,
+		yOffset+(layout.sliderHeight-layout.indicatorHeight)/2,
+		valueX+5,
+		yOffset+(layout.sliderHeight-layout.indicatorHeight)/2+layout.indicatorHeight,
+	)
 
-    // Draw label
-    ebitenutil.DebugPrintAt(screen, label, layout.startX, yOffset+5)
+	// Draw indicator with appropriate color
+	if isFloat32 {
+		draw.Draw(screen, indicatorRect, propSliderUnif, image.Point{}, draw.Src)
+	} else {
+		draw.Draw(screen, indicatorRect, colorSliderUnif, image.Point{}, draw.Src)
+	}
 
-    // Handle mouse interaction
-    if mousePressed && trackRect.Overlaps(image.Rect(mouseX, mouseY, mouseX+1, mouseY+1)) {
-        newValue := clamp(float64(mouseX-layout.startX) / float64(layout.sliderWidth))
-        if isFloat32 {
-            *value.(*float32) = float32(newValue)
-        } else {
-            *value.(*float64) = newValue
-        }
-    }
+	// Draw label
+	ebitenutil.DebugPrintAt(screen, label, layout.startX, yOffset+5)
+
+	// Handle mouse interaction
+	if mousePressed && trackRect.Overlaps(image.Rect(mouseX, mouseY, mouseX+1, mouseY+1)) {
+		newValue := clamp(float64(mouseX-layout.startX) / float64(layout.sliderWidth))
+		if isFloat32 {
+			*value.(*float32) = float32(newValue)
+		} else {
+			*value.(*float64) = newValue
+		}
+	}
 }
-
 
 // clamp ensures a value stays between 0 and 1
 func clamp(value float64) float64 {
-    if value < 0 {
-        return 0
-    }
-    if value > 1 {
-        return 1
-    }
-    return value
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }
 
 func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA, reflection float32, specular float32) bool {
@@ -1693,83 +1692,83 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 }
 
 var (
-    GUI = ebiten.NewImage(400, 300)
-    lastMousePressed bool
-    guiNeedsUpdate  = true  // Start with true to ensure initial render
+	GUI              = ebiten.NewImage(400, 300)
+	lastMousePressed bool
+	guiNeedsUpdate   = true // Start with true to ensure initial render
 )
 
 func (g *Game) Draw(screen *ebiten.Image) {
-    // Increment frame count and add current FPS to the average
-    if Benchmark {
-        FrameCount++
-        fps := ebiten.ActualFPS()
-        AverageFrameRate += fps
+	// Increment frame count and add current FPS to the average
+	if Benchmark {
+		FrameCount++
+		fps := ebiten.ActualFPS()
+		AverageFrameRate += fps
 
-        MinFrameRate = math.Min(MinFrameRate, fps)
-        MaxFrameRate = math.Max(MaxFrameRate, fps)
+		MinFrameRate = math.Min(MinFrameRate, fps)
+		MaxFrameRate = math.Max(MaxFrameRate, fps)
 
-        FPS = append(FPS, fps)
-    }
+		FPS = append(FPS, fps)
+	}
 
-    // Clear the current frame
-    g.currentFrame.Clear()
+	// Clear the current frame
+	g.currentFrame.Clear()
 	fps := ebiten.ActualFPS()
 
-    // Perform path tracing and draw rays into the current frame
-    DrawRays(g.camera, g.light, g.scaleFactor, g.samples, g.depth, g.subImages)
-    for i, subImage := range g.subImages {
-        op := &ebiten.DrawImageOptions{}
-        if !fullScreen {
-            op.GeoM.Translate(0, float64(subImageHeight/2)*float64(i))
-        } else {
-            op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
-        }
-        g.currentFrame.DrawImage(subImage, op)
-    }
+	// Perform path tracing and draw rays into the current frame
+	DrawRays(g.camera, g.light, g.scaleFactor, g.samples, g.depth, g.subImages)
+	for i, subImage := range g.subImages {
+		op := &ebiten.DrawImageOptions{}
+		if !fullScreen {
+			op.GeoM.Translate(0, float64(subImageHeight/2)*float64(i))
+		} else {
+			op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
+		}
+		g.currentFrame.DrawImage(subImage, op)
+	}
 
-    // Scale the main render
-    mainOp := &ebiten.DrawImageOptions{}
-    if fullScreen {
-        g.scaleFactor = 2
-        mainOp.GeoM.Scale(
-            float64(screen.Bounds().Dx())/float64(g.currentFrame.Bounds().Dx()),
-            float64(screen.Bounds().Dy())/float64(g.currentFrame.Bounds().Dy()),
-        )
-    } else {
-        g.scaleFactor = 4
-        mainOp.GeoM.Scale(
-            (float64(screenWidth) / float64(g.currentFrame.Bounds().Dx())),
-            (float64(screenHeight) / float64(g.currentFrame.Bounds().Dy())),
-        )
-    }
+	// Scale the main render
+	mainOp := &ebiten.DrawImageOptions{}
+	if fullScreen {
+		g.scaleFactor = 2
+		mainOp.GeoM.Scale(
+			float64(screen.Bounds().Dx())/float64(g.currentFrame.Bounds().Dx()),
+			float64(screen.Bounds().Dy())/float64(g.currentFrame.Bounds().Dy()),
+		)
+	} else {
+		g.scaleFactor = 4
+		mainOp.GeoM.Scale(
+			(float64(screenWidth) / float64(g.currentFrame.Bounds().Dx())),
+			(float64(screenHeight) / float64(g.currentFrame.Bounds().Dy())),
+		)
+	}
 
-    // Draw the main render first
-    screen.DrawImage(g.currentFrame, mainOp)
+	// Draw the main render first
+	screen.DrawImage(g.currentFrame, mainOp)
 
-    // Handle GUI separately
-    if !fullScreen {
-        mouseX, mouseY := ebiten.CursorPosition()
-        mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	// Handle GUI separately
+	if !fullScreen {
+		mouseX, mouseY := ebiten.CursorPosition()
+		mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
-        // Check if GUI needs updating
-        if mousePressed || lastMousePressed != mousePressed {
-            guiNeedsUpdate = true
-        }
+		// Check if GUI needs updating
+		if mousePressed || lastMousePressed != mousePressed {
+			guiNeedsUpdate = true
+		}
 
-        // Only update GUI if needed
-        if guiNeedsUpdate {
-            GUI.Clear()
-            ColorSlider(0, 0, GUI, 400, 300, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed)
-            guiNeedsUpdate = false
-        }
+		// Only update GUI if needed
+		if guiNeedsUpdate {
+			GUI.Clear()
+			ColorSlider(0, 0, GUI, 400, 300, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed)
+			guiNeedsUpdate = false
+		}
 
-        // Draw GUI on top of the main render
-        guiOp := &ebiten.DrawImageOptions{}
+		// Draw GUI on top of the main render
+		guiOp := &ebiten.DrawImageOptions{}
 		guiOp.GeoM.Translate(400, 0)
-        screen.DrawImage(GUI, guiOp)
+		screen.DrawImage(GUI, guiOp)
 
-        lastMousePressed = mousePressed
-    }
+		lastMousePressed = mousePressed
+	}
 
 	// Create a temporary image for bloom shader
 	// bloomImage := ebiten.NewImageFromImage(g.currentFrame)
@@ -2045,7 +2044,7 @@ func main() {
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
 		// bloomShader:     bloomShader,
-		currentFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		currentFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		previousFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		// TriangleShader: 	   rayCasterShader,
 	}

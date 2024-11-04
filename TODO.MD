@@ -56,8 +56,8 @@
 - [X] Optimize `PrecomputeScreenSpaceCoordinatesSphere` (goroutines; if no movement, no change)
 - [ ] Implement Custom GUI
   - [ ] Shader Menu
-  - [ ] Color Menu
-    - [ ] Add menu for Specular lighting etc.
+  - [X] Color Menu
+    - [X] Add menu for Specular lighting etc.
   - [ ] Painter Menu
 - [ ] Add painting utilities to the renderer
 - [ ] Update Split os Screen and Num of Go routines based on number of CPUs
