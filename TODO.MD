@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Add option to move light to camera position
 - [ ] Split Code to multiple files
 - [X] Create Universal benchmarking function to judge the changes of performance
 - [ ] Remove Triangle Bounding Box out of struct
