@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Add shader for averaging images
 - [ ] Convert All Triangles to TriangleSimple
 - [ ] Fix overlapping images ( this problem is mainly seen when alpha is not 100%)
 - ***NOTE*** Spliting array for each go routine does not make sense besed on the Benchmark ([link](https://github.com/DarkBenky/Benchmark-GO-multiple-arrays))
