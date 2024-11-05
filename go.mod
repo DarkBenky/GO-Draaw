@@ -21,6 +21,8 @@ require (
 	github.com/inkyblackness/imgui-go/v4 v4.7.0 // indirect
 	github.com/jezek/xgb v1.1.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
+	github.com/viterin/partial v1.1.0 // indirect
+	github.com/viterin/vek v0.4.2 // indirect
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
 	golang.org/x/image v0.20.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect

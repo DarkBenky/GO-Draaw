@@ -1,10 +1,11 @@
 # TODO List
 
+- [x] Convert All Triangles to TriangleSimple
 - ***NOTE*** Spliting array for each go routine does not make sense besed on the Benchmark ([link](https://github.com/DarkBenky/Benchmark-GO-multiple-arrays))
 - [ ] Add option to move light to camera position
 - [ ] Split Code to multiple files
 - [X] Create Universal benchmarking function to judge the changes of performance
-- [ ] Remove Triangle Bounding Box out of struct
+- [X] Remove Triangle Bounding Box out of struct
 
   ```go
   type Triangle struct {
@@ -24,13 +25,98 @@
       reflection  float32
       specular    float32
   }
-
   ```
 
   - Test The changes Crete function for benchmarking
   
-- [ ] Try Multiple BOX of Triangle intersection in on function using SIMD
+- [X] Try Multiple BOX of Triangle intersection in on function using SIMD
   - Example ([link](https://claude.ai/chat/b6e783ca-1044-4c96-a412-845b8b56465f))
+  - Test didn't show any improvements
+    - Normal 80ns
+      SIMD 992ns
+      Normal 51ns
+      SIMD 731ns
+      Normal 50ns
+      SIMD 652ns
+      Normal 50ns
+
+    ```go
+    func BoundingBoxCollisionDistance(BoundingBox *[2]Vector, ray *Ray) (bool, float32) {
+        // Precompute the inverse direction
+        invDirX := 1.0 / ray.direction.x
+        invDirY := 1.0 / ray.direction.y
+        invDirZ := 1.0 / ray.direction.z
+
+        // Compute the tmin and tmax for each axis directly
+        tx1 := (BoundingBox[0].x - ray.origin.x) * invDirX
+        tx2 := (BoundingBox[1].x - ray.origin.x) * invDirX
+        tmin := min(tx1, tx2)
+        tmax := max(tx1, tx2)
+
+        ty1 := (BoundingBox[0].y - ray.origin.y) * invDirY
+        ty2 := (BoundingBox[1].y - ray.origin.y) * invDirY
+        tmin = max(tmin, min(ty1, ty2))
+        tmax = min(tmax, max(ty1, ty2))
+
+        tz1 := (BoundingBox[0].z - ray.origin.z) * invDirZ
+        tz2 := (BoundingBox[1].z - ray.origin.z) * invDirZ
+        tmin = max(tmin, min(tz1, tz2))
+        tmax = min(tmax, max(tz1, tz2))
+
+        // Final intersection check
+        if tmax >= max(0.0, tmin) {
+            return true, tmin
+        }
+
+        return false, 0.0 // Return 0 distance if no intersection
+    }
+
+    func BoundingBoxCollisionDistanceSIMD(BoundingBox [2]Vector, ray *Ray) (bool, float32) {
+        // Precompute the inverse direction
+        invDir := vek32.Inv([]float32{ray.direction.x, ray.direction.y, ray.direction.z})
+
+        // Compute the tmin and tmax for each axis directly
+        tx := vek32.Minimum(
+            []float32{(BoundingBox[0].x - ray.origin.x) * invDir[0]},
+            []float32{(BoundingBox[1].x - ray.origin.x) * invDir[0]},
+        )
+        ty := vek32.Minimum(
+            []float32{(BoundingBox[0].y - ray.origin.y) * invDir[1]},
+            []float32{(BoundingBox[1].y - ray.origin.y) * invDir[1]},
+        )
+        tz := vek32.Minimum(
+            []float32{(BoundingBox[0].z - ray.origin.z) * invDir[2]},
+            []float32{(BoundingBox[1].z - ray.origin.z) * invDir[2]},
+        )
+
+        tmin := vek32.Maximum(tx, vek32.Maximum(ty, tz))
+
+        tx = vek32.Maximum(
+            []float32{(BoundingBox[0].x - ray.origin.x) * invDir[0]},
+            []float32{(BoundingBox[1].x - ray.origin.x) * invDir[0]},
+        )
+        ty = vek32.Maximum(
+            []float32{(BoundingBox[0].y - ray.origin.y) * invDir[1]},
+            []float32{(BoundingBox[1].y - ray.origin.y) * invDir[1]},
+        )
+        tz = vek32.Maximum(
+            []float32{(BoundingBox[0].z - ray.origin.z) * invDir[2]},
+            []float32{(BoundingBox[1].z - ray.origin.z) * invDir[2]},
+        )
+
+        tmax := vek32.Minimum(tx, vek32.Minimum(ty, tz))
+
+        // Final intersection check
+        tminPositive := vek32.Maximum([]float32{0.0}, tmin)
+        intersects := vek32.Gte(tmax, tminPositive)
+        if vek32.Any(intersects) {
+            return true, tmin[0]
+        }
+
+        return false, 0.0
+    }
+    ```
+
 - [ ] Try BVH leaf notes with different number of triangles inside
 - [X] Implement GUI ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
   - **NOTE**: Scraped for now. Currently working on my own custom GUI.
