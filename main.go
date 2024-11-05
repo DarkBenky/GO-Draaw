@@ -53,7 +53,7 @@ var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 const maxDepth = 16
 const numCPU = 16
 
-const Benchmark = true
+const Benchmark = false
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -995,9 +995,9 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 	bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 	bouncedColor := TraceRay(bounceRay, depth-1, light, samples)
 
-	finalColor.R = clampUint8((float32(finalColor.R) + float32(bouncedColor.R)) / 2)
-	finalColor.G = clampUint8((float32(finalColor.G) + float32(bouncedColor.G)) / 2)
-	finalColor.B = clampUint8((float32(finalColor.B) + float32(bouncedColor.B)) / 2)
+	finalColor.R = clampUint8((float32(finalColor.R) * intersection.directToScatter + float32(bouncedColor.R)*1 - intersection.directToScatter))
+	finalColor.G = clampUint8((float32(finalColor.G) * intersection.directToScatter + float32(bouncedColor.G)*1 - intersection.directToScatter))
+	finalColor.B = clampUint8((float32(finalColor.B) * intersection.directToScatter + float32(bouncedColor.B)*1 - intersection.directToScatter))
 
 	return finalColor
 }
