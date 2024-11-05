@@ -53,7 +53,7 @@ var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 const maxDepth = 16
 const numCPU = 16
 
-const Benchmark = false
+const Benchmark = true
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -995,9 +995,9 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 	bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 	bouncedColor := TraceRay(bounceRay, depth-1, light, samples)
 
-	finalColor.R = clampUint8((float32(finalColor.R)*intersection.directToScatter + float32(bouncedColor.R)*1 - intersection.directToScatter))
-	finalColor.G = clampUint8((float32(finalColor.G)*intersection.directToScatter + float32(bouncedColor.G)*1 - intersection.directToScatter))
-	finalColor.B = clampUint8((float32(finalColor.B)*intersection.directToScatter + float32(bouncedColor.B)*1 - intersection.directToScatter))
+	finalColor.R = clampUint8((float32(finalColor.R) + float32(bouncedColor.R)) / 2)
+	finalColor.G = clampUint8((float32(finalColor.G) + float32(bouncedColor.G)) / 2)
+	finalColor.B = clampUint8((float32(finalColor.B) + float32(bouncedColor.B)) / 2)
 
 	return finalColor
 }
@@ -1759,6 +1759,10 @@ func (g *Game) Update() error {
 			os.Exit(0)
 		}
 	} else {
+		if snapLightToCamera.Selected == 1 {
+			g.light.Position = &g.camera.Position
+		}
+
 		mouseX, mouseY := ebiten.CursorPosition()
 		if fullScreen {
 			// Get the current mouse position
@@ -1817,10 +1821,8 @@ func (g *Game) Update() error {
 		if ebiten.IsKeyPressed(ebiten.KeyTab) {
 			fullScreen = !fullScreen
 			if fullScreen {
-				g.samples = 2
 				g.scaleFactor = 2
 			} else {
-				g.samples = 0
 				g.scaleFactor = 4
 			}
 		}
@@ -1861,7 +1863,7 @@ func (g *Game) Update() error {
 // }
 
 var (
-	GUI              = ebiten.NewImage(400, 300)
+	GUI              = ebiten.NewImage(400, 600)
 	lastMousePressed bool
 	guiNeedsUpdate   = true // Start with true to ensure initial render
 	depthOption      = Options{
@@ -1873,6 +1875,26 @@ var (
 		Padding:   10,
 		PositionX: 0,
 		PositionY: 0,
+	}
+	scatterOption = Options{
+		Header:    "Select Scatter",
+		Options:   []string{"0", "1", "2", "4", "8", "16", "32", "64"},
+		Selected:  0,
+		Width:     400,
+		Height:    50,
+		Padding:   10,
+		PositionX: 0,
+		PositionY: 350,
+	}
+	snapLightToCamera = Options{
+		Header:    "Snap Light to Camera",
+		Options:   []string{"No", "Yes"},
+		Selected:  0,
+		Width:     400,
+		Height:    50,
+		Padding:   10,
+		PositionX: 0,
+		PositionY: 400,
 	}
 )
 
@@ -1901,7 +1923,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		depth = depth*2 + 1
 	}
 
-	DrawRays(g.camera, g.light, g.scaleFactor, g.samples, depth, g.subImages)
+	scatter := 0
+	if !Benchmark {
+		scatter = scatterOption.Selected
+		if scatter > 1 {
+			scatter *= 2
+		}
+	}
+
+	DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
 	for i, subImage := range g.subImages {
 		op := &ebiten.DrawImageOptions{}
 		if !fullScreen {
@@ -1937,6 +1967,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			GUI.Clear()
 			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter)
 			SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
+			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
+			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
 			guiNeedsUpdate = false
 		}
 
@@ -2048,7 +2080,6 @@ type Game struct {
 	camera           Camera
 	light            Light
 	scaleFactor      int
-	samples          int
 	currentFrame     *ebiten.Image
 	// ditherColor      *ebiten.Shader
 	// ditherGrayScale  *ebiten.Shader
@@ -2178,7 +2209,7 @@ func main() {
 		}
 		obj.Scale(75)
 	} else {
-		obj, err = LoadOBJ("Room.obj")
+		obj, err = LoadOBJ("monkey.obj")
 		if err != nil {
 			panic(err)
 		}
@@ -2189,7 +2220,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
-	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 0.8}
+	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 1.5}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -2217,7 +2248,6 @@ func main() {
 		camera:      camera,
 		light:       light,
 		scaleFactor: scale,
-		samples:     0,
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
 		// bloomShader:     bloomShader,
