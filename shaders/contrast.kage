@@ -1,0 +1,25 @@
+package main
+
+// Declare a uniform variable for the contrast level
+var Contrast float
+
+func ApplyContrast(color vec4) vec4 {
+    // Adjust contrast for each RGB channel
+    r := (color.r - 0.5) * Contrast + 0.5
+    g := (color.g - 0.5) * Contrast + 0.5
+    b := (color.b - 0.5) * Contrast + 0.5
+
+    // Return the color after applying contrast, clamping values to [0, 1] range
+    return vec4(clamp(r, 0.0, 1.0), clamp(g, 0.0, 1.0), clamp(b, 0.0, 1.0), color.a)
+}
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Retrieve the pixel color from the texture
+    originalColor := imageSrc0At(texCoord)
+
+    // Apply contrast to the color
+    contrastColor := ApplyContrast(originalColor)
+
+    // Return the final color
+    return contrastColor
+}

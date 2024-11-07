@@ -1,0 +1,47 @@
+package main
+
+// Declare a uniform variable for sharpness intensity
+var Sharpness float
+
+// Apply a simple 3x3 kernel for sharpening
+func ApplySharpen(texCoord vec2) vec4 {
+    // Define a sharpening kernel
+    kernel := [9]float{
+         0, -1,  0,
+        -1,  5, -1,
+         0, -1,  0,
+    }
+
+    // Offset positions for the surrounding pixels
+    offsets := [9]vec2{
+        vec2(-1.0, -1.0), vec2(0.0, -1.0), vec2(1.0, -1.0),
+        vec2(-1.0,  0.0), vec2(0.0,  0.0), vec2(1.0,  0.0),
+        vec2(-1.0,  1.0), vec2(0.0,  1.0), vec2(1.0,  1.0),
+    }
+
+    // Initialize the sharpened color
+    sharpenedColor := vec4(0.0)
+
+    // Loop through the kernel and apply the weights to the neighboring pixels
+    for i := 0; i < 9; i++ {
+        offsetCoord := texCoord + offsets[i] / imageSrcTextureSize()
+        pixelColor := imageSrc0At(offsetCoord)
+        sharpenedColor += pixelColor * kernel[i]
+    }
+
+    return sharpenedColor
+}
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Retrieve the original pixel color
+    originalColor := imageSrc0At(texCoord)
+
+    // Apply sharpening to the pixel color
+    sharpenedColor := ApplySharpen(texCoord)
+
+    // Mix the sharpened result with the original image based on the Sharpness factor
+    resultColor := mix(originalColor, sharpenedColor, Sharpness)
+
+    // Return the final color, clamped to [0, 1] range
+    return clamp(resultColor, 0.0, 1.0)
+}
