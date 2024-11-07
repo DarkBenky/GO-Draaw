@@ -907,6 +907,10 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 		return color.RGBA{}
 	}
 
+	type ColorRGBA_Float32 struct {
+		R, G, B, A float32
+	}
+
 	intersection, intersect := ray.IntersectBVH(BVH)
 	if !intersect {
 		return color.RGBA{}
@@ -946,11 +950,11 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 	}
 
 	ratioScatterToDirect := 1 - intersection.reflection
-	scatteredColor := color.RGBA{
-		R: clampUint8(scatteredRed * ratioScatterToDirect),
-		G: clampUint8(scatteredGreen * ratioScatterToDirect),
-		B: clampUint8(scatteredBlue * ratioScatterToDirect),
-		A: intersection.Color.A,
+	scatteredColor := ColorRGBA_Float32{
+		R: scatteredRed * ratioScatterToDirect,
+		G: scatteredGreen * ratioScatterToDirect,
+		B: scatteredBlue * ratioScatterToDirect,
+		A: float32(intersection.Color.A),
 	}
 
 	// Reflection and specular calculations
@@ -961,11 +965,11 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 
 	tempIntersection, _ := reflectRay.IntersectBVH(BVH)
 
-	directReflectionColor := color.RGBA{
-		R: clampUint8(float32(tempIntersection.Color.R) * intersection.reflection),
-		G: clampUint8(float32(tempIntersection.Color.G) * intersection.reflection),
-		B: clampUint8(float32(tempIntersection.Color.B) * intersection.reflection),
-		A: intersection.Color.A,
+	directReflectionColor := ColorRGBA_Float32{
+		R: float32(tempIntersection.Color.R) * intersection.reflection,
+		G: float32(tempIntersection.Color.G) * intersection.reflection,
+		B: float32(tempIntersection.Color.B) * intersection.reflection,
+		A: float32(intersection.Color.A),
 	}
 
 	shadowRay := Ray{
@@ -985,21 +989,24 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 		lightIntensity = 0.05
 	}
 
-	finalColor := color.RGBA{
-		R: clampUint8(((float32(directReflectionColor.R+scatteredColor.R)*1 - intersection.directToScatter) + (float32(intersection.Color.R) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0]),
-		G: clampUint8(((float32(directReflectionColor.G+scatteredColor.G)*1 - intersection.directToScatter) + (float32(intersection.Color.G) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0]),
-		B: clampUint8(((float32(directReflectionColor.B+scatteredColor.B)*1 - intersection.directToScatter) + (float32(intersection.Color.B) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0]),
-		A: uint8(intersection.Color.A),
+	finalColor := ColorRGBA_Float32{
+		R: ((float32(directReflectionColor.R+scatteredColor.R)*1 - intersection.directToScatter) + (float32(intersection.Color.R) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
+		G: ((float32(directReflectionColor.G+scatteredColor.G)*1 - intersection.directToScatter) + (float32(intersection.Color.G) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
+		B: ((float32(directReflectionColor.B+scatteredColor.B)*1 - intersection.directToScatter) + (float32(intersection.Color.B) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
+		A: float32(intersection.Color.A),
 	}
 
 	bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 	bouncedColor := TraceRay(bounceRay, depth-1, light, samples)
+	
+	Color := color.RGBA{
+		R: clampUint8((finalColor.R*intersection.directToScatter + float32(bouncedColor.R)*1 - intersection.directToScatter)),
+		G: clampUint8((finalColor.G*intersection.directToScatter + float32(bouncedColor.G)*1 - intersection.directToScatter)),
+		B: clampUint8((finalColor.B*intersection.directToScatter + float32(bouncedColor.B)*1 - intersection.directToScatter)),
+		A: uint8(finalColor.A),
+	}
 
-	finalColor.R = clampUint8((float32(finalColor.R) * intersection.directToScatter + float32(bouncedColor.R)*1 - intersection.directToScatter))
-	finalColor.G = clampUint8((float32(finalColor.G) * intersection.directToScatter + float32(bouncedColor.G)*1 - intersection.directToScatter))
-	finalColor.B = clampUint8((float32(finalColor.B) * intersection.directToScatter + float32(bouncedColor.B)*1 - intersection.directToScatter))
-
-	return finalColor
+	return Color
 }
 
 type object struct {

@@ -1,5 +1,7 @@
 # TODO List
 
+- [ ] Try go ASM or SIMD for vector operations
+- [ ] Convert BVH to array based on the Benchmarks ([link](https://github.com/DarkBenky/testBinaryTree))
 - [ ] Add shader for averaging images
 - [ ] Convert All Triangles to TriangleSimple
 - [ ] Fix overlapping images ( this problem is mainly seen when alpha is not 100%)
@@ -138,15 +140,6 @@
   - [X] Fix uniforms ([link](https://github.com/tinne26/kage-desk/blob/main/docs/tutorials/intro/06_uniforms.md))
   - **Note**: Uniforms start with capital letters.
 - [X] Implement specular lighting
-<<<<<<< HEAD
-- [X] Add Coloring of Triangles
-- [X] Fix camera movement(It work not greatly)
-  - [X] Add the previous camera Projection - Done but i don't like it maybe look again in to it
-  - <https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc>
-- [X] Optimize  PrecomputeScreenSpaceCoordinatesSphere ( go routines, if no movement no change)
-- [ ] Implement GUI with ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
-- [ ] Fix RayTracing on GPU
-=======
 - [X] Add coloring of triangles
 - [X] Fix camera movement (it works, but not perfectly)
   - [X] Add the previous camera projection - Done, but might need revisiting
@@ -186,4 +179,3 @@
             /home/user/Desktop/GO-Draaw/main.go:1267 +0xb0
     exit status 2
     ```
->>>>>>> 05431b2741a8f0443ba5bee01390bcb3290b88f2
