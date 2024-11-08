@@ -990,21 +990,28 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 	}
 
 	finalColor := ColorRGBA_Float32{
-		R: ((float32(directReflectionColor.R+scatteredColor.R)*1 - intersection.directToScatter) + (float32(intersection.Color.R) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
-		G: ((float32(directReflectionColor.G+scatteredColor.G)*1 - intersection.directToScatter) + (float32(intersection.Color.G) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
-		B: ((float32(directReflectionColor.B+scatteredColor.B)*1 - intersection.directToScatter) + (float32(intersection.Color.B) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
+		R: ((float32(directReflectionColor.R+scatteredColor.R) * (1 - intersection.directToScatter)) + (float32(intersection.Color.R) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
+		G: ((float32(directReflectionColor.G+scatteredColor.G) * (1 - intersection.directToScatter)) + (float32(intersection.Color.G) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
+		B: ((float32(directReflectionColor.B+scatteredColor.B) * (1 - intersection.directToScatter)) + (float32(intersection.Color.B) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
 		A: float32(intersection.Color.A),
 	}
 
 	bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 	bouncedColor := TraceRay(bounceRay, depth-1, light, samples)
-	
+
 	Color := color.RGBA{
-		R: clampUint8((finalColor.R*intersection.directToScatter + float32(bouncedColor.R)*1 - intersection.directToScatter)),
-		G: clampUint8((finalColor.G*intersection.directToScatter + float32(bouncedColor.G)*1 - intersection.directToScatter)),
-		B: clampUint8((finalColor.B*intersection.directToScatter + float32(bouncedColor.B)*1 - intersection.directToScatter)),
+		R: clampUint8((finalColor.R*intersection.directToScatter + (float32(bouncedColor.R) * (1 - intersection.directToScatter)))),
+		G: clampUint8((finalColor.G*intersection.directToScatter + (float32(bouncedColor.G) * (1 - intersection.directToScatter)))),
+		B: clampUint8((finalColor.B*intersection.directToScatter + (float32(bouncedColor.B) * (1 - intersection.directToScatter)))),
 		A: uint8(finalColor.A),
 	}
+
+	// Color := color.RGBA{
+	// 	R: clampUint8((finalColor.R + float32(bouncedColor.R)) / 2),
+	// 	G: clampUint8((finalColor.G + float32(bouncedColor.G)) / 2),
+	// 	B: clampUint8((finalColor.B + float32(bouncedColor.B)) / 2),
+	// 	A: uint8(finalColor.A),
+	// }
 
 	return Color
 }
@@ -1827,11 +1834,6 @@ func (g *Game) Update() error {
 
 		if ebiten.IsKeyPressed(ebiten.KeyTab) {
 			fullScreen = !fullScreen
-			if fullScreen {
-				g.scaleFactor = 2
-			} else {
-				g.scaleFactor = 4
-			}
 		}
 
 	}
@@ -1903,6 +1905,16 @@ var (
 		PositionX: 0,
 		PositionY: 400,
 	}
+	screenResolution = Options{
+		Header:    "Render Resolution",
+		Options:   []string{"Native", "2X", "4X", "8X"},
+		Selected:  1,
+		Width:     400,
+		Height:    50,
+		Padding:   10,
+		PositionX: 0,
+		PositionY: 450,
+	}
 )
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -1941,20 +1953,28 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
 	for i, subImage := range g.subImages {
 		op := &ebiten.DrawImageOptions{}
-		if !fullScreen {
-			op.GeoM.Translate(0, float64(subImageHeight/2)*float64(i))
-		} else {
-			op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
-		}
+		// if !fullScreen {
+		op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
+		// } else {
+		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
+		// }
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
 	// Scale the main render
 	mainOp := &ebiten.DrawImageOptions{}
-	mainOp.GeoM.Scale(
-		float64(screenWidth)/float64(g.currentFrame.Bounds().Dx()),
-		float64(screenWidth)/float64(g.currentFrame.Bounds().Dy()),
-	)
+
+	if !fullScreen {
+		mainOp.GeoM.Scale(
+			float64(screenResolution.Selected),
+			float64(screenResolution.Selected),
+		)
+	} else {
+		mainOp.GeoM.Scale(
+			float64(g.scaleFactor),
+			float64(g.scaleFactor),
+		)
+	}
 
 	// Draw the main render first
 	screen.DrawImage(g.currentFrame, mainOp)
@@ -1976,7 +1996,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
+			SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
 			guiNeedsUpdate = false
+			if screenResolution.Selected == 0 {
+				g.scaleFactor = 1
+			}
+			g.scaleFactor = screenResolution.Selected * 2
 		}
 
 		// Draw GUI on top of the main render

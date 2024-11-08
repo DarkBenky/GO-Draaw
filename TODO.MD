@@ -1,5 +1,7 @@
 # TODO List
 
+- [ ] Do Benchmarks about changes
+- [ ] Crete assets for GUI
 - [ ] Try go ASM or SIMD for vector operations
 - [ ] Convert BVH to array based on the Benchmarks ([link](https://github.com/DarkBenky/testBinaryTree))
 - [ ] Add shader for averaging images
@@ -125,7 +127,55 @@
 - [X] Implement GUI ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
   - **NOTE**: Scraped for now. Currently working on my own custom GUI.
 - [ ] Fix Shaders and Test Shaders
-- [ ] Implement SIMD instructions ([link](https://github.com/viterin/vek))
+- [X] Implement SIMD instructions ([link](https://github.com/viterin/vek))
+  - **Important** It does not improve performance base on the test
+
+  ```go
+    vec := []float32{1, 2, 3}
+    add := []float32{3, 2, 1}
+
+    start := time.Now()
+
+    for i := 0; i < 1_000_000; i++ {
+      vek32.Add_Inplace(vec, add)
+    }
+
+    fmt.Println("Result:", vec, "it took", time.Since(start))
+    // Result: [3.000001e+06 2.000002e+06 1.000003e+06] it took 13.20764ms
+
+    dot := float32(0.0)
+
+    start = time.Now()
+
+    for i := 0; i < 1_000_000; i++ {
+      dot = vek32.Dot(vec, add)
+    }
+
+    fmt.Println("Result:", dot, "it took", time.Since(start))
+    // Result: 1.400001e+07 it took 11.798035ms
+    
+
+    v := Vector{1, 2, 3}
+    a := Vector{3, 2, 1}
+
+    start = time.Now()
+
+    for i := 0; i < 1_000_000; i++ {
+      v = v.Add(a)
+    }
+
+    fmt.Println("Result:", v, "it took", time.Since(start))
+    // Result: {3.000001e+06 2.000002e+06 1.000003e+06} it took 1.349328ms
+
+    dot = 0.0
+
+    start = time.Now()
+
+    for i := 0; i < 1_000_000; i++ {
+      dot = v.Dot(a)
+    }
+  ```
+
 - [X] Merge the latest branch with main
 - [X] Implement bloom and other post-processing effects
 - [X] Implement shaders for color grading, contrast, etc.
