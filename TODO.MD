@@ -4,11 +4,12 @@
 - [ ] Crete assets for GUI
 - [ ] Try go ASM or SIMD for vector operations
 - [ ] Convert BVH to array based on the Benchmarks ([link](https://github.com/DarkBenky/testBinaryTree))
-- [ ] Add shader for averaging images
+- [ ] Implement Ray marching
+- [X] Add shader for averaging images
 - [ ] Convert All Triangles to TriangleSimple
 - [ ] Fix overlapping images ( this problem is mainly seen when alpha is not 100%)
 - ***NOTE*** Spliting array for each go routine does not make sense besed on the Benchmark ([link](https://github.com/DarkBenky/Benchmark-GO-multiple-arrays))
-- [ ] Add option to move light to camera position
+- [X] Add option to move light to camera position
 - [ ] Split Code to multiple files
 - [X] Create Universal benchmarking function to judge the changes of performance
 - [X] Remove Triangle Bounding Box out of struct
