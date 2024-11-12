@@ -303,21 +303,12 @@ type Ray struct {
 }
 
 type Triangle struct {
-	v1, v2, v3  Vector
-	color       color.RGBA
-	BoundingBox [2]Vector
-	Normal      Vector
-	reflection  float32
-	specular    float32
-}
-
-type TriangleSimple struct {
 	v1, v2, v3      Vector
 	color           color.RGBA
 	Normal          Vector
 	reflection      float32
-	directToScatter float32
 	specular        float32
+	directToScatter float32
 }
 
 func (t *Triangle) CalculateNormal() {
@@ -522,7 +513,7 @@ func CreateSphere(center Vector, radius float32, color color.RGBA, reflection fl
 	return triangles
 }
 
-func (triangle *Triangle) CalculateBoundingBox() {
+func (triangle *Triangle) CalculateBoundingBox() (minVec Vector, maxVec Vector) {
 	// Compute the minimum and maximum coordinates using float32 functions
 	minX := math32.Min(triangle.v1.x, math32.Min(triangle.v2.x, triangle.v3.x))
 	minY := math32.Min(triangle.v1.y, math32.Min(triangle.v2.y, triangle.v3.y))
@@ -531,9 +522,7 @@ func (triangle *Triangle) CalculateBoundingBox() {
 	maxY := math32.Max(triangle.v1.y, math32.Max(triangle.v2.y, triangle.v3.y))
 	maxZ := math32.Max(triangle.v1.z, math32.Max(triangle.v2.z, triangle.v3.z))
 
-	// Set the BoundingBox with computed min and max values
-	triangle.BoundingBox[0] = Vector{minX, minY, minZ}
-	triangle.BoundingBox[1] = Vector{maxX, maxY, maxZ}
+	return Vector{minX, minY, minZ}, Vector{maxX, maxY, maxZ}
 }
 
 func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32, specular float32) Triangle {
@@ -543,31 +532,31 @@ func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32, specul
 	return triangle
 }
 
-func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
-	// Precompute the inverse direction
-	invDirX := 1.0 / ray.direction.x
-	invDirY := 1.0 / ray.direction.y
-	invDirZ := 1.0 / ray.direction.z
+// func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
+// 	// Precompute the inverse direction
+// 	invDirX := 1.0 / ray.direction.x
+// 	invDirY := 1.0 / ray.direction.y
+// 	invDirZ := 1.0 / ray.direction.z
 
-	// Compute the tmin and tmax for each axis directly
-	tx1 := (triangle.BoundingBox[0].x - ray.origin.x) * invDirX
-	tx2 := (triangle.BoundingBox[1].x - ray.origin.x) * invDirX
-	tmin := min(tx1, tx2)
-	tmax := max(tx1, tx2)
+// 	// Compute the tmin and tmax for each axis directly
+// 	tx1 := (triangle.BoundingBox[0].x - ray.origin.x) * invDirX
+// 	tx2 := (triangle.BoundingBox[1].x - ray.origin.x) * invDirX
+// 	tmin := min(tx1, tx2)
+// 	tmax := max(tx1, tx2)
 
-	ty1 := (triangle.BoundingBox[0].y - ray.origin.y) * invDirY
-	ty2 := (triangle.BoundingBox[1].y - ray.origin.y) * invDirY
-	tmin = max(tmin, min(ty1, ty2))
-	tmax = min(tmax, max(ty1, ty2))
+// 	ty1 := (triangle.BoundingBox[0].y - ray.origin.y) * invDirY
+// 	ty2 := (triangle.BoundingBox[1].y - ray.origin.y) * invDirY
+// 	tmin = max(tmin, min(ty1, ty2))
+// 	tmax = min(tmax, max(ty1, ty2))
 
-	tz1 := (triangle.BoundingBox[0].z - ray.origin.z) * invDirZ
-	tz2 := (triangle.BoundingBox[1].z - ray.origin.z) * invDirZ
-	tmin = max(tmin, min(tz1, tz2))
-	tmax = min(tmax, max(tz1, tz2))
+// 	tz1 := (triangle.BoundingBox[0].z - ray.origin.z) * invDirZ
+// 	tz2 := (triangle.BoundingBox[1].z - ray.origin.z) * invDirZ
+// 	tmin = max(tmin, min(tz1, tz2))
+// 	tmax = min(tmax, max(tz1, tz2))
 
-	// Final intersection check
-	return tmax >= max(0.0, tmin)
-}
+// 	// Final intersection check
+// 	return tmax >= max(0.0, tmin)
+// }
 
 type Intersection struct {
 	PointOfIntersection Vector
@@ -685,7 +674,7 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 
 		// If the node contains triangles, check for intersections
 		if currentNode.Triangles != nil {
-			intersection, intersects := IntersectTrianglesSimple(*ray, *currentNode.Triangles)
+			intersection, intersects := IntersectTriangles(*ray, *currentNode.Triangles)
 			if intersects {
 				if !hit || intersection.Distance < closestIntersection.Distance {
 					closestIntersection = intersection
@@ -735,11 +724,6 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 }
 
 func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
-	// Check if the ray intersects the bounding box of the triangle first
-	if !triangle.IntersectBoundingBox(*ray) {
-		return Intersection{}, false
-	}
-
 	// Möller–Trumbore intersection algorithm
 	edge1 := triangle.v2.Sub(triangle.v1)
 	edge2 := triangle.v3.Sub(triangle.v1)
@@ -761,93 +745,12 @@ func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 	}
 	t := f * edge2.Dot(q)
 	if t > 0.00001 {
-		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection}, true
-	}
-	return Intersection{}, false
-}
-
-func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, bool) {
-	// Möller–Trumbore intersection algorithm
-	edge1 := triangle.v2.Sub(triangle.v1)
-	edge2 := triangle.v3.Sub(triangle.v1)
-	h := ray.direction.Cross(edge2)
-	a := edge1.Dot(h)
-	if a > -0.00001 && a < 0.00001 {
-		return Intersection{}, false
-	}
-	f := 1.0 / a
-	s := ray.origin.Sub(triangle.v1)
-	u := f * s.Dot(h)
-	if u < 0.0 || u > 1.0 {
-		return Intersection{}, false
-	}
-	q := s.Cross(edge1)
-	v := f * ray.direction.Dot(q)
-	if v < 0.0 || u+v > 1.0 {
-		return Intersection{}, false
-	}
-	t := f * edge2.Dot(q)
-	if t > 0.00001 {
-		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection, directToScatter: triangle.directToScatter}, true
+		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection, directToScatter: triangle.directToScatter, specular: triangle.specular}, true
 	}
 	return Intersection{}, false
 }
 
 func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
-	// Initialize the closest intersection and hit status
-	closestIntersection := Intersection{Distance: math32.MaxFloat32}
-	hasIntersection := false
-
-	// Iterate over each triangle for the given ray
-	for _, triangle := range triangles {
-		// Check if the ray intersects the bounding box of the triangle first
-		if !triangle.IntersectBoundingBox(ray) {
-			continue
-		}
-
-		// Möller–Trumbore intersection algorithm
-		edge1 := triangle.v2.Sub(triangle.v1)
-		edge2 := triangle.v3.Sub(triangle.v1)
-		h := ray.direction.Cross(edge2)
-		a := edge1.Dot(h)
-		if a > -0.00001 && a < 0.00001 {
-			continue
-		}
-		f := 1.0 / a
-		s := ray.origin.Sub(triangle.v1)
-		u := f * s.Dot(h)
-		if u < 0.0 || u > 1.0 {
-			continue
-		}
-		q := s.Cross(edge1)
-		v := f * ray.direction.Dot(q)
-		if v < 0.0 || u+v > 1.0 {
-			continue
-		}
-		t := f * edge2.Dot(q)
-		if t > 0.00001 {
-			tempIntersection := Intersection{
-				PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
-				Color:               triangle.color,
-				Normal:              triangle.Normal,
-				Direction:           ray.direction,
-				Distance:            t,
-				reflection:          triangle.reflection,
-				specular:            triangle.specular,
-			}
-
-			// Update the closest intersection if the new one is closer
-			if t < closestIntersection.Distance {
-				closestIntersection = tempIntersection
-				hasIntersection = true
-			}
-		}
-	}
-
-	return closestIntersection, hasIntersection
-}
-
-func IntersectTrianglesSimple(ray Ray, triangles []TriangleSimple) (Intersection, bool) {
 	// Initialize the closest intersection and hit status
 	closestIntersection := Intersection{Distance: math32.MaxFloat32}
 	hasIntersection := false
@@ -998,7 +901,7 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 
 	bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
 	bouncedColor := TraceRay(bounceRay, depth-1, light, samples)
-	
+
 	Color := color.RGBA{
 		R: clampUint8((finalColor.R*intersection.directToScatter + float32(bouncedColor.R)*1 - intersection.directToScatter)),
 		G: clampUint8((finalColor.G*intersection.directToScatter + float32(bouncedColor.G)*1 - intersection.directToScatter)),
@@ -1026,7 +929,7 @@ func ConvertObjectsToBVH(objects []object, maxDepth int) *BVHNode {
 type BVHNode struct {
 	Left, Right *BVHNode
 	BoundingBox *[2]Vector
-	Triangles   *[]TriangleSimple
+	Triangles   *[]Triangle
 }
 
 func (object *object) BuildBVH(maxDepth int) *BVHNode {
@@ -1052,40 +955,22 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 	}
 
 	for _, triangle := range triangles {
-		boundingBox[0].x = math32.Min(boundingBox[0].x, triangle.BoundingBox[0].x)
-		boundingBox[0].y = math32.Min(boundingBox[0].y, triangle.BoundingBox[0].y)
-		boundingBox[0].z = math32.Min(boundingBox[0].z, triangle.BoundingBox[0].z)
+		minBoundingBox, maxBoundingBox := triangle.CalculateBoundingBox()
+		boundingBox[0].x = math32.Min(boundingBox[0].x, minBoundingBox.x)
+		boundingBox[0].y = math32.Min(boundingBox[0].y, minBoundingBox.y)
+		boundingBox[0].z = math32.Min(boundingBox[0].z, minBoundingBox.z)
 
-		boundingBox[1].x = math32.Max(boundingBox[1].x, triangle.BoundingBox[1].x)
-		boundingBox[1].y = math32.Max(boundingBox[1].y, triangle.BoundingBox[1].y)
-		boundingBox[1].z = math32.Max(boundingBox[1].z, triangle.BoundingBox[1].z)
+		boundingBox[1].x = math32.Max(boundingBox[1].x, maxBoundingBox.x)
+		boundingBox[1].y = math32.Max(boundingBox[1].y, maxBoundingBox.y)
+		boundingBox[1].z = math32.Max(boundingBox[1].z, maxBoundingBox.z)
 	}
 
 	// If the node is a leaf or we've reached the maximum depth
 	if len(triangles) <= 2 || depth >= maxDepth {
 		// Allocate the slice with the exact capacity needed
-		trianglesSimple := make([]TriangleSimple, len(triangles))
-		for i, triangle := range triangles {
-			trianglesSimple[i] = TriangleSimple{
-				v1: triangle.v1,
-				v2: triangle.v2,
-				v3: triangle.v3,
-				color: color.RGBA{
-					R: triangle.color.R,
-					G: triangle.color.G,
-					B: triangle.color.B,
-					A: triangle.color.A,
-				},
-				Normal:          triangle.Normal,
-				reflection:      triangle.reflection,
-				specular:        triangle.specular,
-				directToScatter: 0.5,
-			}
-		}
-
 		node := &BVHNode{
 			BoundingBox: &boundingBox,
-			Triangles:   &trianglesSimple,
+			Triangles:   &triangles,
 		}
 		return node
 	}
@@ -1100,15 +985,21 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 		switch axis {
 		case 0:
 			sort.Slice(triangles, func(i, j int) bool {
-				return triangles[i].BoundingBox[0].x < triangles[j].BoundingBox[0].x
+				iTriangleMin, _ := triangles[i].CalculateBoundingBox()
+				jTriangleMin, _ := triangles[j].CalculateBoundingBox()
+				return iTriangleMin.x < jTriangleMin.x
 			})
 		case 1:
 			sort.Slice(triangles, func(i, j int) bool {
-				return triangles[i].BoundingBox[0].y < triangles[j].BoundingBox[0].y
+				iTriangleMin, _ := triangles[i].CalculateBoundingBox()
+				jTriangleMin, _ := triangles[j].CalculateBoundingBox()
+				return iTriangleMin.y < jTriangleMin.y
 			})
 		case 2:
 			sort.Slice(triangles, func(i, j int) bool {
-				return triangles[i].BoundingBox[0].z < triangles[j].BoundingBox[0].z
+				iTriangleMin, _ := triangles[i].CalculateBoundingBox()
+				jTriangleMin, _ := triangles[j].CalculateBoundingBox()
+				return iTriangleMin.z < jTriangleMin.z
 			})
 		}
 
@@ -1124,21 +1015,23 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 			}
 
 			for j := 0; j < i; j++ {
-				leftBBox[0].x = math32.Min(leftBBox[0].x, triangles[j].BoundingBox[0].x)
-				leftBBox[0].y = math32.Min(leftBBox[0].y, triangles[j].BoundingBox[0].y)
-				leftBBox[0].z = math32.Min(leftBBox[0].z, triangles[j].BoundingBox[0].z)
-				leftBBox[1].x = math32.Max(leftBBox[1].x, triangles[j].BoundingBox[1].x)
-				leftBBox[1].y = math32.Max(leftBBox[1].y, triangles[j].BoundingBox[1].y)
-				leftBBox[1].z = math32.Max(leftBBox[1].z, triangles[j].BoundingBox[1].z)
+				bBoxMin, bBoxMax := triangles[j].CalculateBoundingBox()
+				leftBBox[0].x = math32.Min(leftBBox[0].x, bBoxMin.x)
+				leftBBox[0].y = math32.Min(leftBBox[0].y, bBoxMin.y)
+				leftBBox[0].z = math32.Min(leftBBox[0].z, bBoxMin.z)
+				leftBBox[1].x = math32.Max(leftBBox[1].x, bBoxMax.x)
+				leftBBox[1].y = math32.Max(leftBBox[1].y, bBoxMax.y)
+				leftBBox[1].z = math32.Max(leftBBox[1].z, bBoxMax.z)
 			}
 
 			for j := i; j < len(triangles); j++ {
-				rightBBox[0].x = math32.Min(rightBBox[0].x, triangles[j].BoundingBox[0].x)
-				rightBBox[0].y = math32.Min(rightBBox[0].y, triangles[j].BoundingBox[0].y)
-				rightBBox[0].z = math32.Min(rightBBox[0].z, triangles[j].BoundingBox[0].z)
-				rightBBox[1].x = math32.Max(rightBBox[1].x, triangles[j].BoundingBox[1].x)
-				rightBBox[1].y = math32.Max(rightBBox[1].y, triangles[j].BoundingBox[1].y)
-				rightBBox[1].z = math32.Max(rightBBox[1].z, triangles[j].BoundingBox[1].z)
+				bBoxMin, bBoxMax := triangles[j].CalculateBoundingBox()
+				rightBBox[0].x = math32.Min(rightBBox[0].x, bBoxMin.x)
+				rightBBox[0].y = math32.Min(rightBBox[0].y, bBoxMin.y)
+				rightBBox[0].z = math32.Min(rightBBox[0].z, bBoxMin.z)
+				rightBBox[1].x = math32.Max(rightBBox[1].x, bBoxMax.x)
+				rightBBox[1].y = math32.Max(rightBBox[1].y, bBoxMax.y)
+				rightBBox[1].z = math32.Max(rightBBox[1].z, bBoxMax.z)
 			}
 
 			// Calculate the SAH cost for this split
@@ -1155,15 +1048,21 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 	switch bestAxis {
 	case 0:
 		sort.Slice(triangles, func(i, j int) bool {
-			return triangles[i].BoundingBox[0].x < triangles[j].BoundingBox[0].x
+			bBoxMinI, _ := triangles[i].CalculateBoundingBox()
+			bBoxMinJ, _ := triangles[j].CalculateBoundingBox()
+			return bBoxMinI.x < bBoxMinJ.x
 		})
 	case 1:
 		sort.Slice(triangles, func(i, j int) bool {
-			return triangles[i].BoundingBox[0].y < triangles[j].BoundingBox[0].y
+			bBoxMinI, _ := triangles[i].CalculateBoundingBox()
+			bBoxMinJ, _ := triangles[j].CalculateBoundingBox()
+			return bBoxMinI.y < bBoxMinJ.y
 		})
 	case 2:
 		sort.Slice(triangles, func(i, j int) bool {
-			return triangles[i].BoundingBox[0].z < triangles[j].BoundingBox[0].z
+			bBoxMinI, _ := triangles[i].CalculateBoundingBox()
+			bBoxMinJ, _ := triangles[j].CalculateBoundingBox()
+			return bBoxMinI.z < bBoxMinJ.z
 		})
 	}
 
@@ -1224,14 +1123,15 @@ func (object *object) CalculateNormals() {
 func (object *object) CalculateBoundingBox() {
 	for _, triangle := range object.triangles {
 		// Update minimum coordinates (BoundingBox[0])
-		object.BoundingBox[0].x = math32.Min(object.BoundingBox[0].x, triangle.BoundingBox[0].x)
-		object.BoundingBox[0].y = math32.Min(object.BoundingBox[0].y, triangle.BoundingBox[0].y)
-		object.BoundingBox[0].z = math32.Min(object.BoundingBox[0].z, triangle.BoundingBox[0].z)
+		triangleMinBoundingBox, triangleMaxBoundingBox := triangle.CalculateBoundingBox()
+		object.BoundingBox[0].x = math32.Min(object.BoundingBox[0].x, triangleMinBoundingBox.x)
+		object.BoundingBox[0].y = math32.Min(object.BoundingBox[0].y, triangleMinBoundingBox.y)
+		object.BoundingBox[0].z = math32.Min(object.BoundingBox[0].z, triangleMinBoundingBox.z)
 
 		// Update maximum coordinates (BoundingBox[1])
-		object.BoundingBox[1].x = math32.Max(object.BoundingBox[1].x, triangle.BoundingBox[1].x)
-		object.BoundingBox[1].y = math32.Max(object.BoundingBox[1].y, triangle.BoundingBox[1].y)
-		object.BoundingBox[1].z = math32.Max(object.BoundingBox[1].z, triangle.BoundingBox[1].z)
+		object.BoundingBox[1].x = math32.Max(object.BoundingBox[1].x, triangleMaxBoundingBox.x)
+		object.BoundingBox[1].y = math32.Max(object.BoundingBox[1].y, triangleMaxBoundingBox.y)
+		object.BoundingBox[1].z = math32.Max(object.BoundingBox[1].z, triangleMaxBoundingBox.z)
 	}
 }
 
@@ -1591,7 +1491,7 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA, re
 	// If this is a leaf node, check the triangles for intersection
 	if node.Triangles != nil {
 		for i, triangle := range *node.Triangles {
-			if _, hit := ray.IntersectTriangleSimple(triangle); hit {
+			if _, hit := ray.IntersectTriangle(triangle); hit {
 				// fmt.Println("Triangle hit", triangle.color)
 				triangle.color = newColor
 				triangle.reflection = reflection
@@ -2216,7 +2116,7 @@ func main() {
 		}
 		obj.Scale(75)
 	} else {
-		obj, err = LoadOBJ("monkey.obj")
+		obj, err = LoadOBJ("Room.obj")
 		if err != nil {
 			panic(err)
 		}
