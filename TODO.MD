@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Fix Native Resolution
 - [ ] Do Benchmarks about changes
 - [ ] Crete assets for GUI
 - [ ] Try go ASM or SIMD for vector operations
