@@ -53,7 +53,7 @@ var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 const maxDepth = 16
 const numCPU = 16
 
-const Benchmark = false
+const Benchmark = true
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -201,7 +201,7 @@ func LoadOBJ(filename string) (object, error) {
 
 			if len(indices) >= 3 {
 				for i := 1; i < len(indices)-1; i++ {
-					triangle := Triangle{
+					triangle := TriangleSimple{
 						v1:         vertices[indices[0]],
 						v2:         vertices[indices[i]],
 						v3:         vertices[indices[i+1]],
@@ -217,7 +217,6 @@ func LoadOBJ(filename string) (object, error) {
 						triangle.color = color.RGBA{255, 125, 0, 255} // Default color
 					}
 
-					triangle.CalculateBoundingBox()
 					obj.triangles = append(obj.triangles, triangle)
 				}
 			}
@@ -298,18 +297,22 @@ func (v Vector) Rotate(angleX, angleY, angleZ float32) Vector {
 	return v.RotateX(angleX).RotateY(angleY).RotateZ(angleZ)
 }
 
+func (v Vector) Reflect(normal Vector) Vector {
+	return v.Sub(normal.Mul(2 * v.Dot(normal)))
+}
+
 type Ray struct {
 	origin, direction Vector
 }
 
-type Triangle struct {
-	v1, v2, v3  Vector
-	color       color.RGBA
-	BoundingBox [2]Vector
-	Normal      Vector
-	reflection  float32
-	specular    float32
-}
+// type Triangle struct {
+// 	v1, v2, v3  Vector
+// 	color       color.RGBA
+// 	BoundingBox [2]Vector
+// 	Normal      Vector
+// 	reflection  float32
+// 	specular    float32
+// }
 
 type TriangleSimple struct {
 	v1, v2, v3      Vector
@@ -320,13 +323,130 @@ type TriangleSimple struct {
 	specular        float32
 }
 
-func (t *Triangle) CalculateNormal() {
+type SphereSimple struct {
+	center Vector
+	radius float32
+	color  color.RGBA
+}
+
+func Distance(v1, v2 Vector, radius float32) float32 {
+	// Use vector subtraction and dot product instead of individual calculations
+	diff := v1.Sub(v2)
+	return diff.Length() - radius
+}
+
+// Add normal calculation for spheres
+func calculateNormal(point, center Vector) Vector {
+	return point.Sub(center).Normalize()
+}
+
+// Improved sphere conversion with pre-allocated slice
+func (obj object) ConvertToSquare(count int) []SphereSimple {
+	spheres := make([]SphereSimple, 0, count)
+
+	for i := 0; i < count; i += 1 {
+		randIndex := rand.Intn(len(obj.triangles))
+		spheres = append(spheres, SphereSimple{
+			center: obj.triangles[randIndex].v1,
+			radius: 2,
+			color:  obj.triangles[randIndex].color,
+		})
+	}
+	return spheres
+}
+
+func RayMarching(ray Ray, spheres []SphereSimple, iterations int, light Light) (color.RGBA, float32) {
+	const (
+		EPSILON      = float32(0.0001)
+		MAX_DISTANCE = float32(10000.0)
+		MIN_DISTANCE = float32(0.0)
+	)
+
+	var (
+		totalDistance float32
+		sphereColor   = color.RGBA{0, 0, 0, 255}
+		closestSphere SphereSimple
+		currentPoint  Vector
+	)
+
+	// Early exit if no spheres
+	if len(spheres) == 0 {
+		return sphereColor, totalDistance
+	}
+
+	for i := 0; i < iterations; i++ {
+		currentPoint = ray.origin.Add(ray.direction.Mul(totalDistance))
+		minDistance := MAX_DISTANCE
+
+		// Find closest sphere
+		for _, sphere := range spheres {
+			if dist := Distance(currentPoint, sphere.center, sphere.radius); dist < minDistance {
+				minDistance = dist
+				closestSphere = sphere
+			}
+		}
+
+		totalDistance += minDistance
+
+		// Hit detection with early exit
+		if minDistance < EPSILON {
+			return calculateShading(currentPoint, closestSphere, totalDistance, MAX_DISTANCE, light), totalDistance
+		}
+
+		// Miss detection with early exit
+		if minDistance > MAX_DISTANCE || totalDistance > MAX_DISTANCE {
+			return color.RGBA{0, 0, 0, 0}, totalDistance
+		}
+	}
+
+	return calculateShading(currentPoint, closestSphere, totalDistance, MAX_DISTANCE, light), totalDistance
+}
+
+// Helper function for color shading calculations
+func calculateShading(point Vector, sphere SphereSimple, totalDistance, maxDistance float32, light Light) color.RGBA {
+
+	// Calculate normal at intersection point
+	normal := calculateNormal(point, sphere.center)
+
+	// Calculate light direction
+	lightDir := light.Position.Sub(point).Normalize()
+
+	// Ambient component
+	ambientStrength := float32(0.1)
+	ambient := float32(sphere.color.R) * ambientStrength
+
+	// Diffuse component
+	diff := max(normal.Dot(lightDir), 0.0)
+	diffuse := diff * float32(sphere.color.R)
+
+	// Specular component
+	specularStrength := float32(0.5)
+	viewDir := point.Mul(-1).Normalize()
+	reflectDir := lightDir.Mul(-1).Reflect(normal)
+	spec := math32.Pow(max(viewDir.Dot(reflectDir), 0.0), 32)
+	specular := specularStrength * spec
+
+	// Distance attenuation
+	// attenuation := maxDistance / totalDistance
+
+	// Combine components
+	final := min((ambient + diffuse + specular), 255)
+
+	return color.RGBA{
+		R: uint8(final / 255 * float32(sphere.color.R)),
+		G: uint8(final / 255 * float32(sphere.color.G)),
+		B: uint8(final / 255 * float32(sphere.color.B)),
+		A: 255,
+	}
+}
+
+func (t *TriangleSimple) CalculateNormal() {
 	edge1 := t.v2.Sub(t.v1)
 	edge2 := t.v3.Sub(t.v1)
 	t.Normal = edge1.Cross(edge2).Normalize()
 }
 
-func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
+func BoundingBoxCollision(BoundingBox [2]Vector, ray *Ray) bool {
 	// Precompute the inverse direction
 	invDirX := 1.0 / ray.direction.x
 	invDirY := 1.0 / ray.direction.y
@@ -350,7 +470,7 @@ func BoundingBoxCollision(BoundingBox *[2]Vector, ray *Ray) bool {
 	return tmax >= max(0.0, tmin)
 }
 
-func BoundingBoxCollisionDistance(BoundingBox *[2]Vector, ray *Ray) (bool, float32) {
+func BoundingBoxCollisionDistance(BoundingBox [2]Vector, ray Ray) (bool, float32) {
 	// Precompute the inverse direction
 	invDirX := 1.0 / ray.direction.x
 	invDirY := 1.0 / ray.direction.y
@@ -380,7 +500,7 @@ func BoundingBoxCollisionDistance(BoundingBox *[2]Vector, ray *Ray) (bool, float
 	return false, 0.0 // Return 0 distance if no intersection
 }
 
-func (triangle *Triangle) Rotate(xAngle, yAngle, zAngle float32) {
+func (triangle *TriangleSimple) Rotate(xAngle, yAngle, zAngle float32) {
 	// Rotation matrices
 	rotationMatrixX := [3][3]float32{
 		{1, 0, 0},
@@ -424,7 +544,7 @@ func applyRotationMatrix(v Vector, matrix [3][3]float32) Vector {
 	}
 }
 
-func CreateCube(center Vector, size float32, color color.RGBA, refection float32, specular float32) []Triangle {
+func CreateCube(center Vector, size float32, color color.RGBA, refection float32, specular float32) []TriangleSimple {
 	halfSize := size / 2
 
 	vertices := [8]Vector{
@@ -438,7 +558,7 @@ func CreateCube(center Vector, size float32, color color.RGBA, refection float32
 		{center.x - halfSize, center.y + halfSize, center.z + halfSize},
 	}
 
-	return []Triangle{
+	return []TriangleSimple{
 		NewTriangle(vertices[0], vertices[1], vertices[2], color, refection, specular), // Front face
 		NewTriangle(vertices[0], vertices[2], vertices[3], color, refection, specular),
 
@@ -459,7 +579,7 @@ func CreateCube(center Vector, size float32, color color.RGBA, refection float32
 	}
 }
 
-func CreatePlane(center Vector, normal Vector, width, height float32, color color.RGBA, reflection float32, specular float32) []Triangle {
+func CreatePlane(center Vector, normal Vector, width, height float32, color color.RGBA, reflection float32, specular float32) []TriangleSimple {
 	// Calculate the tangent vectors
 	var tangent, bitangent Vector
 	if math32.Abs(normal.x) > math32.Abs(normal.y) {
@@ -477,14 +597,14 @@ func CreatePlane(center Vector, normal Vector, width, height float32, color colo
 	v3 := center.Add(tangent.Mul(halfWidth)).Add(bitangent.Mul(halfHeight))
 	v4 := center.Add(tangent.Mul(-halfWidth)).Add(bitangent.Mul(halfHeight))
 
-	return []Triangle{
+	return []TriangleSimple{
 		NewTriangle(v1, v2, v3, color, reflection, specular),
 		NewTriangle(v1, v3, v4, color, reflection, specular),
 	}
 }
 
-func CreateSphere(center Vector, radius float32, color color.RGBA, reflection float32, specular float32) []Triangle {
-	var triangles []Triangle
+func CreateSphere(center Vector, radius float32, color color.RGBA, reflection float32, specular float32) []TriangleSimple {
+	var triangles []TriangleSimple
 	latitudeBands := 20
 	longitudeBands := 20
 
@@ -522,7 +642,21 @@ func CreateSphere(center Vector, radius float32, color color.RGBA, reflection fl
 	return triangles
 }
 
-func (triangle *Triangle) CalculateBoundingBox() {
+// func (triangle *Triangle) CalculateBoundingBox() {
+// 	// Compute the minimum and maximum coordinates using float32 functions
+// 	minX := math32.Min(triangle.v1.x, math32.Min(triangle.v2.x, triangle.v3.x))
+// 	minY := math32.Min(triangle.v1.y, math32.Min(triangle.v2.y, triangle.v3.y))
+// 	minZ := math32.Min(triangle.v1.z, math32.Min(triangle.v2.z, triangle.v3.z))
+// 	maxX := math32.Max(triangle.v1.x, math32.Max(triangle.v2.x, triangle.v3.x))
+// 	maxY := math32.Max(triangle.v1.y, math32.Max(triangle.v2.y, triangle.v3.y))
+// 	maxZ := math32.Max(triangle.v1.z, math32.Max(triangle.v2.z, triangle.v3.z))
+
+// 	// Set the BoundingBox with computed min and max values
+// 	triangle.BoundingBox[0] = Vector{minX, minY, minZ}
+// 	triangle.BoundingBox[1] = Vector{maxX, maxY, maxZ}
+// }
+
+func (triangle TriangleSimple) CalculateBoundingBox() (minBox Vector, maxBox Vector) {
 	// Compute the minimum and maximum coordinates using float32 functions
 	minX := math32.Min(triangle.v1.x, math32.Min(triangle.v2.x, triangle.v3.x))
 	minY := math32.Min(triangle.v1.y, math32.Min(triangle.v2.y, triangle.v3.y))
@@ -532,42 +666,41 @@ func (triangle *Triangle) CalculateBoundingBox() {
 	maxZ := math32.Max(triangle.v1.z, math32.Max(triangle.v2.z, triangle.v3.z))
 
 	// Set the BoundingBox with computed min and max values
-	triangle.BoundingBox[0] = Vector{minX, minY, minZ}
-	triangle.BoundingBox[1] = Vector{maxX, maxY, maxZ}
+	return Vector{minX, minY, minZ}, Vector{maxX, maxY, maxZ}
 }
 
-func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32, specular float32) Triangle {
-	triangle := Triangle{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection, specular: specular}
+func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32, specular float32) TriangleSimple {
+	triangle := TriangleSimple{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection, specular: specular, directToScatter: 0.5}
 	triangle.CalculateBoundingBox()
 	triangle.CalculateNormal()
 	return triangle
 }
 
-func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
-	// Precompute the inverse direction
-	invDirX := 1.0 / ray.direction.x
-	invDirY := 1.0 / ray.direction.y
-	invDirZ := 1.0 / ray.direction.z
+// func (triangle *Triangle) IntersectBoundingBox(ray Ray) bool {
+// 	// Precompute the inverse direction
+// 	invDirX := 1.0 / ray.direction.x
+// 	invDirY := 1.0 / ray.direction.y
+// 	invDirZ := 1.0 / ray.direction.z
 
-	// Compute the tmin and tmax for each axis directly
-	tx1 := (triangle.BoundingBox[0].x - ray.origin.x) * invDirX
-	tx2 := (triangle.BoundingBox[1].x - ray.origin.x) * invDirX
-	tmin := min(tx1, tx2)
-	tmax := max(tx1, tx2)
+// 	// Compute the tmin and tmax for each axis directly
+// 	tx1 := (triangle.BoundingBox[0].x - ray.origin.x) * invDirX
+// 	tx2 := (triangle.BoundingBox[1].x - ray.origin.x) * invDirX
+// 	tmin := min(tx1, tx2)
+// 	tmax := max(tx1, tx2)
 
-	ty1 := (triangle.BoundingBox[0].y - ray.origin.y) * invDirY
-	ty2 := (triangle.BoundingBox[1].y - ray.origin.y) * invDirY
-	tmin = max(tmin, min(ty1, ty2))
-	tmax = min(tmax, max(ty1, ty2))
+// 	ty1 := (triangle.BoundingBox[0].y - ray.origin.y) * invDirY
+// 	ty2 := (triangle.BoundingBox[1].y - ray.origin.y) * invDirY
+// 	tmin = max(tmin, min(ty1, ty2))
+// 	tmax = min(tmax, max(ty1, ty2))
 
-	tz1 := (triangle.BoundingBox[0].z - ray.origin.z) * invDirZ
-	tz2 := (triangle.BoundingBox[1].z - ray.origin.z) * invDirZ
-	tmin = max(tmin, min(tz1, tz2))
-	tmax = min(tmax, max(tz1, tz2))
+// 	tz1 := (triangle.BoundingBox[0].z - ray.origin.z) * invDirZ
+// 	tz2 := (triangle.BoundingBox[1].z - ray.origin.z) * invDirZ
+// 	tmin = max(tmin, min(tz1, tz2))
+// 	tmax = min(tmax, max(tz1, tz2))
 
-	// Final intersection check
-	return tmax >= max(0.0, tmin)
-}
+// 	// Final intersection check
+// 	return tmax >= max(0.0, tmin)
+// }
 
 type Intersection struct {
 	PointOfIntersection Vector
@@ -670,7 +803,7 @@ func clampUint8(value float32) uint8 {
 // }
 
 // Intersect BVH average time:  458ns
-func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
+func (ray Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 	// Preallocate a stack large enough for the BVH depth
 	stack := make([]*BVHNode, maxDepth)
 	stackIndex := 0
@@ -684,8 +817,9 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 		stackIndex--
 
 		// If the node contains triangles, check for intersections
-		if currentNode.Triangles != nil {
-			intersection, intersects := IntersectTrianglesSimple(*ray, *currentNode.Triangles)
+		if currentNode.active {
+			// intersection, intersects := IntersectTrianglesSimple(*ray, *currentNode.Triangles)
+			intersection, intersects := ray.IntersectTriangleSimple(currentNode.Triangles)
 			if intersects {
 				if !hit || intersection.Distance < closestIntersection.Distance {
 					closestIntersection = intersection
@@ -734,37 +868,37 @@ func (ray *Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 	return closestIntersection, hit
 }
 
-func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
-	// Check if the ray intersects the bounding box of the triangle first
-	if !triangle.IntersectBoundingBox(*ray) {
-		return Intersection{}, false
-	}
+// func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
+// 	// Check if the ray intersects the bounding box of the triangle first
+// 	if !triangle.IntersectBoundingBox(*ray) {
+// 		return Intersection{}, false
+// 	}
 
-	// Möller–Trumbore intersection algorithm
-	edge1 := triangle.v2.Sub(triangle.v1)
-	edge2 := triangle.v3.Sub(triangle.v1)
-	h := ray.direction.Cross(edge2)
-	a := edge1.Dot(h)
-	if a > -0.00001 && a < 0.00001 {
-		return Intersection{}, false
-	}
-	f := 1.0 / a
-	s := ray.origin.Sub(triangle.v1)
-	u := f * s.Dot(h)
-	if u < 0.0 || u > 1.0 {
-		return Intersection{}, false
-	}
-	q := s.Cross(edge1)
-	v := f * ray.direction.Dot(q)
-	if v < 0.0 || u+v > 1.0 {
-		return Intersection{}, false
-	}
-	t := f * edge2.Dot(q)
-	if t > 0.00001 {
-		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection}, true
-	}
-	return Intersection{}, false
-}
+// 	// Möller–Trumbore intersection algorithm
+// 	edge1 := triangle.v2.Sub(triangle.v1)
+// 	edge2 := triangle.v3.Sub(triangle.v1)
+// 	h := ray.direction.Cross(edge2)
+// 	a := edge1.Dot(h)
+// 	if a > -0.00001 && a < 0.00001 {
+// 		return Intersection{}, false
+// 	}
+// 	f := 1.0 / a
+// 	s := ray.origin.Sub(triangle.v1)
+// 	u := f * s.Dot(h)
+// 	if u < 0.0 || u > 1.0 {
+// 		return Intersection{}, false
+// 	}
+// 	q := s.Cross(edge1)
+// 	v := f * ray.direction.Dot(q)
+// 	if v < 0.0 || u+v > 1.0 {
+// 		return Intersection{}, false
+// 	}
+// 	t := f * edge2.Dot(q)
+// 	if t > 0.00001 {
+// 		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection}, true
+// 	}
+// 	return Intersection{}, false
+// }
 
 func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, bool) {
 	// Möller–Trumbore intersection algorithm
@@ -793,59 +927,59 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	return Intersection{}, false
 }
 
-func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
-	// Initialize the closest intersection and hit status
-	closestIntersection := Intersection{Distance: math32.MaxFloat32}
-	hasIntersection := false
+// func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
+// 	// Initialize the closest intersection and hit status
+// 	closestIntersection := Intersection{Distance: math32.MaxFloat32}
+// 	hasIntersection := false
 
-	// Iterate over each triangle for the given ray
-	for _, triangle := range triangles {
-		// Check if the ray intersects the bounding box of the triangle first
-		if !triangle.IntersectBoundingBox(ray) {
-			continue
-		}
+// 	// Iterate over each triangle for the given ray
+// 	for _, triangle := range triangles {
+// 		// Check if the ray intersects the bounding box of the triangle first
+// 		if !triangle.IntersectBoundingBox(ray) {
+// 			continue
+// 		}
 
-		// Möller–Trumbore intersection algorithm
-		edge1 := triangle.v2.Sub(triangle.v1)
-		edge2 := triangle.v3.Sub(triangle.v1)
-		h := ray.direction.Cross(edge2)
-		a := edge1.Dot(h)
-		if a > -0.00001 && a < 0.00001 {
-			continue
-		}
-		f := 1.0 / a
-		s := ray.origin.Sub(triangle.v1)
-		u := f * s.Dot(h)
-		if u < 0.0 || u > 1.0 {
-			continue
-		}
-		q := s.Cross(edge1)
-		v := f * ray.direction.Dot(q)
-		if v < 0.0 || u+v > 1.0 {
-			continue
-		}
-		t := f * edge2.Dot(q)
-		if t > 0.00001 {
-			tempIntersection := Intersection{
-				PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
-				Color:               triangle.color,
-				Normal:              triangle.Normal,
-				Direction:           ray.direction,
-				Distance:            t,
-				reflection:          triangle.reflection,
-				specular:            triangle.specular,
-			}
+// 		// Möller–Trumbore intersection algorithm
+// 		edge1 := triangle.v2.Sub(triangle.v1)
+// 		edge2 := triangle.v3.Sub(triangle.v1)
+// 		h := ray.direction.Cross(edge2)
+// 		a := edge1.Dot(h)
+// 		if a > -0.00001 && a < 0.00001 {
+// 			continue
+// 		}
+// 		f := 1.0 / a
+// 		s := ray.origin.Sub(triangle.v1)
+// 		u := f * s.Dot(h)
+// 		if u < 0.0 || u > 1.0 {
+// 			continue
+// 		}
+// 		q := s.Cross(edge1)
+// 		v := f * ray.direction.Dot(q)
+// 		if v < 0.0 || u+v > 1.0 {
+// 			continue
+// 		}
+// 		t := f * edge2.Dot(q)
+// 		if t > 0.00001 {
+// 			tempIntersection := Intersection{
+// 				PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
+// 				Color:               triangle.color,
+// 				Normal:              triangle.Normal,
+// 				Direction:           ray.direction,
+// 				Distance:            t,
+// 				reflection:          triangle.reflection,
+// 				specular:            triangle.specular,
+// 			}
 
-			// Update the closest intersection if the new one is closer
-			if t < closestIntersection.Distance {
-				closestIntersection = tempIntersection
-				hasIntersection = true
-			}
-		}
-	}
+// 			// Update the closest intersection if the new one is closer
+// 			if t < closestIntersection.Distance {
+// 				closestIntersection = tempIntersection
+// 				hasIntersection = true
+// 			}
+// 		}
+// 	}
 
-	return closestIntersection, hasIntersection
-}
+// 	return closestIntersection, hasIntersection
+// }
 
 func IntersectTrianglesSimple(ray Ray, triangles []TriangleSimple) (Intersection, bool) {
 	// Initialize the closest intersection and hit status
@@ -959,9 +1093,11 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 
 	// Reflection and specular calculations
 	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
-	reflectDir := intersection.Normal.Mul(2 * lightDir.Dot(intersection.Normal)).Sub(lightDir).Normalize()
+	reflectDir := lightDir.Mul(-1).Reflect(intersection.Normal)
 
-	reflectRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
+	reflectRayOrigin := intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001))
+
+	reflectRay := Ray{origin: reflectRayOrigin, direction: reflectDir}
 
 	tempIntersection, _ := reflectRay.IntersectBVH(BVH)
 
@@ -973,8 +1109,8 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 	}
 
 	shadowRay := Ray{
-		origin:    intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)),
-		direction: light.Position.Sub(intersection.PointOfIntersection).Normalize(),
+		origin:    reflectRayOrigin,
+		direction: lightDir,
 	}
 	_, inShadow := shadowRay.IntersectBVH(BVH)
 
@@ -996,7 +1132,7 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 		A: float32(intersection.Color.A),
 	}
 
-	bounceRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: reflectDir}
+	bounceRay := Ray{origin: reflectRayOrigin, direction: reflectDir}
 	bouncedColor := TraceRay(bounceRay, depth-1, light, samples)
 
 	Color := color.RGBA{
@@ -1017,23 +1153,23 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 }
 
 type object struct {
-	triangles   []Triangle
+	triangles   []TriangleSimple
 	BoundingBox [2]Vector
 }
 
-var triangles []Triangle
-
 func ConvertObjectsToBVH(objects []object, maxDepth int) *BVHNode {
+	Triangles := []TriangleSimple{}
 	for _, object := range objects {
-		triangles = append(triangles, object.triangles...)
+		Triangles = append(Triangles, object.triangles...)
 	}
-	return buildBVHNode(triangles, 0, maxDepth)
+	return buildBVHNode(Triangles, 0, maxDepth)
 }
 
 type BVHNode struct {
 	Left, Right *BVHNode
-	BoundingBox *[2]Vector
-	Triangles   *[]TriangleSimple
+	BoundingBox [2]Vector
+	Triangles   TriangleSimple
+	active      bool
 }
 
 func (object *object) BuildBVH(maxDepth int) *BVHNode {
@@ -1047,7 +1183,7 @@ func calculateSurfaceArea(bbox [2]Vector) float32 {
 	return 2 * (dx*dy + dy*dz + dz*dx)
 }
 
-func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
+func buildBVHNode(triangles []TriangleSimple, depth int, maxDepth int) *BVHNode {
 	if len(triangles) == 0 {
 		return nil
 	}
@@ -1059,40 +1195,40 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 	}
 
 	for _, triangle := range triangles {
-		boundingBox[0].x = math32.Min(boundingBox[0].x, triangle.BoundingBox[0].x)
-		boundingBox[0].y = math32.Min(boundingBox[0].y, triangle.BoundingBox[0].y)
-		boundingBox[0].z = math32.Min(boundingBox[0].z, triangle.BoundingBox[0].z)
+		minBox, maxBox := triangle.CalculateBoundingBox()
+		boundingBox[0].x = math32.Min(boundingBox[0].x, minBox.x)
+		boundingBox[0].y = math32.Min(boundingBox[0].y, minBox.y)
+		boundingBox[0].z = math32.Min(boundingBox[0].z, minBox.z)
 
-		boundingBox[1].x = math32.Max(boundingBox[1].x, triangle.BoundingBox[1].x)
-		boundingBox[1].y = math32.Max(boundingBox[1].y, triangle.BoundingBox[1].y)
-		boundingBox[1].z = math32.Max(boundingBox[1].z, triangle.BoundingBox[1].z)
+		boundingBox[1].x = math32.Max(boundingBox[1].x, maxBox.x)
+		boundingBox[1].y = math32.Max(boundingBox[1].y, maxBox.y)
+		boundingBox[1].z = math32.Max(boundingBox[1].z, maxBox.z)
 	}
 
 	// If the node is a leaf or we've reached the maximum depth
-	if len(triangles) <= 2 || depth >= maxDepth {
+	if len(triangles) <= 1 || depth >= maxDepth {
 		// Allocate the slice with the exact capacity needed
-		trianglesSimple := make([]TriangleSimple, len(triangles))
-		for i, triangle := range triangles {
-			trianglesSimple[i] = TriangleSimple{
-				v1: triangle.v1,
-				v2: triangle.v2,
-				v3: triangle.v3,
-				color: color.RGBA{
-					R: triangle.color.R,
-					G: triangle.color.G,
-					B: triangle.color.B,
-					A: triangle.color.A,
-				},
-				Normal:          triangle.Normal,
-				reflection:      triangle.reflection,
-				specular:        triangle.specular,
-				directToScatter: 0.5,
-			}
-		}
+		// trianglesSimple := make([]TriangleSimple, len(triangles))
+		// for i, triangle := range triangles {
 
 		node := &BVHNode{
-			BoundingBox: &boundingBox,
-			Triangles:   &trianglesSimple,
+			BoundingBox: boundingBox,
+			Triangles: TriangleSimple{
+				v1: triangles[0].v1,
+				v2: triangles[0].v2,
+				v3: triangles[0].v3,
+				color: color.RGBA{
+					R: triangles[0].color.R,
+					G: triangles[0].color.G,
+					B: triangles[0].color.B,
+					A: triangles[0].color.A,
+				},
+				Normal:          triangles[0].Normal,
+				reflection:      triangles[0].reflection,
+				specular:        triangles[0].specular,
+				directToScatter: 0.5,
+			},
+			active: true,
 		}
 		return node
 	}
@@ -1107,15 +1243,21 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 		switch axis {
 		case 0:
 			sort.Slice(triangles, func(i, j int) bool {
-				return triangles[i].BoundingBox[0].x < triangles[j].BoundingBox[0].x
+				iMinBox, _ := triangles[i].CalculateBoundingBox()
+				jMinBox, _ := triangles[j].CalculateBoundingBox()
+				return iMinBox.x < jMinBox.x
 			})
 		case 1:
 			sort.Slice(triangles, func(i, j int) bool {
-				return triangles[i].BoundingBox[0].y < triangles[j].BoundingBox[0].y
+				iMinBox, _ := triangles[i].CalculateBoundingBox()
+				jMinBox, _ := triangles[j].CalculateBoundingBox()
+				return iMinBox.y < jMinBox.y
 			})
 		case 2:
 			sort.Slice(triangles, func(i, j int) bool {
-				return triangles[i].BoundingBox[0].z < triangles[j].BoundingBox[0].z
+				iMinBox, _ := triangles[i].CalculateBoundingBox()
+				jMinBox, _ := triangles[j].CalculateBoundingBox()
+				return iMinBox.z < jMinBox.z
 			})
 		}
 
@@ -1131,21 +1273,23 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 			}
 
 			for j := 0; j < i; j++ {
-				leftBBox[0].x = math32.Min(leftBBox[0].x, triangles[j].BoundingBox[0].x)
-				leftBBox[0].y = math32.Min(leftBBox[0].y, triangles[j].BoundingBox[0].y)
-				leftBBox[0].z = math32.Min(leftBBox[0].z, triangles[j].BoundingBox[0].z)
-				leftBBox[1].x = math32.Max(leftBBox[1].x, triangles[j].BoundingBox[1].x)
-				leftBBox[1].y = math32.Max(leftBBox[1].y, triangles[j].BoundingBox[1].y)
-				leftBBox[1].z = math32.Max(leftBBox[1].z, triangles[j].BoundingBox[1].z)
+				jMinBox, jMaxBox := triangles[j].CalculateBoundingBox()
+				leftBBox[0].x = math32.Min(leftBBox[0].x, jMinBox.x)
+				leftBBox[0].y = math32.Min(leftBBox[0].y, jMinBox.y)
+				leftBBox[0].z = math32.Min(leftBBox[0].z, jMinBox.z)
+				leftBBox[1].x = math32.Max(leftBBox[1].x, jMaxBox.x)
+				leftBBox[1].y = math32.Max(leftBBox[1].y, jMaxBox.y)
+				leftBBox[1].z = math32.Max(leftBBox[1].z, jMaxBox.z)
 			}
 
 			for j := i; j < len(triangles); j++ {
-				rightBBox[0].x = math32.Min(rightBBox[0].x, triangles[j].BoundingBox[0].x)
-				rightBBox[0].y = math32.Min(rightBBox[0].y, triangles[j].BoundingBox[0].y)
-				rightBBox[0].z = math32.Min(rightBBox[0].z, triangles[j].BoundingBox[0].z)
-				rightBBox[1].x = math32.Max(rightBBox[1].x, triangles[j].BoundingBox[1].x)
-				rightBBox[1].y = math32.Max(rightBBox[1].y, triangles[j].BoundingBox[1].y)
-				rightBBox[1].z = math32.Max(rightBBox[1].z, triangles[j].BoundingBox[1].z)
+				jMinBox, jMaxBox := triangles[j].CalculateBoundingBox()
+				rightBBox[0].x = math32.Min(rightBBox[0].x, jMinBox.x)
+				rightBBox[0].y = math32.Min(rightBBox[0].y, jMinBox.y)
+				rightBBox[0].z = math32.Min(rightBBox[0].z, jMinBox.z)
+				rightBBox[1].x = math32.Max(rightBBox[1].x, jMaxBox.x)
+				rightBBox[1].y = math32.Max(rightBBox[1].y, jMaxBox.y)
+				rightBBox[1].z = math32.Max(rightBBox[1].z, jMaxBox.z)
 			}
 
 			// Calculate the SAH cost for this split
@@ -1162,20 +1306,29 @@ func buildBVHNode(triangles []Triangle, depth int, maxDepth int) *BVHNode {
 	switch bestAxis {
 	case 0:
 		sort.Slice(triangles, func(i, j int) bool {
-			return triangles[i].BoundingBox[0].x < triangles[j].BoundingBox[0].x
+			jMinBox, _ := triangles[j].CalculateBoundingBox()
+			iMinBox, _ := triangles[i].CalculateBoundingBox()
+			return iMinBox.x < jMinBox.x
+			// return triangles[i].BoundingBox[0].x < triangles[j].BoundingBox[0].x
 		})
 	case 1:
 		sort.Slice(triangles, func(i, j int) bool {
-			return triangles[i].BoundingBox[0].y < triangles[j].BoundingBox[0].y
+			jMinBox, _ := triangles[j].CalculateBoundingBox()
+			iMinBox, _ := triangles[i].CalculateBoundingBox()
+			// return triangles[i].BoundingBox[0].y < triangles[j].BoundingBox[0].y
+			return iMinBox.y < jMinBox.y
 		})
 	case 2:
 		sort.Slice(triangles, func(i, j int) bool {
-			return triangles[i].BoundingBox[0].z < triangles[j].BoundingBox[0].z
+			jMinBox, _ := triangles[j].CalculateBoundingBox()
+			iMinBox, _ := triangles[i].CalculateBoundingBox()
+			// return triangles[i].BoundingBox[0].z < triangles[j].BoundingBox[0].z
+			return iMinBox.z < jMinBox.z
 		})
 	}
 
 	// Create the BVH node with the best split
-	node := &BVHNode{BoundingBox: &boundingBox}
+	node := &BVHNode{BoundingBox: boundingBox}
 	node.Left = buildBVHNode(triangles[:bestSplit], depth+1, maxDepth)
 	node.Right = buildBVHNode(triangles[bestSplit:], depth+1, maxDepth)
 
@@ -1210,7 +1363,7 @@ func (object *object) Scale(scalar float32) {
 	object.CalculateBoundingBox()
 }
 
-func CreateObject(triangles []Triangle) *object {
+func CreateObject(triangles []TriangleSimple) *object {
 	object := &object{
 		triangles: triangles,
 		BoundingBox: [2]Vector{
@@ -1231,14 +1384,15 @@ func (object *object) CalculateNormals() {
 func (object *object) CalculateBoundingBox() {
 	for _, triangle := range object.triangles {
 		// Update minimum coordinates (BoundingBox[0])
-		object.BoundingBox[0].x = math32.Min(object.BoundingBox[0].x, triangle.BoundingBox[0].x)
-		object.BoundingBox[0].y = math32.Min(object.BoundingBox[0].y, triangle.BoundingBox[0].y)
-		object.BoundingBox[0].z = math32.Min(object.BoundingBox[0].z, triangle.BoundingBox[0].z)
+		minBox, maxBox := triangle.CalculateBoundingBox()
+		object.BoundingBox[0].x = math32.Min(object.BoundingBox[0].x, minBox.x)
+		object.BoundingBox[0].y = math32.Min(object.BoundingBox[0].y, minBox.y)
+		object.BoundingBox[0].z = math32.Min(object.BoundingBox[0].z, minBox.z)
 
 		// Update maximum coordinates (BoundingBox[1])
-		object.BoundingBox[1].x = math32.Max(object.BoundingBox[1].x, triangle.BoundingBox[1].x)
-		object.BoundingBox[1].y = math32.Max(object.BoundingBox[1].y, triangle.BoundingBox[1].y)
-		object.BoundingBox[1].z = math32.Max(object.BoundingBox[1].z, triangle.BoundingBox[1].z)
+		object.BoundingBox[1].x = math32.Max(object.BoundingBox[1].x, maxBox.x)
+		object.BoundingBox[1].y = math32.Max(object.BoundingBox[1].y, maxBox.y)
+		object.BoundingBox[1].z = math32.Max(object.BoundingBox[1].z, maxBox.z)
 	}
 }
 
@@ -1321,8 +1475,8 @@ func (object *object) IntersectBoundingBox(ray Ray) bool {
 	return tMin < math32.Inf(1) && tMax > 0
 }
 
-func (object *object) ConvertToTriangles() []Triangle {
-	triangles := []Triangle{}
+func (object *object) ConvertToTriangles() []TriangleSimple {
+	triangles := []TriangleSimple{}
 	triangles = append(triangles, object.triangles...)
 	return triangles
 }
@@ -1384,6 +1538,43 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 				for x := 0; x < screenWidth; x += scaling {
 					rayDir := ScreenSpaceCoordinates[x][y]
 					c := TraceRay(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					// Write the pixel color to the pixel buffer
+					index := ((yRow*width + xColumn) * 4)
+					pixelBuffer[index] = uint8(c.R)
+					pixelBuffer[index+1] = uint8(c.G)
+					pixelBuffer[index+2] = uint8(c.B)
+					pixelBuffer[index+3] = uint8(c.A)
+					xColumn++
+					// // Set the pixel color in the sub-image
+					// subImage.Set(x/scaling, yRow, c)
+				}
+				yRow++
+			}
+			subImage.WritePixels(pixelBuffer)
+		}(i*rowSize, (i+1)*rowSize, subImages[i])
+	}
+	// Wait for all workers to finish
+	wg.Wait()
+}
+
+func DrawSpheres(spheres []SphereSimple, camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light) {
+	var wg sync.WaitGroup
+
+	// Create a pool of worker goroutines, each handling a portion of the image
+	for i := 0; i < numCPU; i++ {
+		wg.Add(1)
+		go func(startY int, endIndex int, subImage *ebiten.Image) {
+			defer wg.Done()
+			yRow := 0
+			width, height := subImage.Bounds().Dx(), subImage.Bounds().Dy()
+			imageSize := width * height * 4
+			pixelBuffer := make([]uint8, imageSize)
+			for y := startY; y < endIndex; y += scaling {
+				xColumn := 0
+				for x := 0; x < screenWidth; x += scaling {
+					rayDir := ScreenSpaceCoordinates[x][y]
+					c, _ := RayMarching(Ray{origin: camera.Position, direction: rayDir}, spheres, iterations, light)
 
 					// Write the pixel color to the pixel buffer
 					index := ((yRow*width + xColumn) * 4)
@@ -1596,19 +1787,29 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA, re
 	}
 
 	// If this is a leaf node, check the triangles for intersection
-	if node.Triangles != nil {
-		for i, triangle := range *node.Triangles {
-			if _, hit := ray.IntersectTriangleSimple(triangle); hit {
-				// fmt.Println("Triangle hit", triangle.color)
-				triangle.color = newColor
-				triangle.reflection = reflection
-				triangle.specular = specular
-				triangle.directToScatter = directToScatter
-				// Update the triangle in the slice
-				(*node.Triangles)[i] = triangle // Dereference the pointer to modify the slice
-				return true
+	if node.active {
+		// for i, triangle := range *node.Triangles {
+		if _, hit := ray.IntersectTriangleSimple(node.Triangles); hit {
+			// fmt.Println("Triangle hit", triangle.color)
+			NewTriangle := TriangleSimple{
+				v1: node.Triangles.v1,
+				v2: node.Triangles.v2,
+				v3: node.Triangles.v3,
+				color: color.RGBA{
+					R: uint8(newColor.R),
+					G: uint8(newColor.G),
+					B: uint8(newColor.B),
+					A: uint8(newColor.A),
+				},
+				Normal:          node.Triangles.Normal,
+				reflection:      reflection,
+				specular:        specular,
+				directToScatter: directToScatter,
 			}
+			node.Triangles = NewTriangle
+			return true
 		}
+		// }
 		return false
 	}
 
@@ -1961,6 +2162,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
+	if !Benchmark {
+		DrawSpheres(g.Spheres, g.camera, g.scaleFactor, 32, g.subImages, g.light)
+		for i, subImage := range g.subImages {
+			op := &ebiten.DrawImageOptions{}
+			// if !fullScreen {
+			op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
+			// } else {
+			// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
+			// }
+			g.currentFrame.DrawImage(subImage, op)
+		}
+	}
+
 	// Scale the main render
 	mainOp := &ebiten.DrawImageOptions{}
 
@@ -2124,6 +2338,7 @@ type Game struct {
 	reflection      float32
 	previousFrame   *ebiten.Image
 	directToScatter float32
+	Spheres         []SphereSimple
 	// TriangleShader         *ebiten.Shader
 }
 
@@ -2146,10 +2361,13 @@ func LoadShader(filePath string) ([]byte, error) {
 // 	165.0 / 255.0, 105.0 / 255.0, 150.0 / 255.0, 90.0 / 255.0,
 // }
 
-var subImageHeight int
-var subImageWidth int
+const subImageHeight = screenHeight / numCPU / 2
+const subImageWidth = screenWidth
+
 var fullScreen = false
 var startTime time.Time
+
+var Spheres = []SphereSimple{}
 
 func main() {
 	// src, err := LoadShader("shaders/ditherColor.kage")
@@ -2265,12 +2483,11 @@ func main() {
 
 	subImages := make([]*ebiten.Image, numCPU)
 
-	subImageHeight = screenHeight / numCPU / scale
-	subImageWidth = screenWidth / scale
-
 	for i := range numCPU {
 		subImages[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
 	}
+
+	Spheres = obj.ConvertToSquare(32)
 
 	game := &Game{
 		xyzLock:     true,
@@ -2285,6 +2502,7 @@ func main() {
 		// bloomShader:     bloomShader,
 		currentFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		previousFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+
 		// TriangleShader: 	   rayCasterShader,
 	}
 

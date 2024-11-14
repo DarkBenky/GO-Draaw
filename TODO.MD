@@ -1,13 +1,18 @@
 # TODO List
 
 - [ ] Fix Native Resolution
-- [ ] Do Benchmarks about changes
+- [X] Do Benchmarks about changes
+  - ***Note*** Currently i am happy with performance i didn't get any noticeable drop
 - [ ] Crete assets for GUI
 - [ ] Try go ASM or SIMD for vector operations
 - [ ] Convert BVH to array based on the Benchmarks ([link](https://github.com/DarkBenky/testBinaryTree))
 - [ ] Implement Ray marching
+  - [ ] Implement Intersection Union ([link](https://youtu.be/Cp5WWtMoeKg?si=g1ZjOuq3KzzEET3s&t=128))
+  - [ ] Implement Different shapes (Cube...)
+  - [ ] Implement Shader to Ray Marche
+  - [ ] Optimize it
 - [X] Add shader for averaging images
-- [ ] Convert All Triangles to TriangleSimple
+- [X] Convert All Triangles to TriangleSimple
 - [ ] Fix overlapping images ( this problem is mainly seen when alpha is not 100%)
 - ***NOTE*** Spliting array for each go routine does not make sense besed on the Benchmark ([link](https://github.com/DarkBenky/Benchmark-GO-multiple-arrays))
 - [X] Add option to move light to camera position
@@ -125,7 +130,8 @@
     }
     ```
 
-- [ ] Try BVH leaf notes with different number of triangles inside
+- [X] Try BVH leaf notes with different number of triangles inside
+  - **NOTE** Leaf Notes Contain only one Triangle For Easier Representation As Array
 - [X] Implement GUI ([link](https://github.com/zeozeozeo/ebitengine-microui-go))
   - **NOTE**: Scraped for now. Currently working on my own custom GUI.
 - [ ] Fix Shaders and Test Shaders
