@@ -1,5 +1,7 @@
 # TODO List
 
+- [ ] Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
+- [ ] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
 - [ ] Fix Native Resolution
 - [X] Do Benchmarks about changes
   - ***Note*** Currently i am happy with performance i didn't get any noticeable drop
@@ -187,8 +189,8 @@
 - [X] Merge the latest branch with main
 - [X] Implement bloom and other post-processing effects
 - [X] Implement shaders for color grading, contrast, etc.
-- [ ] Optimize for speed
-- [ ] Create flame graphs
+- [ ] *Optional* Optimize for speed
+- [ ] *Optional* Create flame graphs
 - [X] Trace rays to corners and draw triangles:
   - Create a box/cone representing the camera's viewing area
   - Find all triangles inside it
