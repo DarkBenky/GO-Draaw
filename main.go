@@ -53,7 +53,7 @@ var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 const maxDepth = 16
 const numCPU = 16
 
-const Benchmark = true
+const Benchmark = false
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -62,7 +62,7 @@ var FPS []float64
 
 type Material struct {
 	name  string
-	color color.RGBA
+	color ColorFloat32
 }
 
 func LoadMTL(filename string) (map[string]Material, error) {
@@ -103,10 +103,10 @@ func LoadMTL(filename string) (map[string]Material, error) {
 				continue // Skip malformed color definitions
 			}
 			mat := materials[currentMaterial]
-			mat.color = color.RGBA{
-				R: uint8(r * 255),
-				G: uint8(g * 255),
-				B: uint8(b * 255),
+			mat.color = ColorFloat32{
+				R: float32(r * 255),
+				G: float32(g * 255),
+				B: float32(b * 255),
 				A: 255,
 			}
 			materials[currentMaterial] = mat
@@ -214,7 +214,8 @@ func LoadOBJ(filename string) (object, error) {
 						triangle.color = mat.color
 						triangle.color.A = 255 // Ensure alpha is fully opaque
 					} else {
-						triangle.color = color.RGBA{255, 125, 0, 255} // Default color
+						// triangle.color = color.RGBA{255, 125, 0, 255} // Default color
+						triangle.color = ColorFloat32{255, 125, 0, 255} // Default color
 					}
 
 					obj.triangles = append(obj.triangles, triangle)
@@ -305,18 +306,23 @@ type Ray struct {
 	origin, direction Vector
 }
 
-// type Triangle struct {
-// 	v1, v2, v3  Vector
-// 	color       color.RGBA
-// 	BoundingBox [2]Vector
-// 	Normal      Vector
-// 	reflection  float32
-// 	specular    float32
-// }
+//	type Triangle struct {
+//		v1, v2, v3  Vector
+//		color       color.RGBA
+//		BoundingBox [2]Vector
+//		Normal      Vector
+//		reflection  float32
+//		specular    float32
+//	}
+
+type ColorFloat32 struct {
+	R, G, B, A float32
+}
 
 type TriangleSimple struct {
-	v1, v2, v3      Vector
-	color           color.RGBA
+	v1, v2, v3 Vector
+	// color           color.RGBA
+	color           ColorFloat32
 	Normal          Vector
 	reflection      float32
 	directToScatter float32
@@ -340,16 +346,27 @@ func calculateNormal(point, center Vector) Vector {
 	return point.Sub(center).Normalize()
 }
 
+func clampInt(value int) uint8 {
+	if value > 255 {
+		return 255
+	}
+	return uint8(value)
+}
+
 // Improved sphere conversion with pre-allocated slice
 func (obj object) ConvertToSquare(count int) []SphereSimple {
 	spheres := make([]SphereSimple, 0, count)
 
 	for i := 0; i < count; i += 1 {
 		randIndex := rand.Intn(len(obj.triangles))
+		R := clampUint8(obj.triangles[randIndex].color.R)
+		G := clampUint8(obj.triangles[randIndex].color.G)
+		B := clampUint8(obj.triangles[randIndex].color.B)
 		spheres = append(spheres, SphereSimple{
 			center: obj.triangles[randIndex].v1,
 			radius: 2,
-			color:  obj.triangles[randIndex].color,
+			// color:  obj.triangles[randIndex].color,
+			color: color.RGBA{R, G, B, 255},
 		})
 	}
 	return spheres
@@ -544,7 +561,7 @@ func applyRotationMatrix(v Vector, matrix [3][3]float32) Vector {
 	}
 }
 
-func CreateCube(center Vector, size float32, color color.RGBA, refection float32, specular float32) []TriangleSimple {
+func CreateCube(center Vector, size float32, color ColorFloat32, refection float32, specular float32) []TriangleSimple {
 	halfSize := size / 2
 
 	vertices := [8]Vector{
@@ -579,7 +596,7 @@ func CreateCube(center Vector, size float32, color color.RGBA, refection float32
 	}
 }
 
-func CreatePlane(center Vector, normal Vector, width, height float32, color color.RGBA, reflection float32, specular float32) []TriangleSimple {
+func CreatePlane(center Vector, normal Vector, width, height float32, color ColorFloat32, reflection float32, specular float32) []TriangleSimple {
 	// Calculate the tangent vectors
 	var tangent, bitangent Vector
 	if math32.Abs(normal.x) > math32.Abs(normal.y) {
@@ -603,7 +620,7 @@ func CreatePlane(center Vector, normal Vector, width, height float32, color colo
 	}
 }
 
-func CreateSphere(center Vector, radius float32, color color.RGBA, reflection float32, specular float32) []TriangleSimple {
+func CreateSphere(center Vector, radius float32, color ColorFloat32, reflection float32, specular float32) []TriangleSimple {
 	var triangles []TriangleSimple
 	latitudeBands := 20
 	longitudeBands := 20
@@ -669,7 +686,7 @@ func (triangle TriangleSimple) CalculateBoundingBox() (minBox Vector, maxBox Vec
 	return Vector{minX, minY, minZ}, Vector{maxX, maxY, maxZ}
 }
 
-func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32, specular float32) TriangleSimple {
+func NewTriangle(v1, v2, v3 Vector, color ColorFloat32, reflection float32, specular float32) TriangleSimple {
 	triangle := TriangleSimple{v1: v1, v2: v2, v3: v3, color: color, reflection: reflection, specular: specular, directToScatter: 0.5}
 	triangle.CalculateBoundingBox()
 	triangle.CalculateNormal()
@@ -704,7 +721,7 @@ func NewTriangle(v1, v2, v3 Vector, color color.RGBA, reflection float32, specul
 
 type Intersection struct {
 	PointOfIntersection Vector
-	Color               color.RGBA
+	Color               ColorFloat32
 	Normal              Vector
 	Direction           Vector
 	Distance            float32
@@ -1036,18 +1053,14 @@ type Camera struct {
 	xAxis, yAxis float32
 }
 
-func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
+func TraceRay(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 	if depth == 0 {
-		return color.RGBA{}
-	}
-
-	type ColorRGBA_Float32 struct {
-		R, G, B, A float32
+		return ColorFloat32{}
 	}
 
 	intersection, intersect := ray.IntersectBVH(BVH)
 	if !intersect {
-		return color.RGBA{}
+		return ColorFloat32{}
 	}
 
 	// Scatter calculation
@@ -1084,7 +1097,7 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 	}
 
 	ratioScatterToDirect := 1 - intersection.reflection
-	scatteredColor := ColorRGBA_Float32{
+	scatteredColor := ColorFloat32{
 		R: scatteredRed * ratioScatterToDirect,
 		G: scatteredGreen * ratioScatterToDirect,
 		B: scatteredBlue * ratioScatterToDirect,
@@ -1101,11 +1114,11 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 
 	tempIntersection, _ := reflectRay.IntersectBVH(BVH)
 
-	directReflectionColor := ColorRGBA_Float32{
-		R: float32(tempIntersection.Color.R) * intersection.reflection,
-		G: float32(tempIntersection.Color.G) * intersection.reflection,
-		B: float32(tempIntersection.Color.B) * intersection.reflection,
-		A: float32(intersection.Color.A),
+	directReflectionColor := ColorFloat32{
+		R: tempIntersection.Color.R * intersection.reflection,
+		G: tempIntersection.Color.G * intersection.reflection,
+		B: tempIntersection.Color.B * intersection.reflection,
+		A: intersection.Color.A,
 	}
 
 	shadowRay := Ray{
@@ -1125,21 +1138,21 @@ func TraceRay(ray Ray, depth int, light Light, samples int) color.RGBA {
 		lightIntensity = 0.05
 	}
 
-	finalColor := ColorRGBA_Float32{
-		R: ((float32(directReflectionColor.R+scatteredColor.R) * (1 - intersection.directToScatter)) + (float32(intersection.Color.R) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
-		G: ((float32(directReflectionColor.G+scatteredColor.G) * (1 - intersection.directToScatter)) + (float32(intersection.Color.G) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
-		B: ((float32(directReflectionColor.B+scatteredColor.B) * (1 - intersection.directToScatter)) + (float32(intersection.Color.B) * intersection.directToScatter) + (specularIntensity * float32(light.Color[0]))) * lightIntensity * light.Color[0],
+	finalColor := ColorFloat32{
+		R: ((directReflectionColor.R + scatteredColor.R) * (1 - intersection.directToScatter)) + ((intersection.Color.R) * intersection.directToScatter) + (specularIntensity*(light.Color[0]))*lightIntensity*light.Color[0],
+		G: ((directReflectionColor.G + scatteredColor.G) * (1 - intersection.directToScatter)) + ((intersection.Color.G) * intersection.directToScatter) + (specularIntensity*(light.Color[0]))*lightIntensity*light.Color[0],
+		B: ((directReflectionColor.B + scatteredColor.B) * (1 - intersection.directToScatter)) + ((intersection.Color.B) * intersection.directToScatter) + (specularIntensity*(light.Color[0]))*lightIntensity*light.Color[0],
 		A: float32(intersection.Color.A),
 	}
 
 	bounceRay := Ray{origin: reflectRayOrigin, direction: reflectDir}
 	bouncedColor := TraceRay(bounceRay, depth-1, light, samples)
 
-	Color := color.RGBA{
-		R: clampUint8((finalColor.R*intersection.directToScatter + (float32(bouncedColor.R) * (1 - intersection.directToScatter)))),
-		G: clampUint8((finalColor.G*intersection.directToScatter + (float32(bouncedColor.G) * (1 - intersection.directToScatter)))),
-		B: clampUint8((finalColor.B*intersection.directToScatter + (float32(bouncedColor.B) * (1 - intersection.directToScatter)))),
-		A: uint8(finalColor.A),
+	Color := ColorFloat32{
+		R: (finalColor.R*intersection.directToScatter + (float32(bouncedColor.R) * (1 - intersection.directToScatter))),
+		G: (finalColor.G*intersection.directToScatter + (float32(bouncedColor.G) * (1 - intersection.directToScatter))),
+		B: (finalColor.B*intersection.directToScatter + (float32(bouncedColor.B) * (1 - intersection.directToScatter))),
+		A: finalColor.A,
 	}
 
 	// Color := color.RGBA{
@@ -1217,7 +1230,7 @@ func buildBVHNode(triangles []TriangleSimple, depth int, maxDepth int) *BVHNode 
 				v1: triangles[0].v1,
 				v2: triangles[0].v2,
 				v3: triangles[0].v3,
-				color: color.RGBA{
+				color: ColorFloat32{
 					R: triangles[0].color.R,
 					G: triangles[0].color.G,
 					B: triangles[0].color.B,
@@ -1400,7 +1413,7 @@ func GenerateRandomSpheres(numSpheres int) []object {
 	spheres := make([]object, numSpheres)
 	for i := 0; i < numSpheres; i++ {
 		radius := rand.Float32()*50 + 10
-		color := color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
+		color := ColorFloat32{float32(rand.Intn(255)), float32(rand.Intn(255)), float32(rand.Intn(255)), 255}
 		reflection := rand.Float32()
 		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32()*400 - 200}
 		specular := rand.Float32()
@@ -1414,7 +1427,7 @@ func GenerateRandomCubes(numCubes int) []object {
 	cubes := make([]object, numCubes)
 	for i := 0; i < numCubes; i++ {
 		size := rand.Float32()*50 + 10
-		color := color.RGBA{uint8(rand.Intn(255)), uint8(rand.Intn(255)), uint8(rand.Intn(255)), 255}
+		color := ColorFloat32{float32(rand.Intn(255)), float32(rand.Intn(255)), float32(rand.Intn(255)), 255}
 		reflection := rand.Float32()
 		specular := rand.Float32()
 		position := Vector{rand.Float32()*400 - 200, rand.Float32()*400 - 200, rand.Float32()*400 - 200}
@@ -1541,10 +1554,10 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 
 					// Write the pixel color to the pixel buffer
 					index := ((yRow*width + xColumn) * 4)
-					pixelBuffer[index] = uint8(c.R)
-					pixelBuffer[index+1] = uint8(c.G)
-					pixelBuffer[index+2] = uint8(c.B)
-					pixelBuffer[index+3] = uint8(c.A)
+					pixelBuffer[index] = clampUint8(c.R)
+					pixelBuffer[index+1] = clampUint8(c.G)
+					pixelBuffer[index+2] = clampUint8(c.B)
+					pixelBuffer[index+3] = clampUint8(c.A)
 					xColumn++
 					// // Set the pixel color in the sub-image
 					// subImage.Set(x/scaling, yRow, c)
@@ -1776,7 +1789,7 @@ func clamp(value float64) float64 {
 	return value
 }
 
-func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA, reflection float32, specular float32, directToScatter float32) bool {
+func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, reflection float32, specular float32, directToScatter float32) bool {
 	if node == nil {
 		return false
 	}
@@ -1792,15 +1805,10 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor color.RGBA, re
 		if _, hit := ray.IntersectTriangleSimple(node.Triangles); hit {
 			// fmt.Println("Triangle hit", triangle.color)
 			NewTriangle := TriangleSimple{
-				v1: node.Triangles.v1,
-				v2: node.Triangles.v2,
-				v3: node.Triangles.v3,
-				color: color.RGBA{
-					R: uint8(newColor.R),
-					G: uint8(newColor.G),
-					B: uint8(newColor.B),
-					A: uint8(newColor.A),
-				},
+				v1:              node.Triangles.v1,
+				v2:              node.Triangles.v2,
+				v3:              node.Triangles.v3,
+				color:           newColor,
 				Normal:          node.Triangles.Normal,
 				reflection:      reflection,
 				specular:        specular,
@@ -2027,7 +2035,7 @@ func (g *Game) Update() error {
 			PrecomputeScreenSpaceCoordinatesSphere(g.camera)
 		} else {
 			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mouseX >= 0 && mouseY >= 0 && mouseX < screenWidth/2 && mouseY < screenHeight/2 {
-				findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, color.RGBA{uint8(g.r * 255), uint8(g.g * 255), uint8(g.b * 255), uint8(g.a * 255)}, g.reflection, g.specular, g.directToScatter)
+				findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}, g.reflection, g.specular, g.directToScatter)
 			}
 		}
 
@@ -2162,18 +2170,18 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
-	if !Benchmark {
-		DrawSpheres(g.Spheres, g.camera, g.scaleFactor, 32, g.subImages, g.light)
-		for i, subImage := range g.subImages {
-			op := &ebiten.DrawImageOptions{}
-			// if !fullScreen {
-			op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
-			// } else {
-			// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
-			// }
-			g.currentFrame.DrawImage(subImage, op)
-		}
+	// if !Benchmark {
+	DrawSpheres(g.Spheres, g.camera, g.scaleFactor, 32, g.subImages, g.light)
+	for i, subImage := range g.subImages {
+		op := &ebiten.DrawImageOptions{}
+		// if !fullScreen {
+		op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
+		// } else {
+		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
+		// }
+		g.currentFrame.DrawImage(subImage, op)
 	}
+	// }
 
 	// Scale the main render
 	mainOp := &ebiten.DrawImageOptions{}
@@ -2487,7 +2495,6 @@ func main() {
 		subImages[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
 	}
 
-	Spheres = obj.ConvertToSquare(32)
 
 	game := &Game{
 		xyzLock:     true,
@@ -2502,6 +2509,7 @@ func main() {
 		// bloomShader:     bloomShader,
 		currentFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		previousFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		Spheres:     obj.ConvertToSquare(32),
 
 		// TriangleShader: 	   rayCasterShader,
 	}
