@@ -1,14 +1,15 @@
 # TODO List
 
 - [ ] Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
-- [ ] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
+- [X] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
+  - [ ] Add otion to color Picker To have colors bigger then 255 to be able to have emissive materials
 - [ ] Fix Native Resolution
 - [X] Do Benchmarks about changes
   - ***Note*** Currently i am happy with performance i didn't get any noticeable drop
 - [ ] Crete assets for GUI
 - [ ] Try go ASM or SIMD for vector operations
 - [ ] Convert BVH to array based on the Benchmarks ([link](https://github.com/DarkBenky/testBinaryTree))
-- [ ] Implement Ray marching
+- [X] Implement Ray marching
   - [ ] Implement Intersection Union ([link](https://youtu.be/Cp5WWtMoeKg?si=g1ZjOuq3KzzEET3s&t=128))
   - [ ] Implement Different shapes (Cube...)
   - [ ] Implement Shader to Ray Marche

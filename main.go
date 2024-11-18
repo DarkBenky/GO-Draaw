@@ -2124,6 +2124,17 @@ var (
 		PositionX: 0,
 		PositionY: 450,
 	}
+
+	rayMarching = Options{
+		Header:    "Ray Marching",
+		Options:   []string{"No", "Yes"},
+		Selected:  0,
+		Width:     400,
+		Height:    50,
+		Padding:   10,
+		PositionX: 0,
+		PositionY: 500,
+	}
 )
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -2170,18 +2181,18 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
-	// if !Benchmark {
-	DrawSpheres(g.Spheres, g.camera, g.scaleFactor, 32, g.subImages, g.light)
-	for i, subImage := range g.subImages {
-		op := &ebiten.DrawImageOptions{}
-		// if !fullScreen {
-		op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
-		// } else {
-		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
-		// }
-		g.currentFrame.DrawImage(subImage, op)
+	if !Benchmark && rayMarching.Selected == 1 {
+		DrawSpheres(g.Spheres, g.camera, g.scaleFactor, 32, g.subImages, g.light)
+		for i, subImage := range g.subImages {
+			op := &ebiten.DrawImageOptions{}
+			// if !fullScreen {
+			op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
+			// } else {
+			// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
+			// }
+			g.currentFrame.DrawImage(subImage, op)
+		}
 	}
-	// }
 
 	// Scale the main render
 	mainOp := &ebiten.DrawImageOptions{}
@@ -2219,6 +2230,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
+			SelectOption(&rayMarching, GUI, mouseX, mouseY, mousePressed)
 			guiNeedsUpdate = false
 			if screenResolution.Selected == 0 {
 				g.scaleFactor = 1
@@ -2495,7 +2507,6 @@ func main() {
 		subImages[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
 	}
 
-
 	game := &Game{
 		xyzLock:     true,
 		cursorX:     screenHeight / 2,
@@ -2509,7 +2520,7 @@ func main() {
 		// bloomShader:     bloomShader,
 		currentFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		previousFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
-		Spheres:     obj.ConvertToSquare(32),
+		Spheres:       obj.ConvertToSquare(32),
 
 		// TriangleShader: 	   rayCasterShader,
 	}
