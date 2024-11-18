@@ -2487,7 +2487,6 @@ func main() {
 		subImages[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
 	}
 
-	Spheres = obj.ConvertToSquare(32)
 
 	game := &Game{
 		xyzLock:     true,
@@ -2502,7 +2501,7 @@ func main() {
 		// bloomShader:     bloomShader,
 		currentFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		previousFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
-
+		Spheres:       obj.ConvertToSquare(32),
 		// TriangleShader: 	   rayCasterShader,
 	}
 
