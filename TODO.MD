@@ -13,6 +13,7 @@
 - [ ] Try go ASM or SIMD for vector operations
 - [ ] Convert BVH to array based on the Benchmarks ([link](https://github.com/DarkBenky/testBinaryTree))
 - [X] Implement Ray marching
+  - **Important** Implement shader based on ([link](https://www.shadertoy.com/view/Xds3zN))
   - [ ] Implement Intersection Union ([link](https://youtu.be/Cp5WWtMoeKg?si=g1ZjOuq3KzzEET3s&t=128))
   - [ ] Implement Different shapes (Cube...)
   - [ ] Implement Shader to Ray Marche
