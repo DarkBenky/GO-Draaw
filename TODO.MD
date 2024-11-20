@@ -1,14 +1,15 @@
 # TODO List
 
+- [ ] ***Important*** fix lighting intensity and color is not changing anything
 - [ ] ***Performance*** Implement Gui to be separate Go routine
 - [ ] ***Performance*** Implement Go routine for RayMarching
-- [ ] Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
+- [ ] ***Important*** Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
 - [X] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
-  - [ ] Add option to color Picker To have colors bigger then 255 to be able to have emissive materials
+  - [X] Add option to color Picker To have colors bigger then 255 to be able to have emissive materials
 - [ ] Fix Native Resolution
 - [X] Do Benchmarks about changes
   - ***Note*** Currently i am happy with performance i didn't get any noticeable drop
-- [ ] Crete assets for GUI
+- [ ] *Optional* Crete assets for GUI
 - [ ] Try go ASM or SIMD for vector operations
 - [ ] Convert BVH to array based on the Benchmarks ([link](https://github.com/DarkBenky/testBinaryTree))
 - [X] Implement Ray marching

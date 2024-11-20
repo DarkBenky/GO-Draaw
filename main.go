@@ -1131,11 +1131,9 @@ func TraceRay(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 	specularFactor := math32.Pow(math32.Max(0.0, viewDir.Dot(reflectDir)), intersection.specular)
 	specularIntensity := light.intensity * specularFactor
 
-	var lightIntensity float32
+	var lightIntensity = float32(0.005)
 	if !inShadow {
 		lightIntensity = light.intensity * math32.Max(0.0, lightDir.Dot(intersection.Normal))
-	} else {
-		lightIntensity = 0.05
 	}
 
 	finalColor := ColorFloat32{
@@ -1691,7 +1689,7 @@ type SliderLayout struct {
 
 // ColorSlider handles color, reflection and specular value adjustments
 func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *float64,
-	reflection, specular *float32, mouseX, mouseY int, mousePressed bool, directToScatter *float32) {
+	reflection, specular *float32, mouseX, mouseY int, mousePressed bool, directToScatter *float32, m *float32) {
 
 	// Calculate layout once
 	layout := SliderLayout{
@@ -1720,10 +1718,12 @@ func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *
 	processSlider(screen, layout, "G", g, false, 1, mouseX, mouseY, mousePressed)
 	processSlider(screen, layout, "B", b, false, 2, mouseX, mouseY, mousePressed)
 	processSlider(screen, layout, "A", a, false, 3, mouseX, mouseY, mousePressed)
-	processSlider(screen, layout, "Reflection", reflection, true, 4, mouseX, mouseY, mousePressed)
-	processSlider(screen, layout, "Specular", specular, true, 5, mouseX, mouseY, mousePressed)
-	processSlider(screen, layout, "Direct To Scatter", directToScatter, true, 6, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "Light Intensity", m, true, 4, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "Reflection", reflection, true, 5, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "Specular", specular, true, 6, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "Direct To Scatter", directToScatter, true, 7, mouseX, mouseY, mousePressed)
 }
+
 
 func processSlider(screen *ebiten.Image, layout SliderLayout, label string, value interface{},
 	isFloat32 bool, index int, mouseX, mouseY int, mousePressed bool) {
@@ -1789,7 +1789,7 @@ func clamp(value float64) float64 {
 	return value
 }
 
-func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, reflection float32, specular float32, directToScatter float32) bool {
+func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, reflection float32, specular float32, directToScatter float32, multiplayer float32) bool {
 	if node == nil {
 		return false
 	}
@@ -1804,11 +1804,17 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 		// for i, triangle := range *node.Triangles {
 		if _, hit := ray.IntersectTriangleSimple(node.Triangles); hit {
 			// fmt.Println("Triangle hit", triangle.color)
+			c := ColorFloat32{
+				R: newColor.R* (multiplayer+1),
+				G: newColor.G* (multiplayer+1),
+				B: newColor.B* (multiplayer+1),
+				A: newColor.A,
+			}
 			NewTriangle := TriangleSimple{
 				v1:              node.Triangles.v1,
 				v2:              node.Triangles.v2,
 				v3:              node.Triangles.v3,
-				color:           newColor,
+				color:           c,
 				Normal:          node.Triangles.Normal,
 				reflection:      reflection,
 				specular:        specular,
@@ -1822,8 +1828,8 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 	}
 
 	// Traverse the left and right child nodes
-	leftHit := findIntersectionAndSetColor(node.Left, ray, newColor, reflection, specular, directToScatter)
-	rightHit := findIntersectionAndSetColor(node.Right, ray, newColor, reflection, specular, directToScatter)
+	leftHit := findIntersectionAndSetColor(node.Left, ray, newColor, reflection, specular, directToScatter , multiplayer)
+	rightHit := findIntersectionAndSetColor(node.Right, ray, newColor, reflection, specular, directToScatter, multiplayer)
 
 	return leftHit || rightHit
 }
@@ -1982,6 +1988,7 @@ func (g *Game) Update() error {
 			os.Exit(0)
 		}
 	} else {
+		
 		if snapLightToCamera.Selected == 1 {
 			g.light.Position = &g.camera.Position
 		}
@@ -2035,7 +2042,7 @@ func (g *Game) Update() error {
 			PrecomputeScreenSpaceCoordinatesSphere(g.camera)
 		} else {
 			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mouseX >= 0 && mouseY >= 0 && mouseX < screenWidth/2 && mouseY < screenHeight/2 {
-				findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}, g.reflection, g.specular, g.directToScatter)
+				findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier)
 			}
 		}
 
@@ -2225,7 +2232,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		// Only update GUI if needed
 		if guiNeedsUpdate {
 			GUI.Clear()
-			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter)
+			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter , &g.ColorMultiplier)
 			SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
@@ -2359,6 +2366,7 @@ type Game struct {
 	previousFrame   *ebiten.Image
 	directToScatter float32
 	Spheres         []SphereSimple
+	ColorMultiplier float32
 	// TriangleShader         *ebiten.Shader
 }
 
@@ -2490,7 +2498,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
-	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 1.5}
+	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{0, 0, 0}, intensity: 0}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
