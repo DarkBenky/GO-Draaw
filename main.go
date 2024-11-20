@@ -346,13 +346,6 @@ func calculateNormal(point, center Vector) Vector {
 	return point.Sub(center).Normalize()
 }
 
-func clampInt(value int) uint8 {
-	if value > 255 {
-		return 255
-	}
-	return uint8(value)
-}
-
 // Improved sphere conversion with pre-allocated slice
 func (obj object) ConvertToSquare(count int) []SphereSimple {
 	spheres := make([]SphereSimple, 0, count)
@@ -376,7 +369,6 @@ func RayMarching(ray Ray, spheres []SphereSimple, iterations int, light Light) (
 	const (
 		EPSILON      = float32(0.0001)
 		MAX_DISTANCE = float32(10000.0)
-		MIN_DISTANCE = float32(0.0)
 	)
 
 	var (
@@ -1724,7 +1716,6 @@ func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *
 	processSlider(screen, layout, "Direct To Scatter", directToScatter, true, 7, mouseX, mouseY, mousePressed)
 }
 
-
 func processSlider(screen *ebiten.Image, layout SliderLayout, label string, value interface{},
 	isFloat32 bool, index int, mouseX, mouseY int, mousePressed bool) {
 
@@ -1804,10 +1795,15 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 		// for i, triangle := range *node.Triangles {
 		if _, hit := ray.IntersectTriangleSimple(node.Triangles); hit {
 			// fmt.Println("Triangle hit", triangle.color)
+			m := float32(1)
+			if multiplayer > 0.05 {
+				m = (multiplayer + 1)
+			}
+
 			c := ColorFloat32{
-				R: newColor.R* (multiplayer+1),
-				G: newColor.G* (multiplayer+1),
-				B: newColor.B* (multiplayer+1),
+				R: newColor.R * (m * m * m),
+				G: newColor.G * (m * m * m),
+				B: newColor.B * (m * m * m),
 				A: newColor.A,
 			}
 			NewTriangle := TriangleSimple{
@@ -1828,7 +1824,7 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 	}
 
 	// Traverse the left and right child nodes
-	leftHit := findIntersectionAndSetColor(node.Left, ray, newColor, reflection, specular, directToScatter , multiplayer)
+	leftHit := findIntersectionAndSetColor(node.Left, ray, newColor, reflection, specular, directToScatter, multiplayer)
 	rightHit := findIntersectionAndSetColor(node.Right, ray, newColor, reflection, specular, directToScatter, multiplayer)
 
 	return leftHit || rightHit
@@ -1988,7 +1984,7 @@ func (g *Game) Update() error {
 			os.Exit(0)
 		}
 	} else {
-		
+
 		if snapLightToCamera.Selected == 1 {
 			g.light.Position = &g.camera.Position
 		}
@@ -2232,7 +2228,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		// Only update GUI if needed
 		if guiNeedsUpdate {
 			GUI.Clear()
-			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter , &g.ColorMultiplier)
+			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter, &g.ColorMultiplier)
 			SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
@@ -2463,6 +2459,18 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	src , err = LoadShader("shaders/rayMarching.kage")
+	if err != nil {
+		panic(err)
+	}
+
+	rayMarchingShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+	
+	fmt.Println("Shader:", rayMarchingShader)
 
 	fmt.Println("Shader:", sharpnessShader)
 	// fmt.Println("Shader:", bloomShader)

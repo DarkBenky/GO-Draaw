@@ -1,0 +1,45 @@
+package main
+
+const maxSteps = float(64)
+const epsilon = float(0.01)
+const maxDistance = float(10000.0)
+
+var CameraPosition vec3
+var RayDirTopLeft vec3
+var RayDirBottomRight vec3
+var BoxPosition vec3
+
+
+func RayMarch(direction vec3, origin vec3) vec4 {
+    var distance float
+
+    for i := 0.0; i < maxSteps; i++ {
+        distance = sdBox(origin, BoxPosition)
+        if distance < epsilon {
+            return vec4(1.0, 1.0,1.0,1.0)
+        }
+        if distance > maxDistance {
+            break
+        }
+        origin += direction * distance
+    }
+    return vec4(0.0,0.0,0.0,0.0)
+}
+
+func sdBox(p vec3, size vec3) float {
+    d := abs(p) - size
+    return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0)
+}
+
+func sdSphere(p vec3, s float) float {
+    return length(p) - s
+}
+
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    var direction vec3
+    direction.x = mix(RayDirTopLeft.x, RayDirBottomRight.x, texCoord.x)
+    direction.y = mix(RayDirTopLeft.y, RayDirBottomRight.y, texCoord.y)
+    direction.z = mix(RayDirTopLeft.z, RayDirBottomRight.z, 1.0)
+    return RayMarch(direction, CameraPosition)
+}

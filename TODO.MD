@@ -2,7 +2,7 @@
 
 - [ ] ***Important*** fix lighting intensity and color is not changing anything
 - [ ] ***Performance*** Implement Gui to be separate Go routine
-- [ ] ***Performance*** Implement Go routine for RayMarching
+- [X] ***Performance*** Implement Go routine for RayMarching
 - [ ] ***Important*** Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
 - [X] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
   - [X] Add option to color Picker To have colors bigger then 255 to be able to have emissive materials
