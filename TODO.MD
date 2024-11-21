@@ -20,8 +20,8 @@
     - [ ] Fix Shader
   - [ ] Implement Intersection Union ([link](https://youtu.be/Cp5WWtMoeKg?si=g1ZjOuq3KzzEET3s&t=128))
   - [ ] Implement Different shapes (Cube...)
-  - [ ] Implement Shader to Ray Marche
   - [ ] Optimize it
+    - Test splitting screen based on BVH and process only small amount of objects
 - [X] Add shader for averaging images
 - [X] Convert All Triangles to TriangleSimple
 - [ ] Fix overlapping images ( this problem is mainly seen when alpha is not 100%)
