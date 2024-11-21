@@ -1,5 +1,7 @@
 # TODO List
 
+- [ ] ***improvements*** Use pointers not globals ([link](https://github.com/DarkBenky/globals-vs-poiters))
+- [ ] ***Important*** fix camera projection
 - [ ] ***Important*** fix lighting intensity and color is not changing anything
 - [ ] ***Performance*** Implement Gui to be separate Go routine
 - [X] ***Performance*** Implement Go routine for RayMarching
