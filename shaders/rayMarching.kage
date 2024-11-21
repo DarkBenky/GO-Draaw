@@ -1,29 +1,12 @@
 package main
 
-const maxSteps = float(64)
-const epsilon = float(0.01)
-const maxDistance = float(10000.0)
+var StartPosition vec3
+var TopLeft vec3
+var TopRight vec3
+var BottomLeft vec3
 
-var CameraPosition vec3
-var RayDirTopLeft vec3
-var RayDirBottomRight vec3
-var BoxPosition vec3
-
-
-func RayMarch(direction vec3, origin vec3) vec4 {
-    var distance float
-
-    for i := 0.0; i < maxSteps; i++ {
-        distance = sdBox(origin, BoxPosition)
-        if distance < epsilon {
-            return vec4(1.0, 1.0,1.0,1.0)
-        }
-        if distance > maxDistance {
-            break
-        }
-        origin += direction * distance
-    }
-    return vec4(0.0,0.0,0.0,0.0)
+func sdSphere(p vec3, s float) float {
+    return length(p) - s
 }
 
 func sdBox(p vec3, size vec3) float {
@@ -31,15 +14,38 @@ func sdBox(p vec3, size vec3) float {
     return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0)
 }
 
-func sdSphere(p vec3, s float) float {
-    return length(p) - s
+func CalculateRayDir(xScreenPosition, yScreenPosition float) vec3 {
+    xStep := (TopRight - TopLeft) / 800.0
+    yStep := (BottomLeft - TopLeft) / 608.0
+    
+    return normalize(TopLeft + xStep * xScreenPosition + yStep * yScreenPosition)
 }
 
+func RayMarch(direction vec3, origin vec3) vec4 {
+    const maxSteps = 64.0
+    const epsilon = 0.01
+    const maxDistance = 10000.0
+    
+    var distance float
+    
+    for i := 0.0; i < maxSteps; i++ {
+        distance = sdSphere(origin, 10.0)
+        
+        if distance < epsilon {
+            return vec4(1.0, 1.0, 1.0, 1.0)
+        }
+        
+        if distance > maxDistance {
+            break
+        }
+        
+        origin += direction * distance
+    }
+    
+    return vec4(0.2, 0.0, 0.0, 0.3)
+}
 
 func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
-    var direction vec3
-    direction.x = mix(RayDirTopLeft.x, RayDirBottomRight.x, texCoord.x)
-    direction.y = mix(RayDirTopLeft.y, RayDirBottomRight.y, texCoord.y)
-    direction.z = mix(RayDirTopLeft.z, RayDirBottomRight.z, 1.0)
-    return RayMarch(direction, CameraPosition)
+    direction := CalculateRayDir(position.x, position.y)
+    return RayMarch(direction, StartPosition)
 }

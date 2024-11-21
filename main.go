@@ -1557,8 +1557,6 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 			subImage.WritePixels(pixelBuffer)
 		}(i*rowSize, (i+1)*rowSize, subImages[i])
 	}
-	// Wait for all workers to finish
-	wg.Wait()
 }
 
 func DrawSpheres(spheres []SphereSimple, camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light) {
@@ -2155,6 +2153,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Clear the current frame
 	g.currentFrame.Clear()
+	// rayMarchingImage := ebiten.NewImageFromImage(g.currentFrame)
 	fps := ebiten.ActualFPS()
 
 	// Perform path tracing and draw rays into the current frame
@@ -2212,9 +2211,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		)
 	}
 
-	// Draw the main render first
-	screen.DrawImage(g.currentFrame, mainOp)
-
 	// Handle GUI separately
 	if !fullScreen {
 		mouseX, mouseY := ebiten.CursorPosition()
@@ -2227,27 +2223,56 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 		// Only update GUI if needed
 		if guiNeedsUpdate {
-			GUI.Clear()
-			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter, &g.ColorMultiplier)
-			SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&rayMarching, GUI, mouseX, mouseY, mousePressed)
-			guiNeedsUpdate = false
-			if screenResolution.Selected == 0 {
-				g.scaleFactor = 1
-			}
-			g.scaleFactor = screenResolution.Selected * 2
+			go func(GUI *ebiten.Image, mouseX, mouseY int, mousePressed bool, g *Game) {
+				GUI.Clear()
+				ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter, &g.ColorMultiplier)
+				SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
+				SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
+				SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
+				SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
+				SelectOption(&rayMarching, GUI, mouseX, mouseY, mousePressed)
+				guiNeedsUpdate = false
+				if screenResolution.Selected == 0 {
+					g.scaleFactor = 1
+				}
+				g.scaleFactor = screenResolution.Selected * 2
+			}(GUI, mouseX, mouseY, mousePressed, g)
 		}
-
-		// Draw GUI on top of the main render
-		guiOp := &ebiten.DrawImageOptions{}
-		guiOp.GeoM.Translate(400, 0)
-		screen.DrawImage(GUI, guiOp)
 
 		lastMousePressed = mousePressed
 	}
+
+	wg := sync.WaitGroup{}
+	wg.Wait()
+
+	// Draw the main render first
+	screen.DrawImage(g.currentFrame, mainOp)
+	guiOp := &ebiten.DrawImageOptions{}
+	guiOp.GeoM.Translate(400, 0)
+	screen.DrawImage(GUI, guiOp)
+
+	// rayMarchingOpts := &ebiten.DrawRectShaderOptions{}
+	// rayMarchingOpts.Images[0] = g.currentFrame
+	// rayMarchingOpts.Uniforms = map[string]interface{}{
+	// 	"StartPosition": []float32{g.camera.Position.x, g.camera.Position.y, g.camera.Position.z},
+	// 	"TopLeft":     []float32{ScreenSpaceCoordinates[0][0].x, ScreenSpaceCoordinates[0][0].y, ScreenSpaceCoordinates[0][0].z},
+	// 	"TopRight":   []float32{ScreenSpaceCoordinates[screenWidth-1][0].x, ScreenSpaceCoordinates[screenWidth-1][0].y, ScreenSpaceCoordinates[screenWidth-1][0].z},
+	// 	"BottomLeft":  []float32{ScreenSpaceCoordinates[0][screenHeight-1].x, ScreenSpaceCoordinates[0][screenHeight-1].y, ScreenSpaceCoordinates[0][screenHeight-1].z},
+	// }
+
+	// // Apply the ray marching shader
+	// rayMarchingImage.DrawRectShader(
+	// 	rayMarchingImage.Bounds().Dx(),
+	// 	rayMarchingImage.Bounds().Dy(),
+	// 	g.RayMarchShader,
+	// 	rayMarchingOpts,
+	// )
+
+	// // Draw the ray marching image to the screen
+	// op1 := &ebiten.DrawImageOptions{}
+	// op1.GeoM.Scale(float64(screen.Bounds().Dx())/float64(rayMarchingImage.Bounds().Dx()),
+	// 	float64(screen.Bounds().Dy())/float64(rayMarchingImage.Bounds().Dy()))
+	// screen.DrawImage(rayMarchingImage, op1)
 
 	// Create a temporary image for bloom shader
 	// bloomImage := ebiten.NewImageFromImage(g.currentFrame)
@@ -2363,6 +2388,7 @@ type Game struct {
 	directToScatter float32
 	Spheres         []SphereSimple
 	ColorMultiplier float32
+	RayMarchShader  *ebiten.Shader
 	// TriangleShader         *ebiten.Shader
 }
 
@@ -2460,7 +2486,7 @@ func main() {
 		panic(err)
 	}
 
-	src , err = LoadShader("shaders/rayMarching.kage")
+	src, err = LoadShader("shaders/rayMarching.kage")
 	if err != nil {
 		panic(err)
 	}
@@ -2469,7 +2495,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	
+
 	fmt.Println("Shader:", rayMarchingShader)
 
 	fmt.Println("Shader:", sharpnessShader)
@@ -2506,7 +2532,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
-	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{0, 0, 0}, intensity: 0}
+	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{2, 0, 4}, intensity: 0.25}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -2534,10 +2560,10 @@ func main() {
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
 		// bloomShader:     bloomShader,
-		currentFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
-		previousFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
-		Spheres:       obj.ConvertToSquare(32),
-
+		currentFrame:   ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		previousFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		Spheres:        obj.ConvertToSquare(32),
+		RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
 	}
 
