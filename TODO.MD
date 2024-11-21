@@ -3,8 +3,8 @@
 - [ ] ***improvements*** Use pointers not globals ([link](https://github.com/DarkBenky/globals-vs-poiters))
 - [ ] ***Important*** fix camera projection
 - [ ] ***Important*** fix lighting intensity and color is not changing anything
-- [X] ***Performance*** Implement Gui to be separate Go routine
-  - *Note* This implementation enables 100 % cpu usage
+- [ ] ***Performance*** Implement Gui to be separate Go routine
+  - *Note* One function will draw all and then we can process sliders in main process
 - [X] ***Performance*** Implement Go routine for RayMarching
 - [ ] ***Important*** Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
 - [X] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
@@ -20,8 +20,8 @@
     - [ ] Fix Shader
   - [ ] Implement Intersection Union ([link](https://youtu.be/Cp5WWtMoeKg?si=g1ZjOuq3KzzEET3s&t=128))
   - [ ] Implement Different shapes (Cube...)
-  - [ ] Optimize it
-    - Test splitting screen based on BVH and process only small amount of objects
+  - [X] Optimize it
+    - [x] Test splitting screen based on BVH and process only small amount of objects
 - [X] Add shader for averaging images
 - [X] Convert All Triangles to TriangleSimple
 - [ ] Fix overlapping images ( this problem is mainly seen when alpha is not 100%)
@@ -200,7 +200,7 @@
 - [X] Implement shaders for color grading, contrast, etc.
 - [ ] *Optional* Optimize for speed
 - [ ] *Optional* Create flame graphs
-- [X] Trace rays to corners and draw triangles:
+- [ ] Trace rays to corners and draw triangles:
   - Create a box/cone representing the camera's viewing area
   - Find all triangles inside it
   - Order them based on distance

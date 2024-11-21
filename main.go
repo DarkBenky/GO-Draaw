@@ -346,6 +346,192 @@ func calculateNormal(point, center Vector) Vector {
 	return point.Sub(center).Normalize()
 }
 
+type RayMarchingBVH struct {
+	BoundingBox [2]Vector
+	Sphere      *SphereSimple
+	Left, Right *RayMarchingBVH
+	Active      bool
+}
+
+func calculateSphereSurfaceArea(bbox [2]Vector) float32 {
+	dx := bbox[1].x - bbox[0].x
+	dy := bbox[1].y - bbox[0].y
+	dz := bbox[1].z - bbox[0].z
+	return 2 * (dx*dy + dy*dz + dz*dx)
+}
+
+func calculateSphereBoundingBox(sphere SphereSimple) [2]Vector {
+	return [2]Vector{
+		{
+			x: sphere.center.x - sphere.radius,
+			y: sphere.center.y - sphere.radius,
+			z: sphere.center.z - sphere.radius,
+		},
+		{
+			x: sphere.center.x + sphere.radius,
+			y: sphere.center.y + sphere.radius,
+			z: sphere.center.z + sphere.radius,
+		},
+	}
+}
+
+func BuildBvhForSpheres(spheres []SphereSimple, maxDepth int) *RayMarchingBVH {
+	if len(spheres) == 0 {
+		return nil
+	}
+
+	// Calculate the overall bounding box
+	boundingBox := [2]Vector{
+		{math.MaxFloat32, math.MaxFloat32, math.MaxFloat32},
+		{-math.MaxFloat32, -math.MaxFloat32, -math.MaxFloat32},
+	}
+
+	for _, sphere := range spheres {
+		sphereBBox := calculateSphereBoundingBox(sphere)
+		boundingBox[0].x = float32(math.Min(float64(boundingBox[0].x), float64(sphereBBox[0].x)))
+		boundingBox[0].y = float32(math.Min(float64(boundingBox[0].y), float64(sphereBBox[0].y)))
+		boundingBox[0].z = float32(math.Min(float64(boundingBox[0].z), float64(sphereBBox[0].z)))
+
+		boundingBox[1].x = float32(math.Max(float64(boundingBox[1].x), float64(sphereBBox[1].x)))
+		boundingBox[1].y = float32(math.Max(float64(boundingBox[1].y), float64(sphereBBox[1].y)))
+		boundingBox[1].z = float32(math.Max(float64(boundingBox[1].z), float64(sphereBBox[1].z)))
+	}
+
+	// If the node is a leaf or we've reached the maximum depth
+	if len(spheres) <= 1 || maxDepth <= 0 {
+		node := &RayMarchingBVH{
+			BoundingBox: boundingBox,
+			Sphere: &SphereSimple{
+				center: spheres[0].center,
+				radius: spheres[0].radius,
+				color:  spheres[0].color,
+			},
+			Active: true,
+		}
+		return node
+	}
+
+	// Surface Area Heuristics (SAH) to find the best split
+	bestCost := float32(math.MaxFloat32)
+	bestSplit := -1
+	bestAxis := 0
+
+	for axis := 0; axis < 3; axis++ {
+		// Sort spheres along the current axis
+		switch axis {
+		case 0:
+			sort.Slice(spheres, func(i, j int) bool {
+				return spheres[i].center.x < spheres[j].center.x
+			})
+		case 1:
+			sort.Slice(spheres, func(i, j int) bool {
+				return spheres[i].center.y < spheres[j].center.y
+			})
+		case 2:
+			sort.Slice(spheres, func(i, j int) bool {
+				return spheres[i].center.z < spheres[j].center.z
+			})
+		}
+
+		// Compute surface area for all possible splits
+		for i := 1; i < len(spheres); i++ {
+			leftBBox := [2]Vector{
+				{math.MaxFloat32, math.MaxFloat32, math.MaxFloat32},
+				{-math.MaxFloat32, -math.MaxFloat32, -math.MaxFloat32},
+			}
+			rightBBox := [2]Vector{
+				{math.MaxFloat32, math.MaxFloat32, math.MaxFloat32},
+				{-math.MaxFloat32, -math.MaxFloat32, -math.MaxFloat32},
+			}
+
+			// Calculate left bounding box
+			for j := 0; j < i; j++ {
+				sphereBBox := calculateSphereBoundingBox(spheres[j])
+				leftBBox[0].x = float32(math.Min(float64(leftBBox[0].x), float64(sphereBBox[0].x)))
+				leftBBox[0].y = float32(math.Min(float64(leftBBox[0].y), float64(sphereBBox[0].y)))
+				leftBBox[0].z = float32(math.Min(float64(leftBBox[0].z), float64(sphereBBox[0].z)))
+				leftBBox[1].x = float32(math.Max(float64(leftBBox[1].x), float64(sphereBBox[1].x)))
+				leftBBox[1].y = float32(math.Max(float64(leftBBox[1].y), float64(sphereBBox[1].y)))
+				leftBBox[1].z = float32(math.Max(float64(leftBBox[1].z), float64(sphereBBox[1].z)))
+			}
+
+			// Calculate right bounding box
+			for j := i; j < len(spheres); j++ {
+				sphereBBox := calculateSphereBoundingBox(spheres[j])
+				rightBBox[0].x = float32(math.Min(float64(rightBBox[0].x), float64(sphereBBox[0].x)))
+				rightBBox[0].y = float32(math.Min(float64(rightBBox[0].y), float64(sphereBBox[0].y)))
+				rightBBox[0].z = float32(math.Min(float64(rightBBox[0].z), float64(sphereBBox[0].z)))
+				rightBBox[1].x = float32(math.Max(float64(rightBBox[1].x), float64(sphereBBox[1].x)))
+				rightBBox[1].y = float32(math.Max(float64(rightBBox[1].y), float64(sphereBBox[1].y)))
+				rightBBox[1].z = float32(math.Max(float64(rightBBox[1].z), float64(sphereBBox[1].z)))
+			}
+
+			// Calculate the SAH cost for this split
+			cost := float32(i)*calculateSphereSurfaceArea(leftBBox) + float32(len(spheres)-i)*calculateSphereSurfaceArea(rightBBox)
+			if cost < bestCost {
+				bestCost = cost
+				bestSplit = i
+				bestAxis = axis
+			}
+		}
+	}
+
+	// Sort spheres along the best axis before splitting
+	switch bestAxis {
+	case 0:
+		sort.Slice(spheres, func(i, j int) bool {
+			return spheres[i].center.x < spheres[j].center.x
+		})
+	case 1:
+		sort.Slice(spheres, func(i, j int) bool {
+			return spheres[i].center.y < spheres[j].center.y
+		})
+	case 2:
+		sort.Slice(spheres, func(i, j int) bool {
+			return spheres[i].center.z < spheres[j].center.z
+		})
+	}
+
+	// Create the BVH node with the best split
+	node := &RayMarchingBVH{BoundingBox: boundingBox}
+	node.Left = BuildBvhForSpheres(spheres[:bestSplit], maxDepth-1)
+	node.Right = BuildBvhForSpheres(spheres[bestSplit:], maxDepth-1)
+
+	return node
+}
+
+var sphereBVH = RayMarchingBVH{}
+
+func IntersectBVH_RayMarching(bvh RayMarchingBVH, ray Ray) (bool, *SphereSimple) {
+	if !BoundingBoxCollision(bvh.BoundingBox, &ray) {
+		return false, nil
+	}
+
+	if bvh.Sphere != nil {
+		return true, bvh.Sphere
+	}
+
+	hitLeft, left := IntersectBVH_RayMarching(*bvh.Left, ray)
+	hitRight, right := IntersectBVH_RayMarching(*bvh.Right, ray)
+
+	if hitLeft && hitRight {
+		if Distance(ray.origin, left.center, left.radius) < Distance(ray.origin, right.center, right.radius) {
+			return true, left
+		}
+		return true, right
+	}
+
+	if hitLeft {
+		return true, left
+	}
+
+	if hitRight {
+		return true, right
+	}
+
+	return false, nil
+}
+
 // Improved sphere conversion with pre-allocated slice
 func (obj object) ConvertToSquare(count int) []SphereSimple {
 	spheres := make([]SphereSimple, 0, count)
@@ -363,6 +549,44 @@ func (obj object) ConvertToSquare(count int) []SphereSimple {
 		})
 	}
 	return spheres
+}
+
+func RayMarchBvh(ray Ray, iterations int, light Light) (color.RGBA, float32) {
+	const (
+		EPSILON      = float32(0.0001)
+		MAX_DISTANCE = float32(10000.0)
+	)
+
+	var (
+		totalDistance float32
+		closestSphere *SphereSimple
+		currentPoint  Vector
+	)
+
+	for i := 0; i < iterations; i++ {
+		currentPoint = ray.origin.Add(ray.direction.Mul(totalDistance))
+		minDistance := MAX_DISTANCE
+
+		hit, sphere := IntersectBVH_RayMarching(sphereBVH, ray)
+		if hit {
+			minDistance = Distance(currentPoint, sphere.center, sphere.radius)
+			closestSphere = sphere
+		}
+
+		totalDistance += minDistance
+
+		// Hit detection with early exit
+		if minDistance < EPSILON {
+			return calculateShading(currentPoint, *closestSphere, totalDistance, MAX_DISTANCE, light), totalDistance
+		}
+
+		// Miss detection with early exit
+		if minDistance > MAX_DISTANCE || totalDistance > MAX_DISTANCE {
+			return color.RGBA{0, 0, 0, 0}, totalDistance
+		}
+	}
+
+	return calculateShading(currentPoint, *closestSphere, totalDistance, MAX_DISTANCE, light), totalDistance
 }
 
 func RayMarching(ray Ray, spheres []SphereSimple, iterations int, light Light) (color.RGBA, float32) {
@@ -1557,6 +1781,8 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 			subImage.WritePixels(pixelBuffer)
 		}(i*rowSize, (i+1)*rowSize, subImages[i])
 	}
+	// Wait for all workers to finish
+	wg.Wait()
 }
 
 func DrawSpheres(spheres []SphereSimple, camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light) {
@@ -1575,8 +1801,8 @@ func DrawSpheres(spheres []SphereSimple, camera Camera, scaling int, iterations 
 				xColumn := 0
 				for x := 0; x < screenWidth; x += scaling {
 					rayDir := ScreenSpaceCoordinates[x][y]
-					c, _ := RayMarching(Ray{origin: camera.Position, direction: rayDir}, spheres, iterations, light)
-
+					// c, _ := RayMarching(Ray{origin: camera.Position, direction: rayDir}, spheres, iterations, light)
+					c, _ := RayMarchBvh(Ray{origin: camera.Position, direction: rayDir}, iterations, light)
 					// Write the pixel color to the pixel buffer
 					index := ((yRow*width + xColumn) * 4)
 					pixelBuffer[index] = uint8(c.R)
@@ -2151,9 +2377,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		FPS = append(FPS, fps)
 	}
 
-	// Clear the current frame
+	/// Clear the current frame
 	g.currentFrame.Clear()
-	// rayMarchingImage := ebiten.NewImageFromImage(g.currentFrame)
 	fps := ebiten.ActualFPS()
 
 	// Perform path tracing and draw rays into the current frame
@@ -2183,7 +2408,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
-	if !Benchmark && rayMarching.Selected == 1 {
+	if !Benchmark {
 		DrawSpheres(g.Spheres, g.camera, g.scaleFactor, 32, g.subImages, g.light)
 		for i, subImage := range g.subImages {
 			op := &ebiten.DrawImageOptions{}
@@ -2195,6 +2420,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			g.currentFrame.DrawImage(subImage, op)
 		}
 	}
+
 
 	// Scale the main render
 	mainOp := &ebiten.DrawImageOptions{}
@@ -2211,6 +2437,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		)
 	}
 
+	// Draw the main render first
+	screen.DrawImage(g.currentFrame, mainOp)
+
 	// Handle GUI separately
 	if !fullScreen {
 		mouseX, mouseY := ebiten.CursorPosition()
@@ -2223,7 +2452,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 		// Only update GUI if needed
 		if guiNeedsUpdate {
-			go func(GUI *ebiten.Image, mouseX, mouseY int, mousePressed bool, g *Game) {
 				GUI.Clear()
 				ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter, &g.ColorMultiplier)
 				SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
@@ -2236,20 +2464,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 					g.scaleFactor = 1
 				}
 				g.scaleFactor = screenResolution.Selected * 2
-			}(GUI, mouseX, mouseY, mousePressed, g)
 		}
+		lastMousePressed = mousePressed
+
+		// Draw GUI on top of the main render
+		guiOp := &ebiten.DrawImageOptions{}
+		guiOp.GeoM.Translate(400, 0)
+		screen.DrawImage(GUI, guiOp)
 
 		lastMousePressed = mousePressed
 	}
-
-	wg := sync.WaitGroup{}
-	wg.Wait()
-
-	// Draw the main render first
-	screen.DrawImage(g.currentFrame, mainOp)
-	guiOp := &ebiten.DrawImageOptions{}
-	guiOp.GeoM.Translate(400, 0)
-	screen.DrawImage(GUI, guiOp)
 
 	// rayMarchingOpts := &ebiten.DrawRectShaderOptions{}
 	// rayMarchingOpts.Images[0] = g.currentFrame
@@ -2549,6 +2773,9 @@ func main() {
 		subImages[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
 	}
 
+	s := obj.ConvertToSquare(256)
+	sphereBVH = *BuildBvhForSpheres(s, 6)
+
 	game := &Game{
 		xyzLock:     true,
 		cursorX:     screenHeight / 2,
@@ -2562,7 +2789,7 @@ func main() {
 		// bloomShader:     bloomShader,
 		currentFrame:   ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		previousFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
-		Spheres:        obj.ConvertToSquare(32),
+		Spheres:        s,
 		RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
 	}
