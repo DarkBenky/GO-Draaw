@@ -24,11 +24,11 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"io/ioutil"
 	"math"
 	"math/rand"
 	"os"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1818,8 +1818,103 @@ func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten
 			subImage.WritePixels(pixelBuffer)
 		}(i*rowSize, (i+1)*rowSize, subImages[i])
 	}
-	// Wait for all workers to finish
+
+	if performanceOptions.Selected == 0 {
+		// Wait for all workers to finish
+		wg.Wait()
+	}
+}
+
+func DrawRaysHDR(camera Camera, light Light, scaling int, samples int, depth int) *ebiten.Image {
+	var wg sync.WaitGroup
+
+	// Calculate dimensions
+	subImageHeight := screenHeight / numCPU
+	subImageWidth := screenWidth / scaling
+	rowSize := screenHeight / numCPU
+
+	// Create properly sized sub-images
+	subImages := make([][]float32, numCPU)
+	for i := 0; i < numCPU; i++ {
+		subImages[i] = make([]float32, screenWidth*subImageHeight*4)
+	}
+
+	// Launch worker goroutines
+	for i := 0; i < numCPU; i++ {
+		wg.Add(1)
+		startY := i * rowSize
+		endY := (i + 1) * rowSize
+		subImage := subImages[i] // Capture loop variables properly
+
+		go func(startY, endY int, subImage []float32) {
+			defer wg.Done()
+			yRow := 0
+			for y := startY; y < endY; y += scaling {
+				xColumn := 0
+				for x := 0; x < screenWidth; x += scaling {
+					rayDir := ScreenSpaceCoordinates[x][y]
+					c := TraceRay(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					index := (yRow*subImageWidth + xColumn) * 4
+					subImage[index] = c.R
+					subImage[index+1] = c.G
+					subImage[index+2] = c.B
+					subImage[index+3] = c.A
+					xColumn++
+				}
+				yRow++
+			}
+		}(startY, endY, subImage)
+	}
+
 	wg.Wait()
+
+	// Find min/max values
+	maxR, maxG, maxB := float32(-math.MaxFloat32), float32(-math.MaxFloat32), float32(-math.MaxFloat32)
+	minR, minG, minB := float32(math.MaxFloat32), float32(math.MaxFloat32), float32(math.MaxFloat32)
+
+	for i := 0; i < numCPU; i++ {
+		for j := 0; j < len(subImages[i]); j += 4 {
+			maxR = math32.Max(maxR, subImages[i][j])
+			maxG = math32.Max(maxG, subImages[i][j+1])
+			maxB = math32.Max(maxB, subImages[i][j+2])
+			minR = math32.Min(minR, subImages[i][j])
+			minG = math32.Min(minG, subImages[i][j+1])
+			minB = math32.Min(minB, subImages[i][j+2])
+		}
+	}
+
+	// Normalize with checks for division by zero
+	for i := 0; i < numCPU; i++ {
+		for j := 0; j < len(subImages[i]); j += 4 {
+			if maxR != minR {
+				subImages[i][j] = (subImages[i][j] - minR) / (maxR - minR)
+			}
+			if maxG != minG {
+				subImages[i][j+1] = (subImages[i][j+1] - minG) / (maxG - minG)
+			}
+			if maxB != minB {
+				subImages[i][j+2] = (subImages[i][j+2] - minB) / (maxB - minB)
+			}
+		}
+	}
+
+	// Combine sub-images
+	finalImage := make([]float32, screenWidth*screenHeight*4)
+	for i := 0; i < numCPU; i++ {
+		copy(finalImage[i*subImageHeight*screenWidth*4:], subImages[i])
+	}
+
+	// Convert to RGBA
+	finalImageUint8 := make([]uint8, screenWidth*screenHeight*4)
+	for i := 0; i < len(finalImage); i++ {
+		finalImageUint8[i] = uint8(math32.Min(finalImage[i]*255, 255))
+	}
+
+	// Create final image
+	newImage := ebiten.NewImage(screenWidth, screenHeight)
+	newImage.WritePixels(finalImageUint8)
+	return newImage
 }
 
 var (
@@ -1848,8 +1943,6 @@ type Options struct {
 	Padding              int
 	PositionX, PositionY int
 }
-
-
 
 func SelectOption(opts *Options, screen *ebiten.Image, mouseX, mouseY int, mousePressed bool) {
 	mouseX -= opts.Width
@@ -2278,36 +2371,36 @@ func (g *Game) Update() error {
 	return nil
 }
 
-// func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
-// 	// Get the size of the Ebiten image
-// 	width, height := ebitenImg.Size()
+func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
+	// Get the size of the Ebiten image
+	width, height := ebitenImg.Size()
 
-// 	// Create an RGBA image to hold the pixel data
-// 	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+	// Create an RGBA image to hold the pixel data
+	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
 
-// 	// Iterate over the pixels in the Ebiten image and copy them to the RGBA image
-// 	for y := 0; y < height; y++ {
-// 		for x := 0; x < width; x++ {
-// 			c := ebitenImg.At(x, y).(color.RGBA)
-// 			rgba.Set(x, y, c)
-// 		}
-// 	}
+	// Iterate over the pixels in the Ebiten image and copy them to the RGBA image
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			c := ebitenImg.At(x, y).(color.RGBA)
+			rgba.Set(x, y, c)
+		}
+	}
 
-// 	// Create the output file
-// 	outFile, err := os.Create(filename)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer outFile.Close()
+	// Create the output file
+	outFile, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
 
-// 	// Encode the RGBA image as a PNG and save it
-// 	err = png.Encode(outFile, rgba)
-// 	if err != nil {
-// 		return err
-// 	}
+	// Encode the RGBA image as a PNG and save it
+	err = png.Encode(outFile, rgba)
+	if err != nil {
+		return err
+	}
 
-// 	return nil
-// }
+	return nil
+}
 
 var (
 	GUI              = ebiten.NewImage(400, 600)
@@ -2364,6 +2457,28 @@ var (
 		PositionX: 0,
 		PositionY: 500,
 	}
+
+	performanceOptions = Options{
+		Header:    "Preformance Options",
+		Options:   []string{"No", "Yes"},
+		Selected:  0,
+		Width:     400,
+		Height:    50,
+		Padding:   10,
+		PositionX: 0,
+		PositionY: 550,
+	}
+
+	renderFrame = Options{
+		Header:    "Render Frame",
+		Options:   []string{"No", "Yes", "Show"},
+		Selected:  0,
+		Width:     400,
+		Height:    50,
+		Padding:   10,
+		PositionX: 0,
+		PositionY: 300,
+	}
 )
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -2399,47 +2514,27 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
-	for i, subImage := range g.subImages {
-		op := &ebiten.DrawImageOptions{}
-		// if !fullScreen {
-		op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
-		// } else {
-		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
-		// }
-		g.currentFrame.DrawImage(subImage, op)
+	if renderFrame.Selected == 1 {
+		// Draw the frame
+
+		renderedFrame := DrawRaysHDR(g.camera, g.light, g.scaleFactor, scatter*2, depth)
+
+		// Save the frame as a PNG
+		filename := fmt.Sprintf("frame_%d.png", rand.Int31())
+		if err := saveEbitenImageAsPNG(renderedFrame, filename); err != nil {
+			fmt.Println("Error saving frame as PNG:", err)
+		} else {
+			fmt.Printf("Frame saved as %s\n", filename)
+		}
+		g.renderedFrame = renderedFrame
+		renderFrame.Selected = 0
 	}
+
+	DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
 
 	if !Benchmark && rayMarching.Selected == 1 {
-		DrawSpheres(g.camera, g.scaleFactor, 32, g.subImages, g.light)
-		for i, subImage := range g.subImages {
-			op := &ebiten.DrawImageOptions{}
-			// if !fullScreen {
-			op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
-			// } else {
-			// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
-			// }
-			g.currentFrame.DrawImage(subImage, op)
-		}
+		DrawSpheres(g.camera, g.scaleFactor, 32, g.subImagesRayMarching, g.light)
 	}
-
-	// Scale the main render
-	mainOp := &ebiten.DrawImageOptions{}
-
-	if !fullScreen {
-		mainOp.GeoM.Scale(
-			float64(screenResolution.Selected),
-			float64(screenResolution.Selected),
-		)
-	} else {
-		mainOp.GeoM.Scale(
-			float64(g.scaleFactor),
-			float64(g.scaleFactor),
-		)
-	}
-
-	// Draw the main render first
-	screen.DrawImage(g.currentFrame, mainOp)
 
 	// Handle GUI separately
 	if !fullScreen {
@@ -2460,6 +2555,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&rayMarching, GUI, mouseX, mouseY, mousePressed)
+			SelectOption(&performanceOptions, GUI, mouseX, mouseY, mousePressed)
+			SelectOption(&renderFrame, GUI, mouseX, mouseY, mousePressed)
+
 			guiNeedsUpdate = false
 			if screenResolution.Selected == 0 {
 				g.scaleFactor = 1
@@ -2474,6 +2572,54 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		screen.DrawImage(GUI, guiOp)
 
 		lastMousePressed = mousePressed
+	}
+
+	// Scale the main render
+	mainOp := &ebiten.DrawImageOptions{}
+
+	if !fullScreen {
+		mainOp.GeoM.Scale(
+			float64(screenResolution.Selected),
+			float64(screenResolution.Selected),
+		)
+	} else {
+		mainOp.GeoM.Scale(
+			float64(g.scaleFactor),
+			float64(g.scaleFactor),
+		)
+	}
+
+	if performanceOptions.Selected == 1 {
+		wg := sync.WaitGroup{}
+		wg.Wait()
+	}
+
+	for i, subImage := range g.subImages {
+		op := &ebiten.DrawImageOptions{}
+		// if !fullScreen {
+		op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
+		// } else {
+		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
+		// }
+		g.currentFrame.DrawImage(subImage, op)
+	}
+
+	for i, subImage := range g.subImagesRayMarching {
+		op := &ebiten.DrawImageOptions{}
+		// if !fullScreen {
+		op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
+		// } else {
+		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
+		// }
+		g.currentFrame.DrawImage(subImage, op)
+	}
+
+	// Draw the main render first
+	screen.DrawImage(g.currentFrame, mainOp)
+
+	if renderFrame.Selected == 2 {
+		// Draw the render
+		screen.DrawImage(g.renderedFrame, mainOp)
 	}
 
 	// rayMarchingOpts := &ebiten.DrawRectShaderOptions{}
@@ -2593,13 +2739,14 @@ var BVH *BVHNode
 var FrameCount int
 
 type Game struct {
-	xyzLock          bool
-	cursorX, cursorY int
-	subImages        []*ebiten.Image
-	camera           Camera
-	light            Light
-	scaleFactor      int
-	currentFrame     *ebiten.Image
+	xyzLock              bool
+	cursorX, cursorY     int
+	subImages            []*ebiten.Image
+	subImagesRayMarching []*ebiten.Image
+	camera               Camera
+	light                Light
+	scaleFactor          int
+	currentFrame         *ebiten.Image
 	// ditherColor      *ebiten.Shader
 	// ditherGrayScale  *ebiten.Shader
 	// bloomShader      *ebiten.Shader
@@ -2612,6 +2759,7 @@ type Game struct {
 	previousFrame   *ebiten.Image
 	directToScatter float32
 	ColorMultiplier float32
+	renderedFrame   *ebiten.Image
 	// RayMarchShader  *ebiten.Shader
 	// TriangleShader         *ebiten.Shader
 }
@@ -2728,8 +2876,6 @@ func main() {
 
 	fmt.Println("Number of CPUs:", numCPU)
 
-	runtime.GOMAXPROCS(numCPU)
-
 	ebiten.SetVsyncEnabled(false)
 	ebiten.SetTPS(24)
 
@@ -2756,7 +2902,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
-	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 2}
+	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 0.2}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -2773,16 +2919,23 @@ func main() {
 		subImages[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
 	}
 
+	subImagesRayMarching := make([]*ebiten.Image, numCPU)
+
+	for i := range numCPU {
+		subImagesRayMarching[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
+	}
+
 	sphereBVH = *BuildBvhForSpheres(obj.ConvertToSquare(256), 6)
 
 	game := &Game{
-		xyzLock:     true,
-		cursorX:     screenHeight / 2,
-		cursorY:     screenWidth / 2,
-		subImages:   subImages,
-		camera:      camera,
-		light:       light,
-		scaleFactor: scale,
+		xyzLock:              true,
+		cursorX:              screenHeight / 2,
+		cursorY:              screenWidth / 2,
+		subImages:            subImages,
+		subImagesRayMarching: subImagesRayMarching,
+		camera:               camera,
+		light:                light,
+		scaleFactor:          scale,
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
 		// bloomShader:     bloomShader,

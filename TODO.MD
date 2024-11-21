@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] fix Saving and rendering image
 - [ ] ***improvements*** Use pointers not globals ([link](https://github.com/DarkBenky/globals-vs-poiters))
 - [ ] ***Important*** fix camera projection
 - [ ] ***Important*** fix lighting intensity and color is not changing anything
