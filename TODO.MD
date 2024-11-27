@@ -1,12 +1,19 @@
 # TODO List
 
-- [ ] fix Saving and rendering image
-- [ ] ***improvements*** Use pointers not globals ([link](https://github.com/DarkBenky/globals-vs-poiters))
+- [ ] Enable to down scale number of triangles in mesh
+- [ ] *Important* RayTrace Enhance ([link](https://claude.ai/chat/d6805f99-cbcd-460d-89e4-c99f2b7493dc))
+- [ ] *Important* Modes of rendering ( old renderer , physically accurate renderer , HDR renderer)
+- [ ] *Optimization* (easy) sub image is size of full screen and each go routine will have random chunks of image
+  - [ ] test this optimization
 - [ ] ***Important*** fix camera projection
+  - [ ] Screen position calculate vector for center cross to ring and left and cross to top and bottom and you will get the position of screen
+- [ ] Draw UI in different process (use sub images for GUI to enable go routines)
+  - [ ] ***Performance*** Implement Gui to be separate Go routine
+- [ ] *Important* fix Saving and rendering image
+- [ ] ***improvements*** Use pointers not globals ([link](https://github.com/DarkBenky/globals-vs-poiters))
 - [ ] ***Important*** fix lighting intensity and color is not changing anything
-- [ ] ***Performance*** Implement Gui to be separate Go routine
-  - *Note* One function will draw all and then we can process sliders in main process
 - [X] ***Performance*** Implement Go routine for RayMarching
+  - [X] ***Performance*** Use BVH for speed up
 - [ ] ***Important*** Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
 - [X] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
   - [X] Add option to color Picker To have colors bigger then 255 to be able to have emissive materials
