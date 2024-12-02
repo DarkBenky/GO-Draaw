@@ -1781,8 +1781,45 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 			subImage.WritePixels(pixelBuffer)
 		}(i*rowSize, (i+1)*rowSize, subImages[i])
 	}
-	// Wait for all workers to finish
-	wg.Wait()
+	if performanceOptions.Selected == 0 {
+		// Wait for all workers to finish
+		wg.Wait()
+	}
+}
+
+func DrawRaysBlock(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+	var wg sync.WaitGroup
+	for i := 0; i < len(blocks); i++ {
+		wg.Add(1)
+		go func(blockIndex int) {
+			defer wg.Done()
+			block := blocks[blockIndex]
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRay(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(i)
+	}
+
+	if performanceOptions.Selected == 0 {
+		wg.Wait()
+	}
 }
 
 func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light) {
@@ -2530,7 +2567,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		renderFrame.Selected = 0
 	}
 
-	DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
+	// start := time.Now()
+	// DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
+	// elapsed := time.Since(start)
+	// start = time.Now()
+	DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+	// elapsed2 := time.Since(start)
+
+	// SpeedUp += float64(elapsed.Nanoseconds()) - float64(elapsed2.Nanoseconds())
+	// counter++
 
 	if !Benchmark && rayMarching.Selected == 1 {
 		DrawSpheres(g.camera, g.scaleFactor, 32, g.subImagesRayMarching, g.light)
@@ -2563,6 +2608,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				g.scaleFactor = 1
 			}
 			g.scaleFactor = screenResolution.Selected * 2
+
+			g.BlocksImage = MakeNewBlocks(g.scaleFactor)
 		}
 		lastMousePressed = mousePressed
 
@@ -2594,14 +2641,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		wg.Wait()
 	}
 
-	for i, subImage := range g.subImages {
+	// for i, subImage := range g.subImages {
+	// 	op := &ebiten.DrawImageOptions{}
+	// 	// if !fullScreen {
+	// 	op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
+	// 	// } else {
+	// 	// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
+	// 	// }
+	// 	g.currentFrame.DrawImage(subImage, op)
+	// }
+
+	for _, block := range g.BlocksImage {
 		op := &ebiten.DrawImageOptions{}
-		// if !fullScreen {
-		op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
-		// } else {
-		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
-		// }
-		g.currentFrame.DrawImage(subImage, op)
+		op.GeoM.Translate(float64(block.startX), float64(block.startY))
+		g.currentFrame.DrawImage(block.image, op)
 	}
 
 	for i, subImage := range g.subImagesRayMarching {
@@ -2614,8 +2667,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
-	// Draw the main render first
+	newFrame := ApplyShader(g.currentFrame, g.Shaders[0])
+
 	screen.DrawImage(g.currentFrame, mainOp)
+	screen.DrawImage(newFrame, mainOp)
 
 	if renderFrame.Selected == 2 {
 		// Draw the render
@@ -2729,6 +2784,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Show the current FPS
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
+	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Frame Time: %d", elapsed.Nanoseconds()), 0, 20)
+	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Block Frame Time: %d", elapsed2.Nanoseconds()), 0, 40)
+	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SpeedUp: %.2f", SpeedUp/float64(counter)), 0, 60)
+
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
@@ -2737,6 +2796,28 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 
 var BVH *BVHNode
 var FrameCount int
+
+type Shader struct {
+	shader  *ebiten.Shader
+	options map[string]interface{}
+}
+
+func ApplyShader(image *ebiten.Image, shader Shader) *ebiten.Image {
+	newImage := ebiten.NewImageFromImage(image)
+	Opts := &ebiten.DrawRectShaderOptions{}
+	Opts.Images[0] = image
+	Opts.Uniforms = shader.options
+
+	// Apply the shader
+	newImage.DrawRectShader(
+		newImage.Bounds().Dx(),
+		newImage.Bounds().Dy(),
+		shader.shader,
+		Opts,
+	)
+
+	return newImage
+}
 
 type Game struct {
 	xyzLock              bool
@@ -2760,6 +2841,8 @@ type Game struct {
 	directToScatter float32
 	ColorMultiplier float32
 	renderedFrame   *ebiten.Image
+	BlocksImage     []BlocksImage
+	Shaders         []Shader
 	// RayMarchShader  *ebiten.Shader
 	// TriangleShader         *ebiten.Shader
 }
@@ -2776,12 +2859,12 @@ func LoadShader(filePath string) ([]byte, error) {
 }
 
 // Bayer matrix data
-// var bayerMatrix = [16]float32{
-// 	15.0 / 255.0, 195.0 / 255.0, 60.0 / 255.0, 240.0 / 255.0,
-// 	135.0 / 255.0, 75.0 / 255.0, 180.0 / 255.0, 120.0 / 255.0,
-// 	45.0 / 255.0, 225.0 / 255.0, 30.0 / 255.0, 210.0 / 255.0,
-// 	165.0 / 255.0, 105.0 / 255.0, 150.0 / 255.0, 90.0 / 255.0,
-// }
+var bayerMatrix = [16]float32{
+	15.0 / 255.0, 195.0 / 255.0, 60.0 / 255.0, 240.0 / 255.0,
+	135.0 / 255.0, 75.0 / 255.0, 180.0 / 255.0, 120.0 / 255.0,
+	45.0 / 255.0, 225.0 / 255.0, 30.0 / 255.0, 210.0 / 255.0,
+	165.0 / 255.0, 105.0 / 255.0, 150.0 / 255.0, 90.0 / 255.0,
+}
 
 const subImageHeight = screenHeight / numCPU / 2
 const subImageWidth = screenWidth
@@ -2790,6 +2873,24 @@ var fullScreen = false
 var startTime time.Time
 
 var Spheres = []SphereSimple{}
+
+type BlocksImage struct {
+	startX, startY, endX, endY int
+	image                      *ebiten.Image
+	pixelBuffer                []uint8
+}
+
+func MakeNewBlocks(scaling int) []BlocksImage {
+	blocks := []BlocksImage{}
+	blockSize := 32 / scaling
+
+	for w := 0; w < screenWidth/scaling; w += blockSize {
+		for h := 0; h < screenHeight/scaling; h += blockSize {
+			blocks = append(blocks, BlocksImage{startX: w, startY: h, endX: w + blockSize, endY: h + blockSize, image: ebiten.NewImage(blockSize, blockSize), pixelBuffer: make([]uint8, blockSize*blockSize*4)})
+		}
+	}
+	return blocks
+}
 
 func main() {
 	// src, err := LoadShader("shaders/ditherColor.kage")
@@ -2941,8 +3042,13 @@ func main() {
 		// bloomShader:     bloomShader,
 		currentFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		previousFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		BlocksImage:   MakeNewBlocks(scale),
 		// RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
+		Shaders: []Shader{
+			// Shader{shader: ditherShaderColor, options: map[string]interface{}{"BayerMatrix": bayerMatrix}},
+			Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5}},
+		},
 	}
 
 	startTime = time.Now()

@@ -39,5 +39,10 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
         b = 0.0
     }
 
-    return vec4(r, g, b, 1) // Return the dithered color
+    a := 0.0
+    if r == 1.0 || g == 1.0 || b == 1.0 {
+        a = 1.0
+    }
+
+    return vec4(r, g, b, a) // Return the dithered color
 }

@@ -1,10 +1,14 @@
 # TODO List
 
+- [ ] Shader Menu
+- [X] Fix the scaling of the Block based renderer
 - [ ] Enable to down scale number of triangles in mesh
 - [ ] *Important* RayTrace Enhance ([link](https://claude.ai/chat/d6805f99-cbcd-460d-89e4-c99f2b7493dc))
 - [ ] *Important* Modes of rendering ( old renderer , physically accurate renderer , HDR renderer)
-- [ ] *Optimization* (easy) sub image is size of full screen and each go routine will have random chunks of image
-  - [ ] test this optimization
+- [X] *Optimization* (easy) sub image is size of full screen and each go routine will have random chunks of image
+  - [X] test this optimization
+    - Old : Current run - Average FPS: 189.80, Min FPS: 0.05, Max FPS: 234.29, Min 15% FPS: 10.60
+    - New : Current run - Average FPS: 201.73, Min FPS: 0.06, Max FPS: 235.60, Min 15% FPS: 53.32
 - [ ] ***Important*** fix camera projection
   - [ ] Screen position calculate vector for center cross to ring and left and cross to top and bottom and you will get the position of screen
 - [ ] Draw UI in different process (use sub images for GUI to enable go routines)
@@ -36,6 +40,87 @@
 - ***NOTE*** Spliting array for each go routine does not make sense besed on the Benchmark ([link](https://github.com/DarkBenky/Benchmark-GO-multiple-arrays))
 - [X] Add option to move light to camera position
 - [ ] Split Code to multiple files
+- [X] *Optimizations* Not allocating new slices in function
+  - *Note* Did not help
+
+  ```go
+    func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, subImages []*ebiten.Image) {
+    var wg sync.WaitGroup
+
+    // Create a pool of worker goroutines, each handling a portion of the image
+    for i := 0; i < numCPU; i++ {
+      wg.Add(1)
+      go func(startY int, endIndex int, subImage *ebiten.Image) {
+        defer wg.Done()
+        yRow := 0
+        width, height := subImage.Bounds().Dx(), subImage.Bounds().Dy()
+        imageSize := width * height * 4
+        pixelBuffer := make([]uint8, imageSize)
+        for y := startY; y < endIndex; y += scaling {
+          xColumn := 0
+          for x := 0; x < screenWidth; x += scaling {
+            rayDir := ScreenSpaceCoordinates[x][y]
+            c := TraceRay(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+            // Write the pixel color to the pixel buffer
+            index := ((yRow*width + xColumn) * 4)
+            pixelBuffer[index] = clampUint8(c.R)
+            pixelBuffer[index+1] = clampUint8(c.G)
+            pixelBuffer[index+2] = clampUint8(c.B)
+            pixelBuffer[index+3] = clampUint8(c.A)
+            xColumn++
+            // // Set the pixel color in the sub-image
+            // subImage.Set(x/scaling, yRow, c)
+          }
+          yRow++
+        }
+        subImage.WritePixels(pixelBuffer)
+      }(i*rowSize, (i+1)*rowSize, subImages[i])
+    }
+    if performanceOptions.Selected == 0 {
+      // Wait for all workers to finish
+      wg.Wait()
+    }
+  }
+
+  func DrawRaysPerformance(camera Camera, light Light, scaling int, samples int, depth int, subImages []*ebiten.Image, pixelBuffers []*[]uint8) {
+    var wg sync.WaitGroup
+
+    // Create a pool of worker goroutines, each handling a portion of the image
+    for i := 0; i < numCPU; i++ {
+      wg.Add(1)
+      go func(startY int, endIndex int, subImage *ebiten.Image, pixelBuffer []uint8) {
+        defer wg.Done()
+        yRow := 0
+        for y := startY; y < endIndex; y += scaling {
+          xColumn := 0
+          for x := 0; x < screenWidth; x += scaling {
+            rayDir := ScreenSpaceCoordinates[x][y]
+            c := TraceRay(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+            // Write the pixel color to the pixel buffer
+            index := ((yRow*screenWidth + xColumn) * 4)
+            pixelBuffer[index] = clampUint8(c.R)
+            pixelBuffer[index+1] = clampUint8(c.G)
+            pixelBuffer[index+2] = clampUint8(c.B)
+            pixelBuffer[index+3] = clampUint8(c.A)
+            xColumn++
+            // // Set the pixel color in the sub-image
+            // subImage.Set(x/scaling, yRow, c)
+          }
+          yRow++
+        }
+        subImage.WritePixels(pixelBuffer)
+      }(i*rowSize, (i+1)*rowSize, subImages[i], *pixelBuffers[i])
+    }
+    if performanceOptions.Selected == 0 {
+      // Wait for all workers to finish
+      wg.Wait()
+    }
+  } 
+
+  ```
+  
 - [X] Create Universal benchmarking function to judge the changes of performance
 - [X] Remove Triangle Bounding Box out of struct
 
