@@ -2,6 +2,7 @@ package main
 
 // Declare a uniform variable for sharpness intensity
 var Sharpness float
+var Alpha float
 
 // Apply a simple 3x3 kernel for sharpening
 func ApplySharpen(texCoord vec2) vec4 {
@@ -41,6 +42,11 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 
     // Mix the sharpened result with the original image based on the Sharpness factor
     resultColor := mix(originalColor, sharpenedColor, Sharpness)
+
+    resultColor.r *= Alpha
+    resultColor.g *= Alpha
+    resultColor.b *= Alpha
+    resultColor.a = Alpha
 
     // Return the final color, clamped to [0, 1] range
     return clamp(resultColor, 0.0, 1.0)

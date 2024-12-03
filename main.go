@@ -202,11 +202,14 @@ func LoadOBJ(filename string) (object, error) {
 			if len(indices) >= 3 {
 				for i := 1; i < len(indices)-1; i++ {
 					triangle := TriangleSimple{
-						v1:         vertices[indices[0]],
-						v2:         vertices[indices[i]],
-						v3:         vertices[indices[i+1]],
-						reflection: 0.09,
-						specular:   0.5,
+						v1:              vertices[indices[0]],
+						v2:              vertices[indices[i]],
+						v3:              vertices[indices[i+1]],
+						reflection:      rand.Float32(),
+						Roughness:       rand.Float32(),
+						specular:        rand.Float32(),
+						directToScatter: rand.Float32(),
+						Metallic:        rand.Float32(),
 					}
 
 					// Apply the current material color if available
@@ -319,6 +322,19 @@ type ColorFloat32 struct {
 	R, G, B, A float32
 }
 
+func (c ColorFloat32) MulScalar(scalar float32) ColorFloat32 {
+	return ColorFloat32{
+		R: c.R * scalar,
+		G: c.G * scalar,
+		B: c.B * scalar,
+		A: c.A,
+	}
+}
+
+func (c ColorFloat32) Add(c2 ColorFloat32) ColorFloat32 {
+	return ColorFloat32{c.R + c2.R, c.G + c2.G, c.B + c2.B, c.A + c2.A}
+}
+
 type TriangleSimple struct {
 	v1, v2, v3 Vector
 	// color           color.RGBA
@@ -327,6 +343,8 @@ type TriangleSimple struct {
 	reflection      float32
 	directToScatter float32
 	specular        float32
+	Roughness       float32
+	Metallic        float32
 }
 
 type SphereSimple struct {
@@ -944,6 +962,8 @@ type Intersection struct {
 	reflection          float32
 	directToScatter     float32
 	specular            float32
+	Roughness           float32
+	Metallic            float32
 }
 
 type Light struct {
@@ -1155,7 +1175,7 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	}
 	t := f * edge2.Dot(q)
 	if t > 0.00001 {
-		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection, directToScatter: triangle.directToScatter}, true
+		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection, directToScatter: triangle.directToScatter, Roughness: triangle.Roughness, Metallic: triangle.Metallic}, true
 	}
 	return Intersection{}, false
 }
@@ -1377,6 +1397,288 @@ func TraceRay(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 	// }
 
 	return Color
+}
+
+func FresnelSchlick(cosTheta, F0 float32) float32 {
+	return F0 + (1.0-F0)*math32.Pow(1.0-cosTheta, 5)
+}
+
+func GGXDistribution(NdotH, roughness float32) float32 {
+	alpha := roughness * roughness
+	alpha2 := alpha * alpha
+	NdotH2 := NdotH * NdotH
+	denom := NdotH2*(alpha2-1.0) + 1.0
+	return alpha2 / (math32.Pi * denom * denom)
+}
+
+func TraceRayV3(ray Ray, depth int, light Light, samples int) ColorFloat32 {
+	if depth <= 0 {
+		return ColorFloat32{}
+	}
+
+	intersection, intersect := ray.IntersectBVH(BVH)
+	if !intersect {
+		return ColorFloat32{}
+	}
+
+	viewDir := ray.origin.Sub(intersection.PointOfIntersection).Normalize()
+	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+	halfwayDir := lightDir.Add(viewDir).Normalize()
+
+	// Calculate important dot products
+	NdotL := math32.Max(0.0, intersection.Normal.Dot(lightDir))
+	NdotV := math32.Max(0.0, intersection.Normal.Dot(viewDir))
+	NdotH := math32.Max(0.0, intersection.Normal.Dot(halfwayDir))
+
+	// Calculate Fresnel term
+	F0 := float32(intersection.Metallic) // Base reflectivity for non-metals
+	fresnel := FresnelSchlick(NdotV, F0)
+
+	// Calculate roughness-based distribution
+	distribution := GGXDistribution(NdotH, intersection.Roughness)
+
+	// Scatter calculation using hemisphere sampling
+	var scatteredColor ColorFloat32
+	rayOriginOffset := intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001))
+
+	for i := 0; i < samples; i++ {
+		scatterDirection := SampleHemisphere(intersection.Normal)
+		scatterDirection = scatterDirection.Perturb(intersection.Normal, intersection.Roughness)
+
+		scatterRay := Ray{
+			origin:    rayOriginOffset,
+			direction: scatterDirection.Normalize(),
+		}
+
+		if bvhIntersection, scatterIntersect := scatterRay.IntersectBVH(BVH); scatterIntersect && bvhIntersection.Distance != math32.MaxFloat32 {
+			scatteredColor.R += bvhIntersection.Color.R
+			scatteredColor.G += bvhIntersection.Color.G
+			scatteredColor.B += bvhIntersection.Color.B
+		}
+	}
+
+	if samples > 0 {
+		s := float32(samples)
+		scatteredColor = ColorFloat32{
+			R: scatteredColor.R / s,
+			G: scatteredColor.G / s,
+			B: scatteredColor.B / s,
+		}
+	}
+
+	// Calculate reflection direction using Fresnel
+	reflectDir := lightDir.Mul(-1).Reflect(intersection.Normal)
+	reflectRay := Ray{origin: rayOriginOffset, direction: reflectDir}
+	tempIntersection, _ := reflectRay.IntersectBVH(BVH)
+
+	// Apply Fresnel to reflection color
+	directReflectionColor := ColorFloat32{
+		R: tempIntersection.Color.R * fresnel,
+		G: tempIntersection.Color.G * fresnel,
+		B: tempIntersection.Color.B * fresnel,
+		A: intersection.Color.A,
+	}
+
+	// Shadow calculation
+	shadowRay := Ray{
+		origin:    rayOriginOffset,
+		direction: lightDir,
+	}
+	_, inShadow := shadowRay.IntersectBVH(BVH)
+
+	// Calculate specular using GGX distribution
+	var lightIntensity float32 = 0.005
+	if !inShadow {
+		lightIntensity = light.intensity * NdotL
+	}
+
+	specularIntensity := distribution * fresnel * lightIntensity
+
+	specularColor := ColorFloat32{
+		R: specularIntensity * light.Color[0],
+		G: specularIntensity * light.Color[1],
+		B: specularIntensity * light.Color[2],
+	}
+
+	// Calculate diffuse contribution
+	diffuseFactor := (1.0 - fresnel) * (1.0 / math32.Pi)
+	diffuseColor := ColorFloat32{
+		R: intersection.Color.R * diffuseFactor * NdotL * lightIntensity,
+		G: intersection.Color.G * diffuseFactor * NdotL * lightIntensity,
+		B: intersection.Color.B * diffuseFactor * NdotL * lightIntensity,
+	}
+
+	// Combine direct and indirect lighting
+	finalColor := ColorFloat32{
+		R: diffuseColor.R + specularColor.R + (directReflectionColor.R* intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
+		G: diffuseColor.G + specularColor.G + (directReflectionColor.G* intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
+		B: diffuseColor.B + specularColor.B + (directReflectionColor.B* intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
+		A: intersection.Color.A,
+	}
+
+	// Calculate bounced contribution
+	bounceRay := Ray{origin: rayOriginOffset, direction: reflectDir}
+	bouncedColor := TraceRayV3(bounceRay, depth-1, light, samples)
+
+	// Final color composition with energy conservation
+	return ColorFloat32{
+		R: finalColor.R*(1.0-fresnel) + bouncedColor.R*fresnel,
+		G: finalColor.G*(1.0-fresnel) + bouncedColor.G*fresnel,
+		B: finalColor.B*(1.0-fresnel) + bouncedColor.B*fresnel,
+		A: finalColor.A,
+	}
+}
+
+func (v Vector) LengthSquared() float32 {
+	return v.x*v.x + v.y*v.y + v.z*v.z
+}
+
+func RandomInUnitSphere() Vector {
+	for {
+		p := Vector{
+			rand.Float32()*2.0 - 1.0,
+			rand.Float32()*2.0 - 1.0,
+			rand.Float32()*2.0 - 1.0,
+		}
+		if p.LengthSquared() < 1.0 {
+			return p.Normalize()
+		}
+	}
+}
+
+func (v Vector) Perturb(normal Vector, roughness float32) Vector {
+	if roughness <= 0 {
+		return v
+	}
+
+	// Generate a random perturbation vector
+	randomVec := RandomInUnitSphere()
+
+	// Scale the perturbation by roughness
+	perturbation := randomVec.Mul(roughness)
+
+	// Add the perturbation to the original vector
+	result := v.Add(perturbation)
+
+	// Ensure the perturbed vector is in the correct hemisphere
+	if result.Dot(normal) < 0 {
+		result = result.Mul(-1)
+	}
+
+	return result.Normalize()
+}
+
+func SampleHemisphere(normal Vector) Vector {
+	u := rand.Float32()
+	v := rand.Float32()
+
+	r := math32.Sqrt(1.0 - u*u)
+	theta := 2 * math32.Pi * v
+
+	x := r * math32.Cos(theta)
+	y := r * math32.Sin(theta)
+	z := u
+
+	// Create tangent and bitangent vectors
+	tangent := Vector{1.0, 0.0, 0.0}
+	if math32.Abs(normal.x) > 0.1 {
+		tangent = Vector{0.0, 1.0, 0.0}
+	}
+	tangent = tangent.Cross(normal).Normalize()
+	bitangent := normal.Cross(tangent)
+
+	// Transform sample to world space
+	sampleDir := tangent.Mul(x).Add(bitangent.Mul(y)).Add(normal.Mul(z))
+
+	return sampleDir.Normalize()
+}
+
+func TraceRayV2(ray Ray, depth int, light Light, samples int) ColorFloat32 {
+	if depth <= 0 {
+		return ColorFloat32{}
+	}
+
+	intersection, intersect := ray.IntersectBVH(BVH)
+	if !intersect {
+		return ColorFloat32{}
+	}
+
+	hitPoint := intersection.PointOfIntersection
+	normal := intersection.Normal.Normalize()
+	viewDir := ray.direction.Mul(-1).Normalize()
+
+	// Accumulate color contributions
+	var accumulatedColor ColorFloat32
+
+	// --- Direct Illumination ---
+	lightDir := light.Position.Sub(hitPoint).Normalize()
+	reflectDir := lightDir.Mul(-1).Reflect(normal)
+
+	// Apply roughness to reflection direction
+	reflectDir = reflectDir.Perturb(normal, intersection.Roughness)
+
+	// Shadow check
+	shadowRay := Ray{
+		origin:    hitPoint.Add(normal.Mul(0.001)),
+		direction: lightDir,
+	}
+	_, inShadow := shadowRay.IntersectBVH(BVH)
+
+	var lightIntensity float32
+	if !inShadow {
+		lightIntensity = light.intensity * math32.Max(0.0, normal.Dot(lightDir))
+	}
+
+	// Diffuse shading
+	diffuse := intersection.Color.MulScalar(lightIntensity * (1.0 - intersection.reflection))
+
+	// Specular shading (adjusted for roughness)
+	specularExponent := intersection.specular * (1.0 - intersection.Roughness)
+	specularFactor := math32.Pow(math32.Max(0.0, viewDir.Dot(reflectDir)), specularExponent)
+	specular := ColorFloat32{
+		R: light.Color[0],
+		G: light.Color[1],
+		B: light.Color[2],
+		A: 1.0,
+	}.MulScalar(specularFactor * light.intensity * intersection.reflection)
+
+	// --- Indirect Illumination (Scattering) ---
+	var scatteredColor ColorFloat32
+	if samples > 0 {
+		for i := 0; i < samples; i++ {
+			// Sample hemisphere around the normal
+			scatterDir := SampleHemisphere(normal)
+
+			// Apply roughness to scattered direction
+			scatterDir = scatterDir.Perturb(normal, intersection.Roughness)
+
+			scatterRay := Ray{
+				origin:    hitPoint.Add(normal.Mul(0.001)),
+				direction: scatterDir,
+			}
+
+			bouncedColor := TraceRayV2(scatterRay, depth-1, light, 0)
+			scatteredColor = scatteredColor.Add(bouncedColor)
+		}
+		scatteredColor = scatteredColor.MulScalar(1.0 / float32(samples))
+	}
+
+	// --- Reflection ---
+	reflectDir = viewDir.Reflect(normal)
+	reflectDir = reflectDir.Perturb(normal, intersection.Roughness)
+	reflectRay := Ray{
+		origin:    hitPoint.Add(normal.Mul(0.001)),
+		direction: reflectDir,
+	}
+	reflectedColor := TraceRayV2(reflectRay, depth-1, light, samples)
+
+	// --- Combine All Components ---
+	accumulatedColor = diffuse
+	accumulatedColor = accumulatedColor.Add(specular)
+	accumulatedColor = accumulatedColor.Add(reflectedColor.MulScalar(intersection.reflection))
+	accumulatedColor = accumulatedColor.Add(scatteredColor.MulScalar(intersection.directToScatter))
+
+	return accumulatedColor
 }
 
 type object struct {
@@ -1822,6 +2124,40 @@ func DrawRaysBlock(camera Camera, light Light, scaling int, samples int, depth i
 	}
 }
 
+func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+	var wg sync.WaitGroup
+	for _ , block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImage) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(block)
+	}
+
+	if performanceOptions.Selected == 0 {
+		wg.Wait()
+	}
+}
+
 func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light) {
 	var wg sync.WaitGroup
 
@@ -1983,6 +2319,7 @@ type Options struct {
 
 func SelectOption(opts *Options, screen *ebiten.Image, mouseX, mouseY int, mousePressed bool) {
 	mouseX -= opts.Width
+	mouseX -= opts.PositionX
 
 	// Draw background
 	bgRect := image.Rect(opts.PositionX, opts.PositionY, opts.PositionX+opts.Width, opts.PositionY+opts.Height)
@@ -2037,13 +2374,13 @@ type SliderLayout struct {
 
 // ColorSlider handles color, reflection and specular value adjustments
 func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *float64,
-	reflection, specular *float32, mouseX, mouseY int, mousePressed bool, directToScatter *float32, m *float32) {
+	reflection, specular *float32, mouseX, mouseY int, mousePressed bool, directToScatter *float32, m *float32, roughness *float32, metallic *float32) {
 
 	// Calculate layout once
 	layout := SliderLayout{
 		sliderWidth:     width - 20,
-		sliderHeight:    15,
-		indicatorHeight: 12,
+		sliderHeight:    12,
+		indicatorHeight: 10,
 		padding:         5,
 		startX:          x + 10,
 		startY:          y + height/3 + 10,
@@ -2070,6 +2407,8 @@ func ColorSlider(x, y int, screen *ebiten.Image, width, height int, r, g, b, a *
 	processSlider(screen, layout, "Reflection", reflection, true, 5, mouseX, mouseY, mousePressed)
 	processSlider(screen, layout, "Specular", specular, true, 6, mouseX, mouseY, mousePressed)
 	processSlider(screen, layout, "Direct To Scatter", directToScatter, true, 7, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "Roughness", roughness, true, 8, mouseX, mouseY, mousePressed)
+	processSlider(screen, layout, "Metallic", metallic, true, 9, mouseX, mouseY, mousePressed)
 }
 
 func processSlider(screen *ebiten.Image, layout SliderLayout, label string, value interface{},
@@ -2136,7 +2475,7 @@ func clamp(value float64) float64 {
 	return value
 }
 
-func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, reflection float32, specular float32, directToScatter float32, multiplayer float32) bool {
+func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, reflection float32, specular float32, directToScatter float32, multiplayer float32, roughness float32, metallic float32) bool {
 	if node == nil {
 		return false
 	}
@@ -2157,9 +2496,9 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 			}
 
 			c := ColorFloat32{
-				R: newColor.R * (m * m * m),
-				G: newColor.G * (m * m * m),
-				B: newColor.B * (m * m * m),
+				R: newColor.R * (m * m * m * m),
+				G: newColor.G * (m * m * m * m),
+				B: newColor.B * (m * m * m * m),
 				A: newColor.A,
 			}
 			NewTriangle := TriangleSimple{
@@ -2171,6 +2510,8 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 				reflection:      reflection,
 				specular:        specular,
 				directToScatter: directToScatter,
+				Roughness:       roughness,
+				Metallic:        metallic,
 			}
 			node.Triangles = NewTriangle
 			return true
@@ -2180,8 +2521,8 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 	}
 
 	// Traverse the left and right child nodes
-	leftHit := findIntersectionAndSetColor(node.Left, ray, newColor, reflection, specular, directToScatter, multiplayer)
-	rightHit := findIntersectionAndSetColor(node.Right, ray, newColor, reflection, specular, directToScatter, multiplayer)
+	leftHit := findIntersectionAndSetColor(node.Left, ray, newColor, reflection, specular, directToScatter, multiplayer, roughness, metallic)
+	rightHit := findIntersectionAndSetColor(node.Right, ray, newColor, reflection, specular, directToScatter, multiplayer, roughness, metallic)
 
 	return leftHit || rightHit
 }
@@ -2394,7 +2735,7 @@ func (g *Game) Update() error {
 			PrecomputeScreenSpaceCoordinatesSphere(g.camera)
 		} else {
 			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mouseX >= 0 && mouseY >= 0 && mouseX < screenWidth/2 && mouseY < screenHeight/2 {
-				findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier)
+				findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier, g.roughness, g.metallic)
 			}
 		}
 
@@ -2419,6 +2760,7 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			c := ebitenImg.At(x, y).(color.RGBA)
+			c = color.RGBA{c.R, c.G, c.B, 255}
 			rgba.Set(x, y, c)
 		}
 	}
@@ -2511,10 +2853,21 @@ var (
 		Options:   []string{"No", "Yes", "Show"},
 		Selected:  0,
 		Width:     400,
-		Height:    50,
-		Padding:   10,
+		Height:    25,
+		Padding:   5,
 		PositionX: 0,
 		PositionY: 300,
+	}
+
+	renderVersion = Options{
+		Header:    "Render Version",
+		Options:   []string{"V1", "V2"},
+		Selected:  1,
+		Width:     400,
+		Height:    25,
+		Padding:   5,
+		PositionX: 0,
+		PositionY: 325,
 	}
 )
 
@@ -2533,6 +2886,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	/// Clear the current frame
 	g.currentFrame.Clear()
+
 	fps := ebiten.ActualFPS()
 
 	// Perform path tracing and draw rays into the current frame
@@ -2553,25 +2907,34 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	if renderFrame.Selected == 1 {
 		// Draw the frame
+		Blocks := MakeNewBlocks(g.scaleFactor / 2)
 
-		renderedFrame := DrawRaysHDR(g.camera, g.light, g.scaleFactor, scatter*2, depth)
-
-		// Save the frame as a PNG
-		filename := fmt.Sprintf("frame_%d.png", rand.Int31())
-		if err := saveEbitenImageAsPNG(renderedFrame, filename); err != nil {
-			fmt.Println("Error saving frame as PNG:", err)
+		if renderVersion.Selected == 0 {
+			DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter * 8, depth, Blocks)
 		} else {
-			fmt.Printf("Frame saved as %s\n", filename)
+			DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter * 8, depth, Blocks)
 		}
-		g.renderedFrame = renderedFrame
+		for _, block := range g.BlocksImage {
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(float64(block.startX), float64(block.startY))
+			g.currentFrame.DrawImage(block.image, op)
+		}
+
 		renderFrame.Selected = 0
+
+		randomNumber := rand.Intn(100000)
+		saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("rendered_frame_%d.png", randomNumber))
 	}
 
 	// start := time.Now()
 	// DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
 	// elapsed := time.Since(start)
 	// start = time.Now()
-	DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+	if renderVersion.Selected == 0 {
+		DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+	} else {
+		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+	}
 	// elapsed2 := time.Since(start)
 
 	// SpeedUp += float64(elapsed.Nanoseconds()) - float64(elapsed2.Nanoseconds())
@@ -2594,7 +2957,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		// Only update GUI if needed
 		if guiNeedsUpdate {
 			GUI.Clear()
-			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter, &g.ColorMultiplier)
+			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter, &g.ColorMultiplier, &g.roughness, &g.metallic)
 			SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
@@ -2602,6 +2965,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			SelectOption(&rayMarching, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&performanceOptions, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&renderFrame, GUI, mouseX, mouseY, mousePressed)
+			SelectOption(&renderVersion, GUI, mouseX, mouseY, mousePressed)
 
 			guiNeedsUpdate = false
 			if screenResolution.Selected == 0 {
@@ -2651,6 +3015,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// 	g.currentFrame.DrawImage(subImage, op)
 	// }
 
+	g.previousFrame = g.currentFrame
+
 	for _, block := range g.BlocksImage {
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Translate(float64(block.startX), float64(block.startY))
@@ -2667,10 +3033,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
-	newFrame := ApplyShader(g.currentFrame, g.Shaders[0])
-
+	for _, shader := range g.Shaders {
+		g.currentFrame = ApplyShader(g.currentFrame, shader)
+	}
 	screen.DrawImage(g.currentFrame, mainOp)
-	screen.DrawImage(newFrame, mainOp)
 
 	if renderFrame.Selected == 2 {
 		// Draw the render
@@ -2800,24 +3166,57 @@ var FrameCount int
 type Shader struct {
 	shader  *ebiten.Shader
 	options map[string]interface{}
+	amount  float32
 }
 
 func ApplyShader(image *ebiten.Image, shader Shader) *ebiten.Image {
+	if image == nil {
+		return nil
+	}
+
 	newImage := ebiten.NewImageFromImage(image)
-	Opts := &ebiten.DrawRectShaderOptions{}
-	Opts.Images[0] = image
-	Opts.Uniforms = shader.options
+	opts := &ebiten.DrawRectShaderOptions{}
+	opts.Images[0] = image
+	// modify the shader options
+	// r := rand.Float32()
+	shader.options["Alpha"] = shader.amount
+	opts.Uniforms = shader.options
 
 	// Apply the shader
 	newImage.DrawRectShader(
 		newImage.Bounds().Dx(),
 		newImage.Bounds().Dy(),
 		shader.shader,
-		Opts,
+		opts,
 	)
 
 	return newImage
 }
+
+// func ApplyMixShader(currentFrame *ebiten.Image, image *ebiten.Image, shader Shader, shaderMix *ebiten.Shader) *ebiten.Image {
+// 	if image == nil {
+// 		return nil
+// 	}
+
+// 	newImage := ebiten.NewImageFromImage(image)
+// 	opts := &ebiten.DrawRectShaderOptions{}
+// 	opts.Images[0] = image
+// 	opts.Images[1] = currentFrame
+// 	opts.Uniforms = map[string]interface{}{
+// 		"Type":   shader.MixType,
+// 		"Amount": shader.amount,
+// 	}
+
+// 	// Apply the shader
+// 	newImage.DrawRectShader(
+// 		newImage.Bounds().Dx(),
+// 		newImage.Bounds().Dy(),
+// 		shader.shader,
+// 		opts,
+// 	)
+
+// 	return newImage
+// }
 
 type Game struct {
 	xyzLock              bool
@@ -2828,6 +3227,7 @@ type Game struct {
 	light                Light
 	scaleFactor          int
 	currentFrame         *ebiten.Image
+	averageFramesShader  *ebiten.Shader
 	// ditherColor      *ebiten.Shader
 	// ditherGrayScale  *ebiten.Shader
 	// bloomShader      *ebiten.Shader
@@ -2843,6 +3243,9 @@ type Game struct {
 	renderedFrame   *ebiten.Image
 	BlocksImage     []BlocksImage
 	Shaders         []Shader
+	mixShader       *ebiten.Shader
+	roughness       float32
+	metallic        float32
 	// RayMarchShader  *ebiten.Shader
 	// TriangleShader         *ebiten.Shader
 }
@@ -2893,14 +3296,25 @@ func MakeNewBlocks(scaling int) []BlocksImage {
 }
 
 func main() {
-	// src, err := LoadShader("shaders/ditherColor.kage")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// ditherShaderColor, err := ebiten.NewShader(src)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	src, err := LoadShader("shaders/ditherColor.kage")
+	if err != nil {
+		panic(err)
+	}
+	ditherShaderColor, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Shader:", ditherShaderColor)
+
+	src, err = LoadShader("shaders/Mix.kage")
+	if err != nil {
+		panic(err)
+	}
+	mixShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
 
 	// src, err = LoadShader("shaders/ditherGray.kage")
 	// if err != nil {RotationMatrix
@@ -2919,16 +3333,16 @@ func main() {
 	// }
 	// fmt.Println("Shader:", rayCasterShader)
 
-	// src, err = LoadShader("shaders/bloom.kage")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// bloomShader, err := ebiten.NewShader(src)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	src, err = LoadShader("shaders/bloom.kage")
+	if err != nil {
+		panic(err)
+	}
+	bloomShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
 
-	src, err := LoadShader("shaders/contrast.kage")
+	src, err = LoadShader("shaders/contrast.kage")
 	if err != nil {
 		panic(err)
 	}
@@ -2969,6 +3383,16 @@ func main() {
 		panic(err)
 	}
 
+	src, err = LoadShader("shaders/AverageFrames.kage")
+	if err != nil {
+		panic(err)
+	}
+
+	averageFramesShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println("Shader:", rayMarchingShader)
 
 	fmt.Println("Shader:", sharpnessShader)
@@ -3003,7 +3427,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
-	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1, 1, 1}, intensity: 0.2}
+	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{100.0, 150.0, 110.0}, intensity: 1.0}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -3040,14 +3464,19 @@ func main() {
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
 		// bloomShader:     bloomShader,
+		mixShader:     mixShader,
 		currentFrame:  ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		previousFrame: ebiten.NewImage(screenWidth/scale, screenHeight/scale),
 		BlocksImage:   MakeNewBlocks(scale),
 		// RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
+		averageFramesShader: averageFramesShader,
 		Shaders: []Shader{
-			// Shader{shader: ditherShaderColor, options: map[string]interface{}{"BayerMatrix": bayerMatrix}},
-			Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5}},
+			Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5, "Alpha": 0.1}, amount: 0.1},
+			Shader{shader: tintShader, options: map[string]interface{}{"TintColor": []float32{0.2, 0.6, 0.1}, "TintStrength": 0.1, "Alpha": 1}, amount: 0.5},
+			// Shader{shader: ditherShaderColor, options: map[string]interface{}{"BayerMatrix": bayerMatrix, "Alpha": float32(0.5)}, amount: 1.0,},
+			Shader{shader: bloomShader, options: map[string]interface{}{"BloomThreshold": 0.45, "BloomIntensity": 2, "Alpha": 0.1}, amount: 0.1},
+			Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 1.0},
 		},
 	}
 

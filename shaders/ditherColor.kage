@@ -5,6 +5,7 @@ const screenHeight = 600
 
 // Bayer matrix for ordered dithering (4x4)
 var BayerMatrix [16]float
+var Alpha float
 
 func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
     // Retrieve the pixel color from the texture
@@ -22,27 +23,26 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 
     // Apply Bayer matrix dithering to each color channel
     if r > bayerValue {
-        r = 1.0
+        r = 1.0 * Alpha
     } else {
         r = 0.0
     }
 
     if g > bayerValue {
-        g = 1.0
+        g = 1.0 * Alpha
     } else {
         g = 0.0
     }
 
     if b > bayerValue {
-        b = 1.0
+        b = 1.0 * Alpha
     } else {
         b = 0.0
     }
 
-    a := 0.0
-    if r == 1.0 || g == 1.0 || b == 1.0 {
-        a = 1.0
+    if r == 0.0 && g == 0.0 && b == 0.0 {
+        return vec4(0.0, 0.0, 0.0, 0.0) // Return transparent black
     }
 
-    return vec4(r, g, b, a) // Return the dithered color
+    return vec4(r, g, b, Alpha) // Return the dithered color
 }

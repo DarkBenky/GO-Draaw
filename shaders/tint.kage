@@ -3,6 +3,7 @@ package main
 // Uniform variables to set the RGB tint and tint strength
 var TintColor vec3
 var TintStrength float
+var Alpha float
 
 func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
     // Get the original color of the pixel
@@ -13,6 +14,11 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 
     // Blend the original color with the tint color based on TintStrength
     resultColor := mix(originalColor, tint, TintStrength)
+
+    resultColor.r *= Alpha
+    resultColor.g *= Alpha
+    resultColor.b *= Alpha
+    resultColor.a = Alpha
 
     // Return the final tinted color
     return clamp(resultColor, 0.0, 1.0)

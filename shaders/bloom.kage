@@ -1,41 +1,62 @@
 package main
 
 var BloomThreshold float
+var BloomIntensity float
+var Alpha float
 
-func BoxBlur(texCoord vec2) vec4 {
+
+func BoxBlurPass(texCoord vec2, stepSize float) vec4 {
     color := vec4(0)
-
-    // Define offsets for a box blur
-    offsets := [8]vec2{
-        vec2(-1.0, -1.0), vec2(0.0, -1.0), vec2(1.0, -1.0),
-        vec2(-1.0, 0.0),                      vec2(1.0, 0.0),
-        vec2(-1.0, 1.0), vec2(0.0, 1.0), vec2(1.0, 1.0),
+    weight := 0.0
+    
+    for x := -2; x <= 2; x += 1 {
+        for y := -2; y <= 2; y += 1 {
+            offset := vec2(float(x), float(y)) * stepSize / imageSrcTextureSize()
+            sampleColor := imageSrc0At(texCoord + offset)
+            
+            // Distance-based weight
+            w := 1.0 - length(vec2(float(x), float(y))) * 0.2
+            if w > 0.0 {
+                color += sampleColor * w
+                weight += w
+            }
+        }
     }
+    
+    return color / weight
+}
 
-    // Sample the surrounding pixels
-    for i := 0; i < 8; i++ {
-        // Apply offset and sample the color
-        offset := offsets[i]
-        offsetCoord := texCoord + offset / imageSrcTextureSize()
-        color += imageSrc0At(offsetCoord)
-    }
-
-    // Return the average color
-    return color / 8.0
+func MultiPassBlur(texCoord vec2) vec4 {
+    // Multiple blur passes with increasing radius
+    blur1 := BoxBlurPass(texCoord, 1.0)
+    blur2 := BoxBlurPass(texCoord, 2.0)
+    blur3 := BoxBlurPass(texCoord, 4.0)
+    blur4 := BoxBlurPass(texCoord, 8.0)
+    blur5 := BoxBlurPass(texCoord, 16.0)
+    blur6 := BoxBlurPass(texCoord, 32.0)
+    blur7 := BoxBlurPass(texCoord, 64.0)
+    
+    // Combine blur passes with different weights
+    finalBlur := (blur1 * 0.8) + (blur2 * 0.7) +( blur3 * 0.6) + (blur4 * 0.5) + (blur5 * 0.4) + (blur6 * 0.3) + (blur7 * 0.2)
+    
+    return finalBlur
 }
 
 func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
     originalColor := imageSrc0At(texCoord)
 
-    // Calculate luminance
     luminance := originalColor.r * 0.2126 + originalColor.g * 0.7152 + originalColor.b * 0.0722
-
-    if luminance > BloomThreshold {
-        blurredBrightColor := BoxBlur(texCoord) // Use BoxBlur instead of GaussianBlur
-        // Mix original color with blurred color, ensuring we don't saturate
-        resultColor := originalColor + blurredBrightColor * 0.25
-        return clamp(resultColor, 0.0, 1.0) // Assuming clamp is a defined function
-    } else {
-        return originalColor
+    if luminance < BloomThreshold {
+        return vec4(0.0, 0.0, 0.0, 0.0)
     }
+    bloomColor := MultiPassBlur(texCoord)
+    // Combine original with bloom
+    resultColor := originalColor + bloomColor * BloomIntensity
+
+    resultColor.r *= Alpha
+    resultColor.g *= Alpha
+    resultColor.b *= Alpha
+    resultColor.a = Alpha
+    
+    return clamp(resultColor, 0.0, 1.0)
 }

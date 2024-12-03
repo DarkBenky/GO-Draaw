@@ -1,6 +1,7 @@
 # TODO List
 
 - [ ] Shader Menu
+  - [ ] Fix dither
 - [X] Fix the scaling of the Block based renderer
 - [ ] Enable to down scale number of triangles in mesh
 - [ ] *Important* RayTrace Enhance ([link](https://claude.ai/chat/d6805f99-cbcd-460d-89e4-c99f2b7493dc))

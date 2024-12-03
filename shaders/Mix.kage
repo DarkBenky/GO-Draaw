@@ -1,0 +1,24 @@
+package main
+
+var Type int
+var Amount float
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    color1 := imageSrc0At(texCoord)
+    color2 := imageSrc1At(texCoord)
+
+    if Type == 0 {
+        // Add the colors
+        blendedColor := color1 + color2 * Amount
+        return blendedColor
+    } else if Type == 1 {
+        // Subtract the colors
+        blendedColor := color1 - color2 * Amount
+        return blendedColor
+    } else {
+        // Average the colors
+        blendedColor := (color1 * (1.0 - Amount)) + (color2 * Amount)
+        return blendedColor
+    } 
+    
+}
