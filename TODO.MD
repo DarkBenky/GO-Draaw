@@ -1,6 +1,7 @@
 # TODO List
 
 - [ ] Shader Menu
+  - [ ] BlendModes ([link](https://www.sketch.com/blog/blend-modes/))
   - [ ] Fix dither
 - [X] Fix the scaling of the Block based renderer
 - [ ] Enable to down scale number of triangles in mesh
