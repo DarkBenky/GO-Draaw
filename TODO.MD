@@ -1,5 +1,10 @@
 # TODO List
 
+- [X] ***Important*** Use standard sqrt instead of math32 sqrt
+  - *Sources*
+    - ([link](https://github.com/DarkBenky/Vec3-vs-Vec4-bench))
+    - ([link](https://github.com/DarkBenky/FastSqrt-Test))
+  - [ ] More test like speed of math32 sin cos tan vs math lib
 - [ ] Shader Menu
   - [ ] BlendModes ([link](https://www.sketch.com/blog/blend-modes/))
   - [ ] Fix dither

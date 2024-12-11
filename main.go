@@ -242,7 +242,7 @@ type Vector struct {
 }
 
 func (v Vector) Length() float32 {
-	return math32.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
+	return float32(math.Sqrt(float64(v.x*v.x + v.y*v.y + v.z*v.z)))
 }
 
 func (v Vector) Add(v2 Vector) Vector {
@@ -266,7 +266,7 @@ func (v Vector) Cross(v2 Vector) Vector {
 }
 
 func (v Vector) Normalize() Vector {
-	magnitude := math32.Sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
+	magnitude := float32(math.Sqrt(float64(v.x*v.x + v.y*v.y + v.z*v.z)))
 	if magnitude == 0 {
 		return Vector{0, 0, 0}
 	}
@@ -1309,12 +1309,12 @@ func TraceRay(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 	vVec := intersection.Normal.Cross(uVec)
 
 	for i := 0; i < samples; i++ {
-		u := rand.Float32()
+		u := rand.Float64()
 		v := rand.Float32()
-		r := math32.Sqrt(u)
+		r := float32(math.Sqrt(u))
 		theta := 2 * math32.Pi * v
 
-		directionLocal := uVec.Mul(r * math32.Cos(theta)).Add(vVec.Mul(r * math32.Sin(theta))).Add(intersection.Normal.Mul(math32.Sqrt(1 - u)))
+		directionLocal := uVec.Mul(r * math32.Cos(theta)).Add(vVec.Mul(r * math32.Sin(theta))).Add(intersection.Normal.Mul(float32(math.Sqrt(1 - u))))
 
 		scatterRay := Ray{origin: intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001)), direction: directionLocal.Normalize()}
 
@@ -1510,9 +1510,9 @@ func TraceRayV3(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 
 	// Combine direct and indirect lighting
 	finalColor := ColorFloat32{
-		R: diffuseColor.R + specularColor.R + (directReflectionColor.R* intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
-		G: diffuseColor.G + specularColor.G + (directReflectionColor.G* intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
-		B: diffuseColor.B + specularColor.B + (directReflectionColor.B* intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
+		R: diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
+		G: diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
+		B: diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
 		A: intersection.Color.A,
 	}
 
@@ -1569,10 +1569,10 @@ func (v Vector) Perturb(normal Vector, roughness float32) Vector {
 }
 
 func SampleHemisphere(normal Vector) Vector {
-	u := rand.Float32()
+	u := rand.Float64()
 	v := rand.Float32()
 
-	r := math32.Sqrt(1.0 - u*u)
+	r := float32(math.Sqrt(float64(1.0 - u*u)))
 	theta := 2 * math32.Pi * v
 
 	x := r * math32.Cos(theta)
@@ -1588,7 +1588,7 @@ func SampleHemisphere(normal Vector) Vector {
 	bitangent := normal.Cross(tangent)
 
 	// Transform sample to world space
-	sampleDir := tangent.Mul(x).Add(bitangent.Mul(y)).Add(normal.Mul(z))
+	sampleDir := tangent.Mul(x).Add(bitangent.Mul(y)).Add(normal.Mul(float32(z)))
 
 	return sampleDir.Normalize()
 }
@@ -2126,7 +2126,7 @@ func DrawRaysBlock(camera Camera, light Light, scaling int, samples int, depth i
 
 func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
 	var wg sync.WaitGroup
-	for _ , block := range blocks {
+	for _, block := range blocks {
 		wg.Add(1)
 		go func(block BlocksImage) {
 			defer wg.Done()
@@ -2910,9 +2910,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		Blocks := MakeNewBlocks(g.scaleFactor / 2)
 
 		if renderVersion.Selected == 0 {
-			DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter * 8, depth, Blocks)
+			DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks)
 		} else {
-			DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter * 8, depth, Blocks)
+			DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks)
 		}
 		for _, block := range g.BlocksImage {
 			op := &ebiten.DrawImageOptions{}
