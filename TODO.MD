@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Hot realoding of shaders
 - [ ] Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
 - [ ] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
 - [ ] Fix Native Resolution
