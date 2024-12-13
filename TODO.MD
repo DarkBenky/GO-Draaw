@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Hot reloading of shaders
 - [X] ***Important*** Use standard sqrt instead of math32 sqrt
   - *Sources*
     - ([link](https://github.com/DarkBenky/Vec3-vs-Vec4-bench))
