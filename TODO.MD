@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Bloom based on gaussian blur
 - [ ] Shaders implementation of normal to rendered image https://chatgpt.com/c/675abf8e-582c-8004-816f-6544a1c45231
 - [ ] Hot reloading of shaders
 - [X] ***Important*** Use standard sqrt instead of math32 sqrt
