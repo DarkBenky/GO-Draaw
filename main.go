@@ -3164,14 +3164,37 @@ var BVH *BVHNode
 var FrameCount int
 
 type Shader struct {
-	shader  *ebiten.Shader
-	options map[string]interface{}
-	amount  float32
+	shader    *ebiten.Shader
+	options   map[string]interface{}
+	amount    float32
+	multipass int
 }
 
 func ApplyShader(image *ebiten.Image, shader Shader) *ebiten.Image {
 	if image == nil {
 		return nil
+	}
+
+	if shader.multipass > 1 {
+		for i := 0; i < shader.multipass; i++ {
+			newImage := ebiten.NewImageFromImage(image)
+			opts := &ebiten.DrawRectShaderOptions{}
+			opts.Images[0] = image
+			// modify the shader options
+			// r := rand.Float32()
+			shader.options["Alpha"] = shader.amount
+			opts.Uniforms = shader.options
+
+			// Apply the shader
+			newImage.DrawRectShader(
+				newImage.Bounds().Dx(),
+				newImage.Bounds().Dy(),
+				shader.shader,
+				opts,
+			)
+			image = newImage
+		}
+		return image
 	}
 
 	newImage := ebiten.NewImageFromImage(image)
@@ -3427,7 +3450,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
-	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{100.0, 150.0, 110.0}, intensity: 1.0}
+	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1.0, 1.0, 1.0}, intensity: 1.0}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -3475,8 +3498,8 @@ func main() {
 			Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5, "Alpha": 0.1}, amount: 0.1},
 			Shader{shader: tintShader, options: map[string]interface{}{"TintColor": []float32{0.2, 0.6, 0.1}, "TintStrength": 0.1, "Alpha": 1}, amount: 0.5},
 			// Shader{shader: ditherShaderColor, options: map[string]interface{}{"BayerMatrix": bayerMatrix, "Alpha": float32(0.5)}, amount: 1.0,},
-			Shader{shader: bloomShader, options: map[string]interface{}{"BloomThreshold": 0.45, "BloomIntensity": 2, "Alpha": 0.1}, amount: 0.1},
-			Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 1.0},
+			Shader{shader: bloomShader, options: map[string]interface{}{"BloomThreshold": 0.05, "BloomIntensity": 1.1, "Alpha": 1.0}, amount: 0.5, multipass: 3},
+			Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 0.2},
 		},
 	}
 

@@ -31,13 +31,9 @@ func MultiPassBlur(texCoord vec2) vec4 {
     blur1 := BoxBlurPass(texCoord, 1.0)
     blur2 := BoxBlurPass(texCoord, 2.0)
     blur3 := BoxBlurPass(texCoord, 4.0)
-    blur4 := BoxBlurPass(texCoord, 8.0)
-    blur5 := BoxBlurPass(texCoord, 16.0)
-    blur6 := BoxBlurPass(texCoord, 32.0)
-    blur7 := BoxBlurPass(texCoord, 64.0)
     
     // Combine blur passes with different weights
-    finalBlur := (blur1 * 0.8) + (blur2 * 0.7) +( blur3 * 0.6) + (blur4 * 0.5) + (blur5 * 0.4) + (blur6 * 0.3) + (blur7 * 0.2)
+    finalBlur := (blur1 * 0.5) + (blur2 * 0.3) +( blur3 * 0.3)
     
     return finalBlur
 }
@@ -51,12 +47,22 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
     }
     bloomColor := MultiPassBlur(texCoord)
     // Combine original with bloom
-    resultColor := originalColor + bloomColor * BloomIntensity
+    resultColor := (originalColor + bloomColor) * BloomIntensity
+
+    if resultColor.r > 1.0 {
+        resultColor.r = 1.0
+    }
+    if resultColor.g > 1.0 {
+        resultColor.g = 1.0
+    }
+    if resultColor.b > 1.0 {
+        resultColor.b = 1.0
+    }
 
     resultColor.r *= Alpha
     resultColor.g *= Alpha
     resultColor.b *= Alpha
     resultColor.a = Alpha
     
-    return clamp(resultColor, 0.0, 1.0)
+    return resultColor
 }
