@@ -11,6 +11,7 @@
 - [ ] Crete assets for GUI
 - [ ] Try go ASM or SIMD for vector operations
 - [ ] Convert BVH to array based on the Benchmarks ([link](https://github.com/DarkBenky/testBinaryTree))
+  - [ ] Use unsafe for better performance **2X** ([link](https://github.com/DarkBenky/Go-unsafe))
 - [ ] Implement Ray marching
   - [ ] Implement Intersection Union ([link](https://youtu.be/Cp5WWtMoeKg?si=g1ZjOuq3KzzEET3s&t=128))
   - [ ] Implement Different shapes (Cube...)
