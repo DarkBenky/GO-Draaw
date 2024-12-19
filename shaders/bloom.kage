@@ -5,32 +5,37 @@ var BloomIntensity float
 var Alpha float
 
 
-func BoxBlurPass(texCoord vec2, stepSize float) vec4 {
+// Gaussian weight calculation
+func GaussianWeight(x float, y float, sigma float) float {
+    return exp(-(x*x + y*y) / (2.0 * sigma * sigma)) / (2.0 * 3.14 * sigma * sigma)
+}
+
+func GaussianBlurPass(texCoord vec2, sigma float) vec4 {
     color := vec4(0)
     weight := 0.0
     
     for x := -2; x <= 2; x += 1 {
         for y := -2; y <= 2; y += 1 {
-            offset := vec2(float(x), float(y)) * stepSize / imageSrcTextureSize()
+            offset := vec2(float(x), float(y)) / imageSrcTextureSize()
             sampleColor := imageSrc0At(texCoord + offset)
             
-            // Distance-based weight
-            w := 1.0 - length(vec2(float(x), float(y))) * 0.2
-            if w > 0.0 {
-                color += sampleColor * w
-                weight += w
+            // Calculate Gaussian weight
+            w := GaussianWeight(float(x), float(y), sigma)
+            color += sampleColor * w
+            weight += w
             }
         }
-    }
-    
+
     return color / weight
 }
+    
+    
 
 func MultiPassBlur(texCoord vec2) vec4 {
     // Multiple blur passes with increasing radius
-    blur1 := BoxBlurPass(texCoord, 1.0)
-    blur2 := BoxBlurPass(texCoord, 2.0)
-    blur3 := BoxBlurPass(texCoord, 4.0)
+    blur1 := GaussianBlurPass(texCoord, 1.0)
+    blur2 := GaussianBlurPass(texCoord, 2.0)
+    blur3 := GaussianBlurPass(texCoord, 4.0)
     
     // Combine blur passes with different weights
     finalBlur := (blur1 * 0.5) + (blur2 * 0.3) +( blur3 * 0.3)
