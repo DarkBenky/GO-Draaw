@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Create new GUI using Kage shader
 - [X] Multi pass Shaders
 - [ ] Shaders implementation of normal to rendered image https://chatgpt.com/c/675abf8e-582c-8004-816f-6544a1c45231
 - [ ] Hot realoding of shaders
