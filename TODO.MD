@@ -1,8 +1,9 @@
 # TODO List
 
 - [ ] Create new GUI using Kage shader
+  - [ ] or use this shader ([link](https://github.com/AllenDang/giu))
 - [X] Multi pass Shaders
-- [ ] Shaders implementation of normal to rendered image https://chatgpt.com/c/675abf8e-582c-8004-816f-6544a1c45231
+- [ ] Shaders implementation of normal to rendered image ([link](https://chatgpt.com/c/675abf8e-582c-8004-816f-6544a1c45231))
 - [ ] Hot realoding of shaders
 - [ ] Implement Voxel based rendering for smoke fog etc. ([link](https://www.youtube.com/watch?v=ryB8hT5TMSg))
 - [ ] Try converting lighting to type int16 or int32 to be able have emissive material and remove the light sours
