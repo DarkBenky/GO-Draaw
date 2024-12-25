@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Add Hardware info to benchmarks
 - [ ] Create new GUI using Kage shader
   - [ ] or use this shader ([link](https://github.com/AllenDang/giu))
 - [X] Multi pass Shaders
