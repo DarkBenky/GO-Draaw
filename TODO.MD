@@ -1,6 +1,7 @@
 # TODO List
 
-- [ ] check if code containes integer modulus because it kills preformance
+- [X] check if code containes integer modulus because it kills preformance
+  - ***Note*** Result of benchmark shows that it was wrong idea ([link](https://github.com/DarkBenky/int-vs-float-mod))
 - [ ] Add Hardware info to benchmarks
 - [ ] Create new GUI using Kage shader
   - [ ] or use this shader ([link](https://github.com/AllenDang/giu))
