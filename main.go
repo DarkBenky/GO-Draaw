@@ -41,6 +41,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/mem"
 )
 
 const screenWidth = 800
@@ -53,7 +55,7 @@ var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 const maxDepth = 16
 const numCPU = 16
 
-const Benchmark = false
+const Benchmark = true
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -1693,6 +1695,7 @@ func SampleHemisphere(normal Vector) Vector {
 	r := float32(math.Sqrt(float64(1.0 - u*u)))
 	theta := 2 * math32.Pi * v
 
+	// test fast approximation of cos(theta) and sin(theta)
 	x := r * math32.Cos(theta)
 	y := r * math32.Sin(theta)
 	z := u
@@ -2832,10 +2835,39 @@ func writeCSV(filename string, data [][]string) error {
 	return nil
 }
 
+func getSystemInfo() (string, int, float64, uint64, error) {
+	// Get CPU information
+	cpuInfo, err := cpu.Info()
+	if err != nil {
+		return "", 0, 0, 0, err
+	}
+
+	if len(cpuInfo) == 0 {
+		return "", 0, 0, 0, fmt.Errorf("no CPU information available")
+	}
+
+	cpuName := cpuInfo[0].ModelName
+	clockSpeed := cpuInfo[0].Mhz / 1000 // Convert MHz to GHz
+	numCores := len(cpuInfo)           // Logical cores
+
+	// Get RAM information
+	memInfo, err := mem.VirtualMemory()
+	if err != nil {
+		return "", 0, 0, 0, err
+	}
+	totalRAM := memInfo.Total / (1024 * 1024 * 1024) // Convert bytes to GB
+
+	return cpuName, numCores, clockSpeed, totalRAM, nil
+}
+
+
 func dumpBenchmarkData() error {
 	const csvFileName = "benchmark_results.csv"
 
 	fmt.Println("Starting benchmark data dump...")
+
+	// Get system information
+	cpuName, numCores, clockSpeed, totalRAM, err := getSystemInfo()
 
 	// Read the main.go code
 	code, err := os.ReadFile("main.go")
@@ -2900,6 +2932,11 @@ func dumpBenchmarkData() error {
 			records[i][2] = fmt.Sprintf("%.2f", newMinFPS)
 			records[i][3] = fmt.Sprintf("%.2f", newMaxFPS)
 			records[i][4] = fmt.Sprintf("%.2f", newMin10PercentFPS)
+			// add system information
+			records[i][5] = cpuName
+			records[i][6] = fmt.Sprintf("%d", numCores)
+			records[i][7] = fmt.Sprintf("%.2f", clockSpeed)
+			records[i][8] = fmt.Sprintf("%d", totalRAM)
 
 			// Write updated data back to CSV
 			return writeCSV(csvFileName, records)
@@ -2914,8 +2951,22 @@ func dumpBenchmarkData() error {
 		fmt.Sprintf("%.2f", MinFrameRate),    // Min FPS
 		fmt.Sprintf("%.2f", MaxFrameRate),    // Max FPS
 		fmt.Sprintf("%.2f", min10PercentFPS), // Min 15% FPS
+		cpuName,            // CPU
+		fmt.Sprintf("%d", numCores),           // Cores
+		fmt.Sprintf("%.2f", clockSpeed),       // Clock speed
+		fmt.Sprintf("%d", totalRAM),           // Total RAM
 	}
 	records = append(records, newRecord)
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("System Information")
+	fmt.Printf("CPU: %s\n", cpuName)
+	fmt.Printf("Cores: %d\n", numCores)
+	fmt.Printf("Clock Speed: %.2f GHz\n", clockSpeed)
+	fmt.Printf("Total RAM: %d GB\n", totalRAM)
 
 	// Write data back to CSV
 	return writeCSV(csvFileName, records)

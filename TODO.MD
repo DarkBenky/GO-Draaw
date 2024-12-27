@@ -1,5 +1,9 @@
 # TODO List
 
+- [ ] Crete benchmark to test optimal BVH structure for example (all in one array or only bbox and pointer or int to array of triangles)
+- [ ] Create new GUI using Kage shader
+  - [ ] or use this shader ([link](https://github.com/AllenDang/giu))
+- [X] HW info for benchmark
 - [x] Bloom based on gaussian blur
 - [ ] Shaders implementation of normal to rendered image ([Link](https://chatgpt.com/c/675abf8e-582c-8004-816f-6544a1c45231))
 - [ ] Hot reloading of shaders
@@ -13,11 +17,11 @@
   - [ ] Fix dither
 - [ ] Depth Map
 - [ ] Normal Map
-- [ ] HDR for normal renderer (Linear, Logarithmic)
+- [X] HDR for normal renderer (Linear, Logarithmic)
 - [X] Fix the scaling of the Block based renderer
 - [ ] Enable to down scale number of triangles in mesh
 - [ ] *Important* RayTrace Enhance ([link](https://claude.ai/chat/d6805f99-cbcd-460d-89e4-c99f2b7493dc))
-- [ ] *Important* Modes of rendering ( old renderer , physically accurate renderer , HDR renderer)
+- [X] *Important* Modes of rendering ( old renderer , physically accurate renderer , HDR renderer)
 - [X] *Optimization* (easy) sub image is size of full screen and each go routine will have random chunks of image
   - [X] test this optimization
     - Old : Current run - Average FPS: 189.80, Min FPS: 0.05, Max FPS: 234.29, Min 15% FPS: 10.60
