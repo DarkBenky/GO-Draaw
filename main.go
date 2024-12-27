@@ -2895,7 +2895,7 @@ func dumpBenchmarkData() error {
 
 	// Check if the code already exists in the CSV
 	for i, record := range records {
-		if len(record) > 0 && record[0] == codeString {
+		if len(record) > 0 && record[0] == codeString && cpuName == record[5] {
 			fmt.Println("Code already exists in CSV. Updating averages...")
 
 			// Parse existing FPS and framerate values
