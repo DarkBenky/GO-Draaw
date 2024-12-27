@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] check if code containes integer modulus because it kills preformance
 - [ ] Add Hardware info to benchmarks
 - [ ] Create new GUI using Kage shader
   - [ ] or use this shader ([link](https://github.com/AllenDang/giu))
