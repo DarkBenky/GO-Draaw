@@ -5,7 +5,7 @@
   - ***Note*** Result of benchmark shows that it was wrong idea ([link](https://github.com/DarkBenky/int-vs-float-mod))
 - [X] Add Hardware info to benchmarks
 - [ ] Create new GUI using Kage shader
-  - [ ] or use this shader ([link](https://github.com/AllenDang/giu))
+  - [X] or use this shader ([link](https://github.com/AllenDang/giu))
     - It is not compatable with enbiten
 - [X] Multi pass Shaders
 - [ ] Shaders implementation of normal to rendered image ([link](https://chatgpt.com/c/675abf8e-582c-8004-816f-6544a1c45231))
