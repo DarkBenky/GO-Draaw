@@ -55,7 +55,7 @@ var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 const maxDepth = 16
 const numCPU = 16
 
-const Benchmark = true
+const Benchmark = false
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -2848,7 +2848,7 @@ func getSystemInfo() (string, int, float64, uint64, error) {
 
 	cpuName := cpuInfo[0].ModelName
 	clockSpeed := cpuInfo[0].Mhz / 1000 // Convert MHz to GHz
-	numCores := len(cpuInfo)           // Logical cores
+	numCores := len(cpuInfo)            // Logical cores
 
 	// Get RAM information
 	memInfo, err := mem.VirtualMemory()
@@ -2860,14 +2860,10 @@ func getSystemInfo() (string, int, float64, uint64, error) {
 	return cpuName, numCores, clockSpeed, totalRAM, nil
 }
 
-
 func dumpBenchmarkData() error {
 	const csvFileName = "benchmark_results.csv"
 
 	fmt.Println("Starting benchmark data dump...")
-
-	// Get system information
-	cpuName, numCores, clockSpeed, totalRAM, err := getSystemInfo()
 
 	// Read the main.go code
 	code, err := os.ReadFile("main.go")
@@ -2888,6 +2884,9 @@ func dumpBenchmarkData() error {
 		return err
 	}
 	defer file.Close()
+
+	// Get system information
+	cpuName, numCores, clockSpeed, totalRAM, err := getSystemInfo()
 
 	fmt.Println("Reading existing benchmark results...")
 	reader := csv.NewReader(file)
@@ -2951,10 +2950,10 @@ func dumpBenchmarkData() error {
 		fmt.Sprintf("%.2f", MinFrameRate),    // Min FPS
 		fmt.Sprintf("%.2f", MaxFrameRate),    // Max FPS
 		fmt.Sprintf("%.2f", min10PercentFPS), // Min 15% FPS
-		cpuName,            // CPU
-		fmt.Sprintf("%d", numCores),           // Cores
-		fmt.Sprintf("%.2f", clockSpeed),       // Clock speed
-		fmt.Sprintf("%d", totalRAM),           // Total RAM
+		cpuName,                              // CPU
+		fmt.Sprintf("%d", numCores),          // Cores
+		fmt.Sprintf("%.2f", clockSpeed),      // Clock speed
+		fmt.Sprintf("%d", totalRAM),          // Total RAM
 	}
 	records = append(records, newRecord)
 
