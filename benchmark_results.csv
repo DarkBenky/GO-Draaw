@@ -7758,4 +7758,4 @@ func main() {
 		panic(err)
 	}
 }
-",278.68,0.08,346.27,19.70,AMD Ryzen 9 5950X 16-Core Processor,32,5.08,70
+",270.55,0.08,348.80,19.32,AMD Ryzen 9 5950X 16-Core Processor,32,5.08,70
