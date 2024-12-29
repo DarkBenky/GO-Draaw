@@ -55,7 +55,7 @@ var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 const maxDepth = 16
 const numCPU = 16
 
-const Benchmark = false
+const Benchmark = true
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
