@@ -1,11 +1,13 @@
 # TODO List
 
+- [ ] Fix Render frame
 - [ ] Crete benchmark to test optimal BVH structure for example (all in one array or only bbox and pointer or int to array of triangles)
 - [ ] Create new GUI using Kage shader
   - [X] or use this shader ([link](https://github.com/AllenDang/giu))
     - It is not compatable with enbiten
 - [X] HW info for benchmark
 - [x] Bloom based on gaussian blur
+- [ ] Depth of field effect (shader)
 - [ ] Shaders implementation of normal to rendered image ([Link](https://chatgpt.com/c/675abf8e-582c-8004-816f-6544a1c45231))
 - [ ] Hot reloading of shaders
 - [X] ***Important*** Use standard sqrt instead of math32 sqrt
