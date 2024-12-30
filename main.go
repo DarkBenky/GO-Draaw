@@ -3150,7 +3150,7 @@ var (
 	}
 
 	performanceOptions = Options{
-		Header:    "Preformance Options",
+		Header:    "Performance Options",
 		Options:   []string{"No", "Yes"},
 		Selected:  0,
 		Width:     400,
