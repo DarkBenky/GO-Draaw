@@ -3841,10 +3841,14 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
-	VoxelGrid := NewVoxelGrid(8, obj.BoundingBox[0], obj.BoundingBox[1])
-	VoxelGrid.CalculateLighting(64, 8, light, 0.1)
+	VoxelGrid := NewVoxelGrid(128, obj.BoundingBox[0], obj.BoundingBox[1])
+	VoxelGrid.CalculateLighting(8, 4, light, 0.1)
 
-	fmt.Println("VoxelGrid:", VoxelGrid)
+	// print some color values
+	for i := 0; i < 8; i++ {
+		fmt.Println(VoxelGrid.Blocks[i*8].LightColor)
+	}
+
 
 	subImages := make([]*ebiten.Image, numCPU)
 
