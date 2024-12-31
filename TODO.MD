@@ -1,5 +1,8 @@
 # TODO List
 
+- [ ] Finish Voxel renderer
+- [ ] Finish Backend + Frontend connection
+- [ ] Ability to save BVH / Voxel Volume
 - [ ] Fix Render frame
 - [ ] Crete benchmark to test optimal BVH structure for example (all in one array or only bbox and pointer or int to array of triangles)
 - [ ] Create new GUI using Kage shader

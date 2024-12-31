@@ -325,6 +325,15 @@ type ColorFloat32 struct {
 	R, G, B, A float32
 }
 
+func (c ColorFloat32) Average(c1 ColorFloat32) ColorFloat32 {
+	return ColorFloat32{
+		R: (c.R + c1.R) / 2,
+		G: (c.G + c1.G) / 2,
+		B: (c.B + c1.B) / 2,
+		A: (c.A + c1.A) / 2,
+	}
+}
+
 func (c ColorFloat32) MulScalar(scalar float32) ColorFloat32 {
 	return ColorFloat32{
 		R: c.R * scalar,
@@ -3685,8 +3694,9 @@ func MakeNewBlocksAdvance(scaling int) []BlocksImageAdvance {
 }
 
 func main() {
-	TestGetBlock(100_000)
-	TestGetBlockUnsafe(100_000)
+	// TestGetBlock(100_000)
+	// TestGetBlockUnsafe(100_000)
+
 
 
 	src, err := LoadShader("shaders/ditherColor.kage")
@@ -3831,6 +3841,11 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
+	VoxelGrid := NewVoxelGrid(8, obj.BoundingBox[0], obj.BoundingBox[1])
+	VoxelGrid.CalculateLighting(64, 8, light, 0.1)
+
+	fmt.Println("VoxelGrid:", VoxelGrid)
+
 	subImages := make([]*ebiten.Image, numCPU)
 
 	for i := range numCPU {
@@ -3922,6 +3937,20 @@ func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector) *VoxelGrid {
 	return &v
 }
 
+func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light, intensity float32) {
+	for i := range v.Blocks {
+		c := ColorFloat32{0, 0, 0, 0}
+		for j := 0; j < samples; j++ {
+			randomVector := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+			// calculate the light color
+			ray := Ray{origin: v.Blocks[i].Position, direction: randomVector}
+			c = c.Average(TraceRayV2(ray, depth, light, samples))
+		}
+		v.Blocks[i].LightColor = c
+		v.Blocks[i].Intensity = intensity
+	}
+}
+
 func (v *VoxelGrid) GetBlock(pos Vector) Block {
 	// find the block that contains the position
 	x := int((pos.x - v.BBMin.x) / (v.BBMax.x - v.BBMin.x) * float32(v.Resolution))
@@ -3955,6 +3984,25 @@ func NewUnsafeVoxelGrid(resolution int, minBB, maxBB Vector) *UnsafeVoxelGrid {
 	}
 }
 
+func (v *UnsafeVoxelGrid)CalculateLightingUnsafe(samples int, depth int, light Light, intensity float32) {
+	for i := 0; i < v.Resolution; i++ {
+		for j := 0; j < v.Resolution; j++ {
+			for k := 0; k < v.Resolution; k++ {
+				offset := i + j*v.Resolution + k*v.Resolution*v.Resolution
+				c := ColorFloat32{0, 0, 0, 0}
+				for l := 0; l < samples; l++ {
+					randomVector := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+					// calculate the light color
+					ray := Ray{origin: (*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{})))).Position, direction: randomVector}
+					c = c.Average(TraceRayV2(ray, depth, light, samples))
+				}
+				(*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{})))).LightColor = c
+				(*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{})))).Intensity = intensity
+			}
+		}
+	}
+}
+
 func (v *UnsafeVoxelGrid) GetBlock(pos Vector) *Block {
 	x := int((pos.x - v.BBMin.x) / (v.BBMax.x - v.BBMin.x) * float32(v.Resolution))
 	y := int((pos.y - v.BBMin.y) / (v.BBMax.y - v.BBMin.y) * float32(v.Resolution))
@@ -3982,7 +4030,6 @@ func TestGetBlock(samples int) {
 	elapsed := time.Since(start)
 	fmt.Println("GetBlock:", elapsed)
 }
-
 
 func TestGetBlockUnsafe(samples int) {
 	// create a new voxel grid
