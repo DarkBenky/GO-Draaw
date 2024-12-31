@@ -34,6 +34,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"image/draw"
 
@@ -3320,6 +3321,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Scale the main render
 	mainOp := &ebiten.DrawImageOptions{}
+	mainOp.Filter = ebiten.FilterLinear
 
 	if !fullScreen {
 		mainOp.GeoM.Scale(
@@ -3683,6 +3685,10 @@ func MakeNewBlocksAdvance(scaling int) []BlocksImageAdvance {
 }
 
 func main() {
+	TestGetBlock(100_000)
+	TestGetBlockUnsafe(100_000)
+
+
 	src, err := LoadShader("shaders/ditherColor.kage")
 	if err != nil {
 		panic(err)
@@ -3876,4 +3882,115 @@ func main() {
 	if err := ebiten.RunGame(game); err != nil {
 		panic(err)
 	}
+}
+
+// Voxel Smoke Simulation
+
+type Block struct {
+	Position   Vector
+	LightColor ColorFloat32
+	SmokeColor ColorFloat32
+	Intensity  float32
+}
+
+type VoxelGrid struct {
+	Blocks     []Block
+	BBMin      Vector
+	BBMax      Vector
+	Resolution int
+}
+
+func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector) *VoxelGrid {
+	xDiff := maxBB.x - minBB.x
+	yDiff := maxBB.y - minBB.y
+	zDiff := maxBB.z - minBB.z
+
+	xStep := xDiff / float32(resolution)
+	yStep := yDiff / float32(resolution)
+	zStep := zDiff / float32(resolution)
+
+	v := VoxelGrid{Resolution: resolution, BBMin: minBB, BBMax: maxBB}
+
+	for x := 0; x < resolution; x++ {
+		for y := 0; y < resolution; y++ {
+			for z := 0; z < resolution; z++ {
+				v.Blocks = append(v.Blocks, Block{Position: Vector{minBB.x + float32(x)*xStep, minBB.y + float32(y)*yStep, minBB.z + float32(z)*zStep}})
+			}
+		}
+	}
+
+	return &v
+}
+
+func (v *VoxelGrid) GetBlock(pos Vector) Block {
+	// find the block that contains the position
+	x := int((pos.x - v.BBMin.x) / (v.BBMax.x - v.BBMin.x) * float32(v.Resolution))
+	y := int((pos.y - v.BBMin.y) / (v.BBMax.y - v.BBMin.y) * float32(v.Resolution))
+	z := int((pos.z - v.BBMin.z) / (v.BBMax.z - v.BBMin.z) * float32(v.Resolution))
+
+	return v.Blocks[x+y*v.Resolution+z*v.Resolution*v.Resolution]
+}
+
+// func (v *VoxelGrid) SetBlock(x, y, z int, block Block) {
+// 	v.Blocks[x+y*v.Resolution+z*v.Resolution*v.Resolution] = block
+// }
+
+// Unsafe Voxel Grid
+
+type UnsafeVoxelGrid struct {
+	Blocks     unsafe.Pointer
+	BBMin      Vector
+	BBMax      Vector
+	Resolution int
+}
+
+func NewUnsafeVoxelGrid(resolution int, minBB, maxBB Vector) *UnsafeVoxelGrid {
+	size := resolution * resolution * resolution
+	data := make([]Block, size)
+	return &UnsafeVoxelGrid{
+		Blocks:     unsafe.Pointer(&data[0]),
+		Resolution: resolution,
+		BBMin:      minBB,
+		BBMax:      maxBB,
+	}
+}
+
+func (v *UnsafeVoxelGrid) GetBlock(pos Vector) *Block {
+	x := int((pos.x - v.BBMin.x) / (v.BBMax.x - v.BBMin.x) * float32(v.Resolution))
+	y := int((pos.y - v.BBMin.y) / (v.BBMax.y - v.BBMin.y) * float32(v.Resolution))
+	z := int((pos.z - v.BBMin.z) / (v.BBMax.z - v.BBMin.z) * float32(v.Resolution))
+
+	offset := x + y*v.Resolution + z*v.Resolution*v.Resolution
+	return (*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{}))))
+}
+
+// func (v *UnsafeVoxelGrid) SetBlock(x, y, z int, block Block) {
+// 	offset := x + y*v.Resolution + z*v.Resolution*v.Resolution
+// 	ptr := (*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{}))))
+// 	*ptr = block
+// }
+
+// test get block functions
+
+func TestGetBlock(samples int) {
+	// create a new voxel grid
+	v := NewVoxelGrid(100, Vector{0, 0, 0}, Vector{100, 100, 100})
+	start := time.Now()
+	for i := 0; i < samples; i++ {
+		_ = v.GetBlock(Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100})
+	}
+	elapsed := time.Since(start)
+	fmt.Println("GetBlock:", elapsed)
+}
+
+
+func TestGetBlockUnsafe(samples int) {
+	// create a new voxel grid
+	v := NewUnsafeVoxelGrid(100, Vector{0, 0, 0}, Vector{100, 100, 100})
+	start := time.Now()
+	for i := 0; i < samples; i++ {
+		_ = v.GetBlock(Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100})
+	}
+	elapsed := time.Since(start)
+	fmt.Println("GetBlockUnsafe:", elapsed)
 }
