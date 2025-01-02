@@ -1,6 +1,12 @@
 # TODO List
 
-- [ ] Volumetric Smoke
+- [ ] Finish Voxel renderer
+  - [ ] Implement Render Method
+  - [x] Implement Ray Between Sun and Point in Volume
+  - [ ] Add Baked Lighting from Volume
+  - [ ] Particle System
+- [ ] Finish Backend + Frontend connection
+- [ ] Ability to save BVH / Voxel Volume
 - [ ] Crete benchmark to test optimal BVH structure for example (all in one array or only bbox and pointer or int to array of triangles)
 - [X] check if code containes integer modulus because it kills preformance
   - ***Note*** Result of benchmark shows that it was wrong idea ([link](https://github.com/DarkBenky/int-vs-float-mod))
