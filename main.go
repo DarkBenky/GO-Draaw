@@ -533,7 +533,7 @@ func BuildBvhForSpheres(spheres []SphereSimple, maxDepth int) *RayMarchingBVH {
 var sphereBVH = RayMarchingBVH{}
 
 func IntersectBVH_RayMarching(bvh RayMarchingBVH, ray Ray) (bool, *SphereSimple) {
-	if !BoundingBoxCollision(bvh.BoundingBox, &ray) {
+	if !BoundingBoxCollision(bvh.BoundingBox, ray) {
 		return false, nil
 	}
 
@@ -709,28 +709,193 @@ func (t *TriangleSimple) CalculateNormal() {
 	t.Normal = edge1.Cross(edge2).Normalize()
 }
 
-func BoundingBoxCollision(BoundingBox [2]Vector, ray *Ray) bool {
-	// Precompute the inverse direction
-	invDirX := 1.0 / ray.direction.x
-	invDirY := 1.0 / ray.direction.y
-	invDirZ := 1.0 / ray.direction.z
+// func BoundingBoxCollision(BoundingBox [2]Vector, ray Ray) bool {
+// 	// Precompute the inverse direction
+// 	invDirX := 1.0 / ray.direction.x
+// 	invDirY := 1.0 / ray.direction.y
+// 	invDirZ := 1.0 / ray.direction.z
 
-	// Compute the tmin and tmax for each axis directly
-	tx1 := (BoundingBox[0].x - ray.origin.x) * invDirX
-	tx2 := (BoundingBox[1].x - ray.origin.x) * invDirX
-	tmin := min(tx1, tx2)
-	tmax := max(tx1, tx2)
+// 	// Compute the tmin and tmax for each axis directly
+// 	tx1 := (BoundingBox[0].x - ray.origin.x) * invDirX
+// 	tx2 := (BoundingBox[1].x - ray.origin.x) * invDirX
+// 	tmin := min(tx1, tx2)
+// 	tmax := max(tx1, tx2)
 
-	ty1 := (BoundingBox[0].y - ray.origin.y) * invDirY
-	ty2 := (BoundingBox[1].y - ray.origin.y) * invDirY
-	tmin = max(tmin, min(ty1, ty2))
-	tmax = min(tmax, max(ty1, ty2))
+// 	ty1 := (BoundingBox[0].y - ray.origin.y) * invDirY
+// 	ty2 := (BoundingBox[1].y - ray.origin.y) * invDirY
+// 	tmin = max(tmin, min(ty1, ty2))
+// 	tmax = min(tmax, max(ty1, ty2))
 
-	tz1 := (BoundingBox[0].z - ray.origin.z) * invDirZ
-	tz2 := (BoundingBox[1].z - ray.origin.z) * invDirZ
-	tmin = max(tmin, min(tz1, tz2))
-	tmax = min(tmax, max(tz1, tz2))
-	return tmax >= max(0.0, tmin)
+// 	tz1 := (BoundingBox[0].z - ray.origin.z) * invDirZ
+// 	tz2 := (BoundingBox[1].z - ray.origin.z) * invDirZ
+// 	tmin = max(tmin, min(tz1, tz2))
+// 	tmax = min(tmax, max(tz1, tz2))
+// 	return tmax >= max(0.0, tmin)
+// }
+
+func BoundingBoxCollision(BoundingBox [2]Vector, ray Ray) bool {
+    // Handle zero components in ray direction to avoid division by zero
+    const epsilon = 1e-7
+    
+    invDirX := float32(0)
+    invDirY := float32(0)
+    invDirZ := float32(0)
+    
+    // Precompute inverse directions with safety checks
+    if math32.Abs(ray.direction.x) > epsilon {
+        invDirX = 1.0 / ray.direction.x
+    }
+    if math32.Abs(ray.direction.y) > epsilon {
+        invDirY = 1.0 / ray.direction.y
+    }
+    if math32.Abs(ray.direction.z) > epsilon {
+        invDirZ = 1.0 / ray.direction.z
+    }
+    
+    // Store sign of inverse directions to optimize min/max operations
+    signX := invDirX < 0
+    signY := invDirY < 0
+    signZ := invDirZ < 0
+    
+    // Use sign to select bounds directly, avoiding branches
+    bounds := BoundingBox
+    var tmin, tmax float32
+    
+    if signX {
+        tmin = (bounds[1].x - ray.origin.x) * invDirX
+        tmax = (bounds[0].x - ray.origin.x) * invDirX
+    } else {
+        tmin = (bounds[0].x - ray.origin.x) * invDirX
+        tmax = (bounds[1].x - ray.origin.x) * invDirX
+    }
+    
+    if signY {
+        tymin := (bounds[1].y - ray.origin.y) * invDirY
+        tymax := (bounds[0].y - ray.origin.y) * invDirY
+        
+        // Early exit
+        if tmin > tymax || tymin > tmax {
+            return false
+        }
+        
+        tmin = math32.Max(tmin, tymin)
+        tmax = math32.Min(tmax, tymax)
+    } else {
+        tymin := (bounds[0].y - ray.origin.y) * invDirY
+        tymax := (bounds[1].y - ray.origin.y) * invDirY
+        
+        // Early exit
+        if tmin > tymax || tymin > tmax {
+            return false
+        }
+        
+        tmin = math32.Max(tmin, tymin)
+        tmax = math32.Min(tmax, tymax)
+    }
+    
+    if signZ {
+        tzmin := (bounds[1].z - ray.origin.z) * invDirZ
+        tzmax := (bounds[0].z - ray.origin.z) * invDirZ
+        
+        // Early exit
+        if tmin > tzmax || tzmin > tmax {
+            return false
+        }
+        
+        tmin = math32.Max(tmin, tzmin)
+        tmax = math32.Min(tmax, tzmax)
+    } else {
+        tzmin := (bounds[0].z - ray.origin.z) * invDirZ
+        tzmax := (bounds[1].z - ray.origin.z) * invDirZ
+        
+        // Early exit
+        if tmin > tzmax || tzmin > tmax {
+            return false
+        }
+        
+        tmin = math32.Max(tmin, tzmin)
+        tmax = math32.Min(tmax, tzmax)
+    }
+    
+    return tmax >= math32.Max(0.0, tmin)
+}
+
+func BoundingBoxCollisionEntryExitPoint(BBMin Vector, BBMax Vector, ray Ray) (hit bool, entry Vector, exit Vector) {
+    // Handle zero components in ray direction
+    invDirX := float32(0)
+    invDirY := float32(0)
+    invDirZ := float32(0)
+    
+    if ray.direction.x != 0 {
+        invDirX = 1.0 / ray.direction.x
+    }
+    if ray.direction.y != 0 {
+        invDirY = 1.0 / ray.direction.y
+    }
+    if ray.direction.z != 0 {
+        invDirZ = 1.0 / ray.direction.z
+    }
+
+    // Compute intersection with x-aligned slabs
+    tx1 := (BBMin.x - ray.origin.x) * invDirX
+    tx2 := (BBMax.x - ray.origin.x) * invDirX
+    tmin := min(tx1, tx2)
+    tmax := max(tx1, tx2)
+
+    // Compute intersection with y-aligned slabs
+    ty1 := (BBMin.y - ray.origin.y) * invDirY
+    ty2 := (BBMax.y - ray.origin.y) * invDirY
+    tymin := min(ty1, ty2)
+    tymax := max(ty1, ty2)
+
+    // Early exit
+    if tmin > tymax || tymin > tmax {
+        return false, Vector{}, Vector{}
+    }
+
+    if tymin > tmin {
+        tmin = tymin
+    }
+    if tymax < tmax {
+        tmax = tymax
+    }
+
+    // Compute intersection with z-aligned slabs
+    tz1 := (BBMin.z - ray.origin.z) * invDirZ
+    tz2 := (BBMax.z - ray.origin.z) * invDirZ
+    tzmin := min(tz1, tz2)
+    tzmax := max(tz1, tz2)
+
+    // Early exit
+    if tmin > tzmax || tzmin > tmax {
+        return false, Vector{}, Vector{}
+    }
+
+    if tzmin > tmin {
+        tmin = tzmin
+    }
+    if tzmax < tmax {
+        tmax = tzmax
+    }
+
+    // Check if intersection is behind the ray origin
+    if tmax < 0 {
+        return false, Vector{}, Vector{}
+    }
+
+    // Compute entry and exit points
+    entry = Vector{
+        x: ray.origin.x + tmin*ray.direction.x,
+        y: ray.origin.y + tmin*ray.direction.y,
+        z: ray.origin.z + tmin*ray.direction.z,
+    }
+    exit = Vector{
+        x: ray.origin.x + tmax*ray.direction.x,
+        y: ray.origin.y + tmax*ray.direction.y,
+        z: ray.origin.z + tmax*ray.direction.z,
+    }
+
+    return true, entry, exit
 }
 
 func BoundingBoxCollisionDistance(BoundingBox [2]Vector, ray Ray) (bool, float32) {
@@ -2756,7 +2921,7 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 	}
 
 	// Check if ray intersects the bounding box of the node
-	if !BoundingBoxCollision(node.BoundingBox, &ray) {
+	if !BoundingBoxCollision(node.BoundingBox, ray) {
 		return false
 	}
 
@@ -3262,6 +3427,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("rendered_frame_%d.png", randomNumber))
 	}
 
+	// Draw Voxel Grid
+
+	DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 16, g.VoxelGridBlocksImage, g.VoxelGrid)
+
 	// start := time.Now()
 	// DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
 	// elapsed := time.Since(start)
@@ -3389,6 +3558,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
 		// }
 		g.currentFrame.DrawImage(subImage, op)
+	}
+
+	for _, block := range g.VoxelGridBlocksImage {
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(float64(block.startX), float64(block.startY))
+		g.currentFrame.DrawImage(block.image, op)
 	}
 
 	for _, shader := range g.Shaders {
@@ -3598,13 +3773,13 @@ func ApplyShader(image *ebiten.Image, shader Shader) *ebiten.Image {
 type Game struct {
 	xyzLock              bool
 	cursorX, cursorY     int
-	subImages            []*ebiten.Image
 	subImagesRayMarching []*ebiten.Image
 	camera               Camera
 	light                Light
 	scaleFactor          int
 	currentFrame         *ebiten.Image
-	averageFramesShader  *ebiten.Shader
+	VoxelGridBlocksImage []BlocksImage
+	// averageFramesShader  *ebiten.Shader
 	// ditherColor      *ebiten.Shader
 	// ditherGrayScale  *ebiten.Shader
 	// bloomShader      *ebiten.Shader
@@ -3619,11 +3794,12 @@ type Game struct {
 	ColorMultiplier    float32
 	renderedFrame      *ebiten.Image
 	BlocksImage        []BlocksImage
+	VoxelGrid          *VoxelGrid
 	BlocksImageAdvance []BlocksImageAdvance
 	Shaders            []Shader
-	mixShader          *ebiten.Shader
-	roughness          float32
-	metallic           float32
+	// mixShader          *ebiten.Shader
+	roughness float32
+	metallic  float32
 	// RayMarchShader  *ebiten.Shader
 	// TriangleShader         *ebiten.Shader
 }
@@ -3697,8 +3873,6 @@ func main() {
 	// TestGetBlock(100_000)
 	// TestGetBlockUnsafe(100_000)
 
-
-
 	src, err := LoadShader("shaders/ditherColor.kage")
 	if err != nil {
 		panic(err)
@@ -3710,14 +3884,14 @@ func main() {
 
 	fmt.Println("Shader:", ditherShaderColor)
 
-	src, err = LoadShader("shaders/Mix.kage")
-	if err != nil {
-		panic(err)
-	}
-	mixShader, err := ebiten.NewShader(src)
-	if err != nil {
-		panic(err)
-	}
+	// src, err = LoadShader("shaders/Mix.kage")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// mixShader, err := ebiten.NewShader(src)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	// src, err = LoadShader("shaders/ditherGray.kage")
 	// if err != nil {RotationMatrix
@@ -3786,15 +3960,15 @@ func main() {
 		panic(err)
 	}
 
-	src, err = LoadShader("shaders/AverageFrames.kage")
-	if err != nil {
-		panic(err)
-	}
+	// src, err = LoadShader("shaders/AverageFrames.kage")
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	averageFramesShader, err := ebiten.NewShader(src)
-	if err != nil {
-		panic(err)
-	}
+	// averageFramesShader, err := ebiten.NewShader(src)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	fmt.Println("Shader:", rayMarchingShader)
 
@@ -3841,14 +4015,13 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
-	VoxelGrid := NewVoxelGrid(128, obj.BoundingBox[0], obj.BoundingBox[1])
-	VoxelGrid.CalculateLighting(8, 4, light, 0.1)
+	VoxelGrid := NewVoxelGrid(16, obj.BoundingBox[1], obj.BoundingBox[0])
+	VoxelGrid.CalculateLighting(8, 4, light, 1.5)
 
 	// print some color values
 	for i := 0; i < 8; i++ {
 		fmt.Println(VoxelGrid.Blocks[i*8].LightColor)
 	}
-
 
 	subImages := make([]*ebiten.Image, numCPU)
 
@@ -3868,7 +4041,6 @@ func main() {
 		xyzLock:              true,
 		cursorX:              screenHeight / 2,
 		cursorY:              screenWidth / 2,
-		subImages:            subImages,
 		subImagesRayMarching: subImagesRayMarching,
 		camera:               camera,
 		light:                light,
@@ -3876,14 +4048,16 @@ func main() {
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
 		// bloomShader:     bloomShader,
-		mixShader:          mixShader,
-		currentFrame:       ebiten.NewImage(screenWidth/scale, screenHeight/scale),
-		previousFrame:      ebiten.NewImage(screenWidth/scale, screenHeight/scale),
-		BlocksImage:        MakeNewBlocks(scale),
-		BlocksImageAdvance: MakeNewBlocksAdvance(scale),
+		// mixShader:          mixShader,
+		currentFrame:         ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		previousFrame:        ebiten.NewImage(screenWidth/scale, screenHeight/scale),
+		BlocksImage:          MakeNewBlocks(scale),
+		BlocksImageAdvance:   MakeNewBlocksAdvance(scale),
+		VoxelGridBlocksImage: MakeNewBlocks(scale),
+		VoxelGrid:            VoxelGrid,
 		// RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
-		averageFramesShader: averageFramesShader,
+		// averageFramesShader: averageFramesShader,
 		Shaders: []Shader{
 			Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5, "Alpha": 0.1}, amount: 0.1},
 			Shader{shader: tintShader, options: map[string]interface{}{"TintColor": []float32{0.2, 0.6, 0.1}, "TintStrength": 0.1, "Alpha": 1}, amount: 0.5},
@@ -3961,7 +4135,69 @@ func (v *VoxelGrid) GetBlock(pos Vector) Block {
 	y := int((pos.y - v.BBMin.y) / (v.BBMax.y - v.BBMin.y) * float32(v.Resolution))
 	z := int((pos.z - v.BBMin.z) / (v.BBMax.z - v.BBMin.z) * float32(v.Resolution))
 
-	return v.Blocks[x+y*v.Resolution+z*v.Resolution*v.Resolution]
+	// Ensure indices are within bounds
+	if x < 0 || x >= v.Resolution || y < 0 || y >= v.Resolution || z < 0 || z >= v.Resolution {
+		return Block{}
+	}
+
+	// Calculate the 1D index for the 3D grid
+	index := x + y*v.Resolution + z*v.Resolution*v.Resolution
+
+	// Return the block at the calculated index
+	return v.Blocks[index]
+}
+
+func (v *VoxelGrid) Intersect(ray Ray, steps int) (color ColorFloat32) {
+	// TODO : Implement Ray Between Sun and Point in Volume
+	hit, exit ,entry  := BoundingBoxCollisionEntryExitPoint(v.BBMin, v.BBMax, ray)
+	if !hit {
+		return ColorFloat32{0, 0, 0, 0}
+	}
+
+	// calculate the step size
+	stepSize := Vector{entry.x - exit.x, entry.y - exit.y, entry.z - exit.z}
+	stepSize = Vector{stepSize.x / float32(steps), stepSize.y / float32(steps), stepSize.z / float32(steps)}
+
+	for i := 0; i < steps; i++ {
+		block := v.GetBlock(Vector{entry.x + stepSize.x*float32(i), entry.y + stepSize.y*float32(i), entry.z + stepSize.z*float32(i)})
+		color = color.Add(block.LightColor.MulScalar(block.Intensity))
+	}
+	return color
+}
+
+func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid) {
+	var wg sync.WaitGroup
+	for i := 0; i < len(blocks); i++ {
+		wg.Add(1)
+		go func(blockIndex int) {
+			defer wg.Done()
+			block := blocks[blockIndex]
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, 100)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(i)
+	}
+
+	if performanceOptions.Selected == 0 {
+		wg.Wait()
+	}
 }
 
 // func (v *VoxelGrid) SetBlock(x, y, z int, block Block) {
@@ -3988,7 +4224,7 @@ func NewUnsafeVoxelGrid(resolution int, minBB, maxBB Vector) *UnsafeVoxelGrid {
 	}
 }
 
-func (v *UnsafeVoxelGrid)CalculateLightingUnsafe(samples int, depth int, light Light, intensity float32) {
+func (v *UnsafeVoxelGrid) CalculateLightingUnsafe(samples int, depth int, light Light, intensity float32) {
 	for i := 0; i < v.Resolution; i++ {
 		for j := 0; j < v.Resolution; j++ {
 			for k := 0; k < v.Resolution; k++ {
@@ -4014,6 +4250,58 @@ func (v *UnsafeVoxelGrid) GetBlock(pos Vector) *Block {
 
 	offset := x + y*v.Resolution + z*v.Resolution*v.Resolution
 	return (*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{}))))
+}
+
+func (v *UnsafeVoxelGrid) IntersectUnsafe(ray Ray, steps int) (color ColorFloat32) {
+	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMin, v.BBMax, ray)
+	if !hit {
+		return ColorFloat32{0, 0, 0, 0}
+	}
+
+	// calculate the step size
+	stepSize := Vector{entry.x - exit.x, entry.y - exit.y, entry.z - exit.z}
+	stepSize = Vector{stepSize.x / float32(steps), stepSize.y / float32(steps), stepSize.z / float32(steps)}
+
+	for i := 0; i < steps; i++ {
+		block := v.GetBlock(Vector{entry.x + stepSize.x*float32(i), entry.y + stepSize.y*float32(i), entry.z + stepSize.z*float32(i)})
+		color = color.Add(block.LightColor.MulScalar(block.Intensity))
+	}
+	return color
+}
+
+func DrawRaysBlockUnsafeVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *UnsafeVoxelGrid) {
+	var wg sync.WaitGroup
+	for i := 0; i < len(blocks); i++ {
+		wg.Add(1)
+		go func(blockIndex int) {
+			defer wg.Done()
+			block := blocks[blockIndex]
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := voxelGrid.IntersectUnsafe(Ray{origin: camera.Position, direction: rayDir}, 100)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(i)
+	}
+
+	if performanceOptions.Selected == 0 {
+		wg.Wait()
+	}
 }
 
 // func (v *UnsafeVoxelGrid) SetBlock(x, y, z int, block Block) {

@@ -1,6 +1,8 @@
 # TODO List
 
 - [ ] Finish Voxel renderer
+  - [ ] Implement Render Method
+  - [ ] Implement Ray Between Sun and Point in Volume
 - [ ] Finish Backend + Frontend connection
 - [ ] Ability to save BVH / Voxel Volume
 - [ ] Fix Render frame

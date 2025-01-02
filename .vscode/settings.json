@@ -9,6 +9,7 @@
         "imgui",
         "loadu",
         "pvec",
+        "tmax",
         "tmin",
         "tvec",
         "upscaled"
