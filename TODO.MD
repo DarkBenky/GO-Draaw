@@ -2,12 +2,14 @@
 
 - [ ] Finish Voxel renderer
   - [ ] Implement Render Method
-  - [ ] Implement Ray Between Sun and Point in Volume
+  - [x] Implement Ray Between Sun and Point in Volume
+  - [ ] Add Baked Lighting from Volume
+  - [ ] Particle System
 - [ ] Finish Backend + Frontend connection
 - [ ] Ability to save BVH / Voxel Volume
 - [ ] Fix Render frame
 - [ ] Crete benchmark to test optimal BVH structure for example (all in one array or only bbox and pointer or int to array of triangles)
-- [ ] Create new GUI using Kage shader
+- [X] Create new GUI using Kage shader
   - [X] or use this shader ([link](https://github.com/AllenDang/giu))
     - It is not compatable with enbiten
 - [X] HW info for benchmark
