@@ -343,6 +343,15 @@ func (c ColorFloat32) MulScalar(scalar float32) ColorFloat32 {
 	}
 }
 
+func (c ColorFloat32) Mul(c1 ColorFloat32) ColorFloat32 {
+	return ColorFloat32{
+		R: c.R * c1.R,
+		G: c.G * c1.G,
+		B: c.B * c1.B,
+		A: c.A,
+	}
+}
+
 func (c ColorFloat32) Add(c2 ColorFloat32) ColorFloat32 {
 	return ColorFloat32{c.R + c2.R, c.G + c2.G, c.B + c2.B, c.A + c2.A}
 }
@@ -734,168 +743,168 @@ func (t *TriangleSimple) CalculateNormal() {
 // }
 
 func BoundingBoxCollision(BoundingBox [2]Vector, ray Ray) bool {
-    // Handle zero components in ray direction to avoid division by zero
-    const epsilon = 1e-7
-    
-    invDirX := float32(0)
-    invDirY := float32(0)
-    invDirZ := float32(0)
-    
-    // Precompute inverse directions with safety checks
-    if math32.Abs(ray.direction.x) > epsilon {
-        invDirX = 1.0 / ray.direction.x
-    }
-    if math32.Abs(ray.direction.y) > epsilon {
-        invDirY = 1.0 / ray.direction.y
-    }
-    if math32.Abs(ray.direction.z) > epsilon {
-        invDirZ = 1.0 / ray.direction.z
-    }
-    
-    // Store sign of inverse directions to optimize min/max operations
-    signX := invDirX < 0
-    signY := invDirY < 0
-    signZ := invDirZ < 0
-    
-    // Use sign to select bounds directly, avoiding branches
-    bounds := BoundingBox
-    var tmin, tmax float32
-    
-    if signX {
-        tmin = (bounds[1].x - ray.origin.x) * invDirX
-        tmax = (bounds[0].x - ray.origin.x) * invDirX
-    } else {
-        tmin = (bounds[0].x - ray.origin.x) * invDirX
-        tmax = (bounds[1].x - ray.origin.x) * invDirX
-    }
-    
-    if signY {
-        tymin := (bounds[1].y - ray.origin.y) * invDirY
-        tymax := (bounds[0].y - ray.origin.y) * invDirY
-        
-        // Early exit
-        if tmin > tymax || tymin > tmax {
-            return false
-        }
-        
-        tmin = math32.Max(tmin, tymin)
-        tmax = math32.Min(tmax, tymax)
-    } else {
-        tymin := (bounds[0].y - ray.origin.y) * invDirY
-        tymax := (bounds[1].y - ray.origin.y) * invDirY
-        
-        // Early exit
-        if tmin > tymax || tymin > tmax {
-            return false
-        }
-        
-        tmin = math32.Max(tmin, tymin)
-        tmax = math32.Min(tmax, tymax)
-    }
-    
-    if signZ {
-        tzmin := (bounds[1].z - ray.origin.z) * invDirZ
-        tzmax := (bounds[0].z - ray.origin.z) * invDirZ
-        
-        // Early exit
-        if tmin > tzmax || tzmin > tmax {
-            return false
-        }
-        
-        tmin = math32.Max(tmin, tzmin)
-        tmax = math32.Min(tmax, tzmax)
-    } else {
-        tzmin := (bounds[0].z - ray.origin.z) * invDirZ
-        tzmax := (bounds[1].z - ray.origin.z) * invDirZ
-        
-        // Early exit
-        if tmin > tzmax || tzmin > tmax {
-            return false
-        }
-        
-        tmin = math32.Max(tmin, tzmin)
-        tmax = math32.Min(tmax, tzmax)
-    }
-    
-    return tmax >= math32.Max(0.0, tmin)
+	// Handle zero components in ray direction to avoid division by zero
+	const epsilon = 1e-7
+
+	invDirX := float32(0)
+	invDirY := float32(0)
+	invDirZ := float32(0)
+
+	// Precompute inverse directions with safety checks
+	if math32.Abs(ray.direction.x) > epsilon {
+		invDirX = 1.0 / ray.direction.x
+	}
+	if math32.Abs(ray.direction.y) > epsilon {
+		invDirY = 1.0 / ray.direction.y
+	}
+	if math32.Abs(ray.direction.z) > epsilon {
+		invDirZ = 1.0 / ray.direction.z
+	}
+
+	// Store sign of inverse directions to optimize min/max operations
+	signX := invDirX < 0
+	signY := invDirY < 0
+	signZ := invDirZ < 0
+
+	// Use sign to select bounds directly, avoiding branches
+	bounds := BoundingBox
+	var tmin, tmax float32
+
+	if signX {
+		tmin = (bounds[1].x - ray.origin.x) * invDirX
+		tmax = (bounds[0].x - ray.origin.x) * invDirX
+	} else {
+		tmin = (bounds[0].x - ray.origin.x) * invDirX
+		tmax = (bounds[1].x - ray.origin.x) * invDirX
+	}
+
+	if signY {
+		tymin := (bounds[1].y - ray.origin.y) * invDirY
+		tymax := (bounds[0].y - ray.origin.y) * invDirY
+
+		// Early exit
+		if tmin > tymax || tymin > tmax {
+			return false
+		}
+
+		tmin = math32.Max(tmin, tymin)
+		tmax = math32.Min(tmax, tymax)
+	} else {
+		tymin := (bounds[0].y - ray.origin.y) * invDirY
+		tymax := (bounds[1].y - ray.origin.y) * invDirY
+
+		// Early exit
+		if tmin > tymax || tymin > tmax {
+			return false
+		}
+
+		tmin = math32.Max(tmin, tymin)
+		tmax = math32.Min(tmax, tymax)
+	}
+
+	if signZ {
+		tzmin := (bounds[1].z - ray.origin.z) * invDirZ
+		tzmax := (bounds[0].z - ray.origin.z) * invDirZ
+
+		// Early exit
+		if tmin > tzmax || tzmin > tmax {
+			return false
+		}
+
+		tmin = math32.Max(tmin, tzmin)
+		tmax = math32.Min(tmax, tzmax)
+	} else {
+		tzmin := (bounds[0].z - ray.origin.z) * invDirZ
+		tzmax := (bounds[1].z - ray.origin.z) * invDirZ
+
+		// Early exit
+		if tmin > tzmax || tzmin > tmax {
+			return false
+		}
+
+		tmin = math32.Max(tmin, tzmin)
+		tmax = math32.Min(tmax, tzmax)
+	}
+
+	return tmax >= math32.Max(0.0, tmin)
 }
 
 func BoundingBoxCollisionEntryExitPoint(BBMin Vector, BBMax Vector, ray Ray) (hit bool, entry Vector, exit Vector) {
-    // Handle zero components in ray direction
-    invDirX := float32(0)
-    invDirY := float32(0)
-    invDirZ := float32(0)
-    
-    if ray.direction.x != 0 {
-        invDirX = 1.0 / ray.direction.x
-    }
-    if ray.direction.y != 0 {
-        invDirY = 1.0 / ray.direction.y
-    }
-    if ray.direction.z != 0 {
-        invDirZ = 1.0 / ray.direction.z
-    }
+	// Handle zero components in ray direction
+	invDirX := float32(0)
+	invDirY := float32(0)
+	invDirZ := float32(0)
 
-    // Compute intersection with x-aligned slabs
-    tx1 := (BBMin.x - ray.origin.x) * invDirX
-    tx2 := (BBMax.x - ray.origin.x) * invDirX
-    tmin := min(tx1, tx2)
-    tmax := max(tx1, tx2)
+	if ray.direction.x != 0 {
+		invDirX = 1.0 / ray.direction.x
+	}
+	if ray.direction.y != 0 {
+		invDirY = 1.0 / ray.direction.y
+	}
+	if ray.direction.z != 0 {
+		invDirZ = 1.0 / ray.direction.z
+	}
 
-    // Compute intersection with y-aligned slabs
-    ty1 := (BBMin.y - ray.origin.y) * invDirY
-    ty2 := (BBMax.y - ray.origin.y) * invDirY
-    tymin := min(ty1, ty2)
-    tymax := max(ty1, ty2)
+	// Compute intersection with x-aligned slabs
+	tx1 := (BBMin.x - ray.origin.x) * invDirX
+	tx2 := (BBMax.x - ray.origin.x) * invDirX
+	tmin := min(tx1, tx2)
+	tmax := max(tx1, tx2)
 
-    // Early exit
-    if tmin > tymax || tymin > tmax {
-        return false, Vector{}, Vector{}
-    }
+	// Compute intersection with y-aligned slabs
+	ty1 := (BBMin.y - ray.origin.y) * invDirY
+	ty2 := (BBMax.y - ray.origin.y) * invDirY
+	tymin := min(ty1, ty2)
+	tymax := max(ty1, ty2)
 
-    if tymin > tmin {
-        tmin = tymin
-    }
-    if tymax < tmax {
-        tmax = tymax
-    }
+	// Early exit
+	if tmin > tymax || tymin > tmax {
+		return false, Vector{}, Vector{}
+	}
 
-    // Compute intersection with z-aligned slabs
-    tz1 := (BBMin.z - ray.origin.z) * invDirZ
-    tz2 := (BBMax.z - ray.origin.z) * invDirZ
-    tzmin := min(tz1, tz2)
-    tzmax := max(tz1, tz2)
+	if tymin > tmin {
+		tmin = tymin
+	}
+	if tymax < tmax {
+		tmax = tymax
+	}
 
-    // Early exit
-    if tmin > tzmax || tzmin > tmax {
-        return false, Vector{}, Vector{}
-    }
+	// Compute intersection with z-aligned slabs
+	tz1 := (BBMin.z - ray.origin.z) * invDirZ
+	tz2 := (BBMax.z - ray.origin.z) * invDirZ
+	tzmin := min(tz1, tz2)
+	tzmax := max(tz1, tz2)
 
-    if tzmin > tmin {
-        tmin = tzmin
-    }
-    if tzmax < tmax {
-        tmax = tzmax
-    }
+	// Early exit
+	if tmin > tzmax || tzmin > tmax {
+		return false, Vector{}, Vector{}
+	}
 
-    // Check if intersection is behind the ray origin
-    if tmax < 0 {
-        return false, Vector{}, Vector{}
-    }
+	if tzmin > tmin {
+		tmin = tzmin
+	}
+	if tzmax < tmax {
+		tmax = tzmax
+	}
 
-    // Compute entry and exit points
-    entry = Vector{
-        x: ray.origin.x + tmin*ray.direction.x,
-        y: ray.origin.y + tmin*ray.direction.y,
-        z: ray.origin.z + tmin*ray.direction.z,
-    }
-    exit = Vector{
-        x: ray.origin.x + tmax*ray.direction.x,
-        y: ray.origin.y + tmax*ray.direction.y,
-        z: ray.origin.z + tmax*ray.direction.z,
-    }
+	// Check if intersection is behind the ray origin
+	if tmax < 0 {
+		return false, Vector{}, Vector{}
+	}
 
-    return true, entry, exit
+	// Compute entry and exit points
+	entry = Vector{
+		x: ray.origin.x + tmin*ray.direction.x,
+		y: ray.origin.y + tmin*ray.direction.y,
+		z: ray.origin.z + tmin*ray.direction.z,
+	}
+	exit = Vector{
+		x: ray.origin.x + tmax*ray.direction.x,
+		y: ray.origin.y + tmax*ray.direction.y,
+		z: ray.origin.z + tmax*ray.direction.z,
+	}
+
+	return true, entry, exit
 }
 
 func BoundingBoxCollisionDistance(BoundingBox [2]Vector, ray Ray) (bool, float32) {
@@ -1144,7 +1153,7 @@ type Intersection struct {
 }
 
 type Light struct {
-	Position  *Vector
+	Position  Vector
 	Color     *[3]float32
 	intensity float32
 }
@@ -3170,7 +3179,7 @@ func (g *Game) Update() error {
 	} else {
 
 		if snapLightToCamera.Selected == 1 {
-			g.light.Position = &g.camera.Position
+			g.light.Position = g.camera.Position
 		}
 
 		mouseX, mouseY := ebiten.CursorPosition()
@@ -3429,7 +3438,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Draw Voxel Grid
 
-	DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 16, g.VoxelGridBlocksImage, g.VoxelGrid)
+	DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light)
 
 	// start := time.Now()
 	// DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
@@ -3452,7 +3461,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// counter++
 
 	if !Benchmark && rayMarching.Selected == 1 {
-		DrawSpheres(g.camera, g.scaleFactor, 32, g.subImagesRayMarching, g.light)
+		DrawSpheres(g.camera, g.scaleFactor, 2, g.subImagesRayMarching, g.light)
 	}
 
 	// Handle GUI separately
@@ -4004,7 +4013,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
-	light := Light{Position: &Vector{0, 1500, 1000}, Color: &[3]float32{1.0, 1.0, 1.0}, intensity: 1.0}
+	light := Light{Position: Vector{0, 1500, 1000}, Color: &[3]float32{1.0, 1.0, 1.0}, intensity: 2.0}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -4015,8 +4024,8 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
-	VoxelGrid := NewVoxelGrid(16, obj.BoundingBox[1], obj.BoundingBox[0])
-	VoxelGrid.CalculateLighting(8, 4, light, 1.5)
+	VoxelGrid := NewVoxelGrid(256, Vector{100, 100, 200}, Vector{300, 400, 500}, ColorFloat32{225, 15, 180, 2}, 0.1)
+	// VoxelGrid.CalculateLighting(4, 1, light, 1.5)
 
 	// print some color values
 	for i := 0; i < 8; i++ {
@@ -4093,7 +4102,7 @@ type VoxelGrid struct {
 	Resolution int
 }
 
-func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector) *VoxelGrid {
+func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFloat32, intensity float32) *VoxelGrid {
 	xDiff := maxBB.x - minBB.x
 	yDiff := maxBB.y - minBB.y
 	zDiff := maxBB.z - minBB.z
@@ -4107,7 +4116,7 @@ func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector) *VoxelGrid {
 	for x := 0; x < resolution; x++ {
 		for y := 0; y < resolution; y++ {
 			for z := 0; z < resolution; z++ {
-				v.Blocks = append(v.Blocks, Block{Position: Vector{minBB.x + float32(x)*xStep, minBB.y + float32(y)*yStep, minBB.z + float32(z)*zStep}})
+				v.Blocks = append(v.Blocks, Block{Position: Vector{minBB.x + float32(x)*xStep, minBB.y + float32(y)*yStep, minBB.z + float32(z)*zStep}, SmokeColor: SmokeColor, Intensity: intensity})
 			}
 		}
 	}
@@ -4129,43 +4138,180 @@ func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light, inten
 	}
 }
 
-func (v *VoxelGrid) GetBlock(pos Vector) Block {
-	// find the block that contains the position
-	x := int((pos.x - v.BBMin.x) / (v.BBMax.x - v.BBMin.x) * float32(v.Resolution))
-	y := int((pos.y - v.BBMin.y) / (v.BBMax.y - v.BBMin.y) * float32(v.Resolution))
-	z := int((pos.z - v.BBMin.z) / (v.BBMax.z - v.BBMin.z) * float32(v.Resolution))
+func (v *VoxelGrid) GetBlock(pos Vector) (Block, bool) {
+	xStep := (v.BBMax.x - v.BBMin.x) / float32(v.Resolution)
+	yStep := (v.BBMax.y - v.BBMin.y) / float32(v.Resolution)
+	zStep := (v.BBMax.z - v.BBMin.z) / float32(v.Resolution)
+
+	x := int((pos.x - v.BBMin.x) / xStep)
+	y := int((pos.y - v.BBMin.y) / yStep)
+	z := int((pos.z - v.BBMin.z) / zStep)
 
 	// Ensure indices are within bounds
 	if x < 0 || x >= v.Resolution || y < 0 || y >= v.Resolution || z < 0 || z >= v.Resolution {
-		return Block{}
+		return Block{}, false
 	}
 
 	// Calculate the 1D index for the 3D grid
 	index := x + y*v.Resolution + z*v.Resolution*v.Resolution
 
 	// Return the block at the calculated index
-	return v.Blocks[index]
+	return v.Blocks[index], true
 }
 
-func (v *VoxelGrid) Intersect(ray Ray, steps int) (color ColorFloat32) {
-	// TODO : Implement Ray Between Sun and Point in Volume
-	hit, exit ,entry  := BoundingBoxCollisionEntryExitPoint(v.BBMin, v.BBMax, ray)
+// func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) (color ColorFloat32) {
+// 	// TODO : Implement Ray Between Sun and Point in Volume
+// 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+
+// 	// check if entry is bigger than exit and swap them
+// 	if entry.x > exit.x {
+// 		entry.x , exit.x = exit.x, entry.x
+// 	}
+// 	if entry.y > exit.y {
+// 		entry.y , exit.y = exit.y, entry.y
+// 	}
+// 	if entry.z > exit.z {
+// 		entry.z , exit.z = exit.z, entry.z
+// 	}
+
+// 	if !hit {
+// 		return ColorFloat32{0, 0, 0, 0}
+// 	}
+
+// 	// calculate the step size
+// 	stepSize := Vector{entry.x - exit.x, entry.y - exit.y, entry.z - exit.z}
+// 	stepSize = Vector{stepSize.x / float32(steps), stepSize.y / float32(steps), stepSize.z / float32(steps)}
+
+// 	for i := 0; i < steps; i++ {
+// 		block, hit := v.GetBlock(Vector{entry.x + stepSize.x*float32(i), entry.y + stepSize.y*float32(i), entry.z + stepSize.z*float32(i)})
+// 		if !hit {
+// 			continue
+// 		}
+
+// 		// distanceToLight := Vector{light.Position.x - block.Position.x, light.Position.y - block.Position.y, light.Position.z - block.Position.z}.Length()
+// 		// lightIntensity := distanceToLight * distanceToLight / (light.intensity * light.intensity)
+
+// 		// color = color.Add(block.SmokeColor.MulScalar(block.Intensity * lightIntensity))
+// 		color = ColorFloat32{
+// 			R: (color.R + block.SmokeColor.R),
+// 			G: (color.G + block.SmokeColor.G),
+// 			B: (color.B + block.SmokeColor.B),
+// 			A: (color.A + block.SmokeColor.A),
+// 		}
+// 	}
+
+// 	return color
+// }
+
+func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
+	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
 	if !hit {
-		return ColorFloat32{0, 0, 0, 0}
+		return ColorFloat32{}
 	}
 
-	// calculate the step size
-	stepSize := Vector{entry.x - exit.x, entry.y - exit.y, entry.z - exit.z}
-	stepSize = Vector{stepSize.x / float32(steps), stepSize.y / float32(steps), stepSize.z / float32(steps)}
+	// Physical constants
+	const (
+		extinctionCoeff  = 0.5          // Extinction coefficient
+		scatteringAlbedo = 0.9          // Single scattering albedo
+		asymmetryParam   = float32(0.3) // Henyey-Greenstein asymmetry parameter
+		temperatureScale = 0.001        // Temperature influence on density
+	)
 
+	// Calculate step size
+	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
+	stepLength := stepSize.Length()
+
+	// Initialize accumulated color and transmittance
+	var accumColor ColorFloat32
+	transmittance := float32(1.0)
+
+	currentPos := entry
 	for i := 0; i < steps; i++ {
-		block := v.GetBlock(Vector{entry.x + stepSize.x*float32(i), entry.y + stepSize.y*float32(i), entry.z + stepSize.z*float32(i)})
-		color = color.Add(block.LightColor.MulScalar(block.Intensity))
+		// Get current sample position
+		block, exists := v.GetBlock(currentPos)
+		if !exists {
+			currentPos = currentPos.Add(stepSize)
+			continue
+		}
+
+		// Calculate density at current position
+		density := block.Intensity
+
+		// Temperature influence on density (hot air rises)
+		heightFactor := (currentPos.y - v.BBMin.y) / (v.BBMax.y - v.BBMin.y)
+		density *= 1.0 - (heightFactor * temperatureScale)
+
+		// Calculate extinction
+		extinction := density * extinctionCoeff
+
+		// Calculate in-scattering
+		lightDir := light.Position.Sub(currentPos).Normalize()
+		cosTheta := ray.direction.Dot(lightDir)
+
+		// Henyey-Greenstein phase function
+		g := asymmetryParam
+		phaseFunction := (1.0 - g*g) / (4.0 * math32.Pi * math32.Pow(1.0+g*g-2.0*g*cosTheta, 1.5))
+
+		// Calculate light contribution through volume to current point
+		lightRay := Ray{origin: currentPos, direction: lightDir}
+		lightTransmittance := v.calculateLightTransmittance(lightRay, light)
+
+		// Calculate in-scattered light
+		scattering := extinction * scatteringAlbedo * phaseFunction
+
+		// Apply Beer-Lambert law
+		sampleExtinction := math32.Exp(-extinction * stepLength)
+		transmittance *= sampleExtinction
+
+		// Calculate color contribution
+		lightContribution := ColorFloat32{
+			R: block.SmokeColor.R * light.Color[0] * lightTransmittance * scattering,
+			G: block.SmokeColor.G * light.Color[1] * lightTransmittance * scattering,
+			B: block.SmokeColor.B * light.Color[2] * lightTransmittance * scattering,
+			A: block.SmokeColor.A,
+		}
+
+		// Accumulate color with transmittance
+		accumColor = accumColor.Add(lightContribution.MulScalar(transmittance))
+
+		// Early exit if transmittance is too low
+		if transmittance < 0.01 {
+			break
+		}
+
+		currentPos = currentPos.Add(stepSize)
 	}
-	return color
+
+	return accumColor
 }
 
-func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid) {
+// Helper function to calculate light transmittance through volume
+func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light) float32 {
+	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+	if !hit {
+		return 1.0
+	}
+
+	const lightSamples = 8
+	stepSize := exit.Sub(entry).Mul(1.0 / float32(lightSamples))
+	stepLength := stepSize.Length()
+
+	transmittance := float32(1.0)
+	currentPos := entry
+
+	for i := 0; i < lightSamples; i++ {
+		block, exists := v.GetBlock(currentPos)
+		if exists {
+			extinction := block.Intensity * 0.1 // extinctionCoeff
+			transmittance *= math32.Exp(-extinction * stepLength)
+		}
+		currentPos = currentPos.Add(stepSize)
+	}
+
+	return transmittance
+}
+
+func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(blocks); i++ {
 		wg.Add(1)
@@ -4181,7 +4327,7 @@ func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []Bl
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, 100)
+					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, 100, light)
 
 					// Write the pixel color to the pixel buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -4314,10 +4460,10 @@ func DrawRaysBlockUnsafeVoxelGrid(camera Camera, scaling int, samples int, block
 
 func TestGetBlock(samples int) {
 	// create a new voxel grid
-	v := NewVoxelGrid(100, Vector{0, 0, 0}, Vector{100, 100, 100})
+	v := NewVoxelGrid(100, Vector{0, 0, 0}, Vector{100, 100, 100}, ColorFloat32{35, 156, 77, 155.0}, 0.75)
 	start := time.Now()
 	for i := 0; i < samples; i++ {
-		_ = v.GetBlock(Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100})
+		_, _ = v.GetBlock(Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100})
 	}
 	elapsed := time.Since(start)
 	fmt.Println("GetBlock:", elapsed)
