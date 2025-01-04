@@ -3696,6 +3696,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Block Frame Time: %d", elapsed2.Nanoseconds()), 0, 40)
 	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SpeedUp: %.2f", SpeedUp/float64(counter)), 0, 60)
 
+	// check if R key is pressed
+	if ebiten.IsKeyPressed(ebiten.KeyR) {
+		g.VoxelGrid.CalculateLighting(16, 1, g.light)
+	}
 }
 
 var BVH *BVHNode
@@ -4013,7 +4017,7 @@ func main() {
 	objects = append(objects, obj)
 
 	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
-	light := Light{Position: Vector{0, 1500, 1000}, Color: &[3]float32{1.0, 1.0, 1.0}, intensity: 2.0}
+	light := Light{Position: Vector{0, 1500, 1000}, Color: &[3]float32{10.0, 10.0, 10.0}, intensity: 2.0}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
 
@@ -4024,8 +4028,11 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
-	VoxelGrid := NewVoxelGrid(256, Vector{100, 100, 200}, Vector{300, 400, 500}, ColorFloat32{225, 15, 180, 2}, 0.1)
-	// VoxelGrid.CalculateLighting(4, 1, light, 1.5)
+
+	VoxelGrid := NewVoxelGrid(256, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, 0.000001)
+	// VoxelGrid.CalculateLighting(16, 1, light)
+	VoxelGrid.SetRandomSmokeColor()
+	// VoxelGrid.SetRandomLightColor()
 
 	// print some color values
 	for i := 0; i < 8; i++ {
@@ -4068,11 +4075,11 @@ func main() {
 		// TriangleShader: 	   rayCasterShader,
 		// averageFramesShader: averageFramesShader,
 		Shaders: []Shader{
-			Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5, "Alpha": 0.1}, amount: 0.1},
-			Shader{shader: tintShader, options: map[string]interface{}{"TintColor": []float32{0.2, 0.6, 0.1}, "TintStrength": 0.1, "Alpha": 1}, amount: 0.5},
+			// Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5, "Alpha": 0.1}, amount: 0.1},
+			// Shader{shader: tintShader, options: map[string]interface{}{"TintColor": []float32{0.2, 0.6, 0.1}, "TintStrength": 0.1, "Alpha": 1}, amount: 0.5},
 			// Shader{shader: ditherShaderColor, options: map[string]interface{}{"BayerMatrix": bayerMatrix, "Alpha": float32(0.5)}, amount: 1.0,},
 			Shader{shader: bloomShader, options: map[string]interface{}{"BloomThreshold": 0.05, "BloomIntensity": 1.1, "Alpha": 1.0}, amount: 0.2, multipass: 2},
-			Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 0.2},
+			// Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 0.2},
 		},
 	}
 
@@ -4124,18 +4131,61 @@ func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFl
 	return &v
 }
 
-func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light, intensity float32) {
+func (v *VoxelGrid) SetRandomSmokeColor() {
 	for i := range v.Blocks {
-		c := ColorFloat32{0, 0, 0, 0}
-		for j := 0; j < samples; j++ {
-			randomVector := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
-			// calculate the light color
-			ray := Ray{origin: v.Blocks[i].Position, direction: randomVector}
-			c = c.Average(TraceRayV2(ray, depth, light, samples))
-		}
-		v.Blocks[i].LightColor = c
-		v.Blocks[i].Intensity = intensity
+		v.Blocks[i].SmokeColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 1}
 	}
+}
+
+func (v *VoxelGrid) SetRandomLightColor() {
+	for i := range v.Blocks {
+		v.Blocks[i].LightColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 1}
+	}
+}
+
+func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light) {
+	wg := sync.WaitGroup{}
+
+	// Create mutex array for each block to prevent race conditions
+	mutexes := make([]sync.Mutex, len(v.Blocks))
+
+	for i := range v.Blocks {
+		wg.Add(1)
+		go func(blockIndex int) {
+			defer wg.Done()
+
+			// Local accumulator for thread safety
+			localColor := ColorFloat32{0, 0, 0, 0}
+
+			for j := 0; j < samples; j++ {
+				// Generate normalized random direction
+				randomVector := Vector{
+					x: rand.Float32()*2 - 1,
+					y: rand.Float32()*2 - 1,
+					z: rand.Float32()*2 - 1,
+				}.Normalize()
+
+				ray := Ray{
+					origin:    v.Blocks[blockIndex].Position,
+					direction: randomVector,
+				}
+
+				// Accumulate color locally
+				localColor = localColor.Add(TraceRayV2(ray, depth, light, samples))
+			}
+
+			// Average the accumulated color
+			// localColor = localColor.MulScalar(1.0 / float32(samples))
+
+			// Safely update the block's light color
+			mutexes[blockIndex].Lock()
+			v.Blocks[blockIndex].LightColor = localColor
+			mutexes[blockIndex].Unlock()
+
+		}(i) // Pass i directly to avoid closure issues
+	}
+
+	wg.Wait()
 }
 
 func (v *VoxelGrid) GetBlock(pos Vector) (Block, bool) {
@@ -4203,96 +4253,90 @@ func (v *VoxelGrid) GetBlock(pos Vector) (Block, bool) {
 // 	return color
 // }
 
+// Original intersection method with fixes for color and transparency
 func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
 	if !hit {
 		return ColorFloat32{}
 	}
 
-	// Physical constants
+	// Physical constants - adjusted for better visibility
 	const (
-		extinctionCoeff  = 0.5          // Extinction coefficient
+		extinctionCoeff  = 0.1          // Reduced from 0.5 for less extinction
 		scatteringAlbedo = 0.9          // Single scattering albedo
 		asymmetryParam   = float32(0.3) // Henyey-Greenstein asymmetry parameter
 		temperatureScale = 0.001        // Temperature influence on density
 	)
 
-	// Calculate step size
 	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
 	stepLength := stepSize.Length()
 
-	// Initialize accumulated color and transmittance
 	var accumColor ColorFloat32
 	transmittance := float32(1.0)
 
 	currentPos := entry
 	for i := 0; i < steps; i++ {
-		// Get current sample position
 		block, exists := v.GetBlock(currentPos)
 		if !exists {
 			currentPos = currentPos.Add(stepSize)
 			continue
 		}
 
-		// Calculate density at current position
-		density := block.Intensity
+		// Calculate density with a minimum value to ensure visibility
+		density := math32.Max(block.Intensity, 0.1)
+		// density := block.Intensity
 
-		// Temperature influence on density (hot air rises)
-		heightFactor := (currentPos.y - v.BBMin.y) / (v.BBMax.y - v.BBMin.y)
-		density *= 1.0 - (heightFactor * temperatureScale)
-
-		// Calculate extinction
+		// Calculate extinction with adjusted coefficient
 		extinction := density * extinctionCoeff
 
-		// Calculate in-scattering
+		// Calculate light direction and phase function
 		lightDir := light.Position.Sub(currentPos).Normalize()
 		cosTheta := ray.direction.Dot(lightDir)
-
-		// Henyey-Greenstein phase function
 		g := asymmetryParam
 		phaseFunction := (1.0 - g*g) / (4.0 * math32.Pi * math32.Pow(1.0+g*g-2.0*g*cosTheta, 1.5))
 
-		// Calculate light contribution through volume to current point
+		// Calculate light contribution through volume
 		lightRay := Ray{origin: currentPos, direction: lightDir}
 		lightTransmittance := v.calculateLightTransmittance(lightRay, light)
 
-		// Calculate in-scattered light
-		scattering := extinction * scatteringAlbedo * phaseFunction
+		// Increased scattering for better visibility
+		scattering := extinction * scatteringAlbedo * phaseFunction * 2.0
 
-		// Apply Beer-Lambert law
+		// Apply Beer-Lambert law with adjusted extinction
 		sampleExtinction := math32.Exp(-extinction * stepLength)
 		transmittance *= sampleExtinction
 
-		// Calculate color contribution
+		// Calculate color contribution with enhanced intensity
 		lightContribution := ColorFloat32{
-			R: block.SmokeColor.R * light.Color[0] * lightTransmittance * scattering,
-			G: block.SmokeColor.G * light.Color[1] * lightTransmittance * scattering,
-			B: block.SmokeColor.B * light.Color[2] * lightTransmittance * scattering,
-			A: block.SmokeColor.A,
+			R: (block.SmokeColor.R + block.LightColor.R) * light.Color[0] * lightTransmittance * scattering,
+			G: (block.SmokeColor.G + block.LightColor.G) * light.Color[1] * lightTransmittance * scattering,
+			B: (block.SmokeColor.B + block.LightColor.B) * light.Color[2] * lightTransmittance * scattering,
+			A: (block.SmokeColor.A + block.LightColor.A) * density, // Tie alpha to density
 		}
 
 		// Accumulate color with transmittance
 		accumColor = accumColor.Add(lightContribution.MulScalar(transmittance))
 
-		// Early exit if transmittance is too low
-		if transmittance < 0.01 {
+		// Adjusted early exit threshold
+		if transmittance < 0.001 {
 			break
 		}
 
 		currentPos = currentPos.Add(stepSize)
 	}
 
+	// Ensure final color has some opacity
+	accumColor.A = math32.Min(accumColor.A, 1.0)
 	return accumColor
 }
 
-// Helper function to calculate light transmittance through volume
 func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light) float32 {
 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
 	if !hit {
 		return 1.0
 	}
 
-	const lightSamples = 8
+	const lightSamples = 16 // Increased from 8 for better quality
 	stepSize := exit.Sub(entry).Mul(1.0 / float32(lightSamples))
 	stepLength := stepSize.Length()
 
@@ -4302,7 +4346,7 @@ func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light) float32 {
 	for i := 0; i < lightSamples; i++ {
 		block, exists := v.GetBlock(currentPos)
 		if exists {
-			extinction := block.Intensity * 0.1 // extinctionCoeff
+			extinction := block.Intensity * 0.05 // Reduced extinction coefficient
 			transmittance *= math32.Exp(-extinction * stepLength)
 		}
 		currentPos = currentPos.Add(stepSize)
@@ -4327,7 +4371,7 @@ func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []Bl
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, 100, light)
+					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, 16, light)
 
 					// Write the pixel color to the pixel buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
