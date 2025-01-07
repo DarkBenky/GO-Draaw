@@ -3458,7 +3458,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// elapsed2 := time.Since(start)
 
 	// SpeedUp += float64(elapsed.Nanoseconds()) - float64(elapsed2.Nanoseconds())
-	// counter++
 
 	if !Benchmark && rayMarching.Selected == 1 {
 		DrawSpheres(g.camera, g.scaleFactor, 2, g.subImagesRayMarching, g.light)
@@ -3695,6 +3694,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Frame Time: %d", elapsed.Nanoseconds()), 0, 20)
 	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Block Frame Time: %d", elapsed2.Nanoseconds()), 0, 40)
 	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SpeedUp: %.2f", SpeedUp/float64(counter)), 0, 60)
+
+ 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Unsafe: %d", averageUnsafe / counter), 0, 80)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Safe: %d", averageSafe / counter), 0, 100)
 
 	// check if R key is pressed
 	if ebiten.IsKeyPressed(ebiten.KeyR) {
@@ -4028,7 +4030,6 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
-
 	VoxelGrid := NewVoxelGrid(256, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, 0.000001)
 	// VoxelGrid.CalculateLighting(16, 1, light)
 	VoxelGrid.SetRandomSmokeColor()
@@ -4103,10 +4104,11 @@ type Block struct {
 }
 
 type VoxelGrid struct {
-	Blocks     []Block
-	BBMin      Vector
-	BBMax      Vector
-	Resolution int
+	BlocksPointer unsafe.Pointer
+	Blocks        []Block
+	BBMin         Vector
+	BBMax         Vector
+	Resolution    int
 }
 
 func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFloat32, intensity float32) *VoxelGrid {
@@ -4127,6 +4129,8 @@ func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFl
 			}
 		}
 	}
+
+	v.BlocksPointer = unsafe.Pointer(&v.Blocks[0])
 
 	return &v
 }
@@ -4209,6 +4213,26 @@ func (v *VoxelGrid) GetBlock(pos Vector) (Block, bool) {
 	return v.Blocks[index], true
 }
 
+func (v *VoxelGrid) GetBlockUnsafe(pos Vector) (Block, bool) {
+	xStep := (v.BBMax.x - v.BBMin.x) / float32(v.Resolution)
+	yStep := (v.BBMax.y - v.BBMin.y) / float32(v.Resolution)
+	zStep := (v.BBMax.z - v.BBMin.z) / float32(v.Resolution)
+
+	x := int((pos.x - v.BBMin.x) / xStep)
+	y := int((pos.y - v.BBMin.y) / yStep)
+	z := int((pos.z - v.BBMin.z) / zStep)
+
+	// Ensure indices are within bounds
+	if x < 0 || x >= v.Resolution || y < 0 || y >= v.Resolution || z < 0 || z >= v.Resolution {
+		return Block{}, false
+	}
+
+	// Calculate the 1D index for the 3D grid
+	index := x + y*v.Resolution + z*v.Resolution*v.Resolution
+
+	return *(*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(index*48))), true
+}
+
 // func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) (color ColorFloat32) {
 // 	// TODO : Implement Ray Between Sun and Point in Volume
 // 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
@@ -4253,6 +4277,12 @@ func (v *VoxelGrid) GetBlock(pos Vector) (Block, bool) {
 // 	return color
 // }
 
+var (
+	averageUnsafe = 0
+	averageSafe   = 0
+	counter = 0
+)
+
 // Original intersection method with fixes for color and transparency
 func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
@@ -4276,7 +4306,13 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 
 	currentPos := entry
 	for i := 0; i < steps; i++ {
-		block, exists := v.GetBlock(currentPos)
+		startTime := time.Now()
+		_, _ = v.GetBlock(currentPos)
+		averageSafe += int(time.Since(startTime).Nanoseconds())
+		startTime = time.Now()
+		block, exists := v.GetBlockUnsafe(currentPos)
+		averageUnsafe += int(time.Since(startTime).Nanoseconds())
+		counter++
 		if !exists {
 			currentPos = currentPos.Add(stepSize)
 			continue
