@@ -1,9 +1,11 @@
 # TODO List
 
-- [ ] Finish Voxel renderer
+- [ ] Finish Voxel Volumes/Classic renderer
+  - [X] Volumes
+  - [ ] Classic Voxel rendering
   - [ ] Implement Render Method
   - [x] Implement Ray Between Sun and Point in Volume
-  - [ ] Add Baked Lighting from Volume
+  - [X] Add Baked Lighting from Volume
   - [ ] Particle System
 - [ ] Finish Backend + Frontend connection
 - [ ] Ability to save BVH / Voxel Volume
