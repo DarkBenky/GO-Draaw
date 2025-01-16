@@ -2,8 +2,9 @@
 
 - [ ] Finish Voxel Volumes/Classic renderer
   - [X] Volumes
-  - [ ] Classic Voxel rendering
-  - [ ] Implement Render Method
+  - [X] Classic Voxel rendering
+    - [ ] Optimalizatiou using SDF
+  - [X] Implement Render Method
   - [x] Implement Ray Between Sun and Point in Volume
   - [X] Add Baked Lighting from Volume
   - [ ] Particle System
