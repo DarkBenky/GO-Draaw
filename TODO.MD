@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Merge of Change rebase to Float32Lighting
 - [ ] Finish Voxel Volumes/Classic renderer
   - [X] Volumes
   - [X] Classic Voxel rendering
