@@ -4035,10 +4035,10 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
-	VoxelGrid := NewVoxelGrid(256, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, 0.000001)
+	VoxelGrid := NewVoxelGrid(256, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, 0.001)
 	// VoxelGrid.CalculateLighting(16, 1, light)
 	VoxelGrid.SetRandomSmokeColor()
-	VoxelGrid.SetRandomLightColor()
+	// VoxelGrid.SetRandomLightColor()
 
 	// print some color values
 	for i := 0; i < 8; i++ {
@@ -4307,7 +4307,7 @@ func (v *VoxelGrid) IntersectVoxels(ray Ray, light Light, steps int) ColorFloat3
 	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
 	for i := 0; i < steps; i++ {
 		block, exists := v.GetBlockUnsafe(entry)
-		if exists == false {
+		if !exists {
 			entry = entry.Add(stepSize)
 			continue
 		}
@@ -4332,7 +4332,7 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 
 	// Physical constants - adjusted for better visibility
 	const (
-		extinctionCoeff  = 0.1          // Reduced from 0.5 for less extinction
+		extinctionCoeff  = 0.5          // Reduced from 0.5 for less extinction
 		scatteringAlbedo = 0.9          // Single scattering albedo
 		asymmetryParam   = float32(0.3) // Henyey-Greenstein asymmetry parameter
 		temperatureScale = 0.001        // Temperature influence on density
@@ -4432,6 +4432,41 @@ func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light) float32 {
 }
 
 func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light) {
+	var wg sync.WaitGroup
+	for i := 0; i < len(blocks); i++ {
+		wg.Add(1)
+		go func(blockIndex int) {
+			defer wg.Done()
+			block := blocks[blockIndex]
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, samples, light)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(i)
+	}
+
+	if performanceOptions.Selected == 0 {
+		wg.Wait()
+	}
+}
+
+func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(blocks); i++ {
 		wg.Add(1)
