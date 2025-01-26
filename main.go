@@ -3443,7 +3443,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Draw Voxel Grid
 
-	DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light)
+	DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial)
 
 	// start := time.Now()
 	// DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
@@ -3818,8 +3818,10 @@ type Game struct {
 	BlocksImageAdvance []BlocksImageAdvance
 	Shaders            []Shader
 	// mixShader          *ebiten.Shader
-	roughness float32
-	metallic  float32
+	roughness           float32
+	metallic            float32
+	VoxelsOrVoxelVolume bool
+	VolumeMaterial      VolumeMaterial
 	// RayMarchShader  *ebiten.Shader
 	// TriangleShader         *ebiten.Shader
 }
@@ -4035,7 +4037,9 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
-	VoxelGrid := NewVoxelGrid(256, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, 0.001)
+	VolumeMaterial := VolumeMaterial{transmittance: 50, color: ColorFloat32{50, 0, 88, 25}, density: 0.001}
+
+	VoxelGrid := NewVoxelGrid(16, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 	// VoxelGrid.CalculateLighting(16, 1, light)
 	VoxelGrid.SetRandomSmokeColor()
 	// VoxelGrid.SetRandomLightColor()
@@ -4045,7 +4049,8 @@ func main() {
 		fmt.Println(VoxelGrid.Blocks[i*8].LightColor)
 	}
 
-	subImages := make([]*ebiten.Image, numCPU)
+	// subImages := make([]*ebiten.Image, numCPU)
+	subImages := [numCPU]*ebiten.Image{}
 
 	for i := range numCPU {
 		subImages[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
@@ -4087,6 +4092,8 @@ func main() {
 			Shader{shader: bloomShader, options: map[string]interface{}{"BloomThreshold": 0.05, "BloomIntensity": 1.1, "Alpha": 1.0}, amount: 0.2, multipass: 2},
 			// Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 0.2},
 		},
+		VoxelsOrVoxelVolume: true,
+		VolumeMaterial:      VolumeMaterial,
 	}
 
 	startTime = time.Now()
@@ -4102,24 +4109,36 @@ func main() {
 // Voxel Smoke Simulation
 
 type Block struct {
-	Position       Vector
-	LightColor     ColorFloat32 // For lighting or Voxels
-	SmokeColor     ColorFloat32
-	Intensity      float32
-	BlockRoughness float32
-	BlockSpecular  float32
-	MinStepDist    float32
+	Position    Vector
+	LightColor  ColorFloat32
+	SmokeColor  ColorFloat32
+	MinStepDist float32
 }
 
 type VoxelGrid struct {
-	BlocksPointer unsafe.Pointer
-	Blocks        []Block
-	BBMin         Vector
-	BBMax         Vector
-	Resolution    int
+	BlocksPointer  unsafe.Pointer
+	Blocks         []Block
+	BBMin          Vector
+	BBMax          Vector
+	Resolution     int
+	VolumeMaterial VolumeMaterial
 }
 
-func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFloat32, intensity float32) *VoxelGrid {
+func (v *VoxelGrid) CalcualteSDF() {
+	for i, b1 := range v.Blocks {
+		for j, b2 := range v.Blocks {
+			// Calculate the distance between the two blocks
+			if i != j && b1.LightColor.A > 0 && b2.LightColor.A > 0 {
+				dist := b1.Position.Sub(b2.Position).Length()
+				if dist < b1.MinStepDist {
+					b1.MinStepDist = dist
+				}
+			}
+		}
+	}
+}
+
+func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFloat32, VolumeMaterial VolumeMaterial) *VoxelGrid {
 	xDiff := maxBB.x - minBB.x
 	yDiff := maxBB.y - minBB.y
 	zDiff := maxBB.z - minBB.z
@@ -4133,32 +4152,41 @@ func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFl
 	for x := 0; x < resolution; x++ {
 		for y := 0; y < resolution; y++ {
 			for z := 0; z < resolution; z++ {
-				v.Blocks = append(v.Blocks, Block{Position: Vector{minBB.x + float32(x)*xStep, minBB.y + float32(y)*yStep, minBB.z + float32(z)*zStep}, SmokeColor: SmokeColor, Intensity: intensity})
+				v.Blocks = append(v.Blocks, Block{Position: Vector{minBB.x + float32(x)*xStep, minBB.y + float32(y)*yStep, minBB.z + float32(z)*zStep}, SmokeColor: SmokeColor, MinStepDist: math.MaxFloat32})
 			}
 		}
 	}
 
+	v.VolumeMaterial = VolumeMaterial
+
 	v.BlocksPointer = unsafe.Pointer(&v.Blocks[0])
+
+	v.CalcualteSDF()
 
 	return &v
 }
 
+func (v *VoxelGrid) SetBlockSmokeColor(color ColorFloat32) {
+	for i := range v.Blocks {
+		v.Blocks[i].SmokeColor = color
+	}
+}
+
+func (v *VoxelGrid) SetBlockLightColor(color ColorFloat32) {
+	for i := range v.Blocks {
+		v.Blocks[i].LightColor = color
+	}
+}
+
 func (v *VoxelGrid) SetRandomSmokeColor() {
 	for i := range v.Blocks {
-		v.Blocks[i].SmokeColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 1}
+		v.Blocks[i].SmokeColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 255}
 	}
 }
 
 func (v *VoxelGrid) SetRandomLightColor() {
 	for i := range v.Blocks {
 		v.Blocks[i].LightColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 1}
-	}
-}
-
-func (v *VoxelGrid) SetRandomRoughnessSpecular () {
-	for i := range v.Blocks {
-		v.Blocks[i].BlockRoughness = rand.Float32()
-		v.Blocks[i].BlockSpecular = rand.Float32()
 	}
 }
 
@@ -4245,86 +4273,54 @@ func (v *VoxelGrid) GetBlockUnsafe(pos Vector) (Block, bool) {
 	// Calculate the 1D index for the 3D grid
 	index := x + y*v.Resolution + z*v.Resolution*v.Resolution
 
-	return *(*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(index*60))), true
+	return *(*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(index*48))), true
 }
 
-// func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) (color ColorFloat32) {
-// 	// TODO : Implement Ray Between Sun and Point in Volume
-// 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+func (v *VoxelGrid) IntersectVoxels(ray Ray, light Light, steps int, Intensity float32) ColorFloat32 {
+    hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+    if !hit {
+        return ColorFloat32{}
+    }
 
-// 	// check if entry is bigger than exit and swap them
-// 	if entry.x > exit.x {
-// 		entry.x , exit.x = exit.x, entry.x
-// 	}
-// 	if entry.y > exit.y {
-// 		entry.y , exit.y = exit.y, entry.y
-// 	}
-// 	if entry.z > exit.z {
-// 		entry.z , exit.z = exit.z, entry.z
-// 	}
+    maxDist := exit.Sub(entry).Length()
+    currentDist := float32(0)
+    
+    for currentDist < maxDist && steps > 0 {
+        block, exists := v.GetBlockUnsafe(entry)
+        if !exists {
+            // Step by minimum safe distance or stepSize, whichever is larger
+            stepDist := block.MinStepDist
+            if stepDist < float32(0.1) {
+                stepDist = 0.1 // Minimum step to avoid getting stuck
+            }
+            entry = entry.Add(ray.direction.Mul(stepDist))
+            currentDist += stepDist
+            steps--
+            continue
+        }
 
-// 	if !hit {
-// 		return ColorFloat32{0, 0, 0, 0}
-// 	}
+        // Hit something - calculate lighting
+        distanceToLight := Vector{
+            light.Position.x - block.Position.x,
+            light.Position.y - block.Position.y,
+            light.Position.z - block.Position.z,
+        }.Length()
+        lightIntensity := 1.0 / (distanceToLight * distanceToLight / (light.intensity * light.intensity))
 
-// 	// calculate the step size
-// 	stepSize := Vector{entry.x - exit.x, entry.y - exit.y, entry.z - exit.z}
-// 	stepSize = Vector{stepSize.x / float32(steps), stepSize.y / float32(steps), stepSize.z / float32(steps)}
+        return block.LightColor.MulScalar(Intensity * lightIntensity)
+    }
 
-// 	for i := 0; i < steps; i++ {
-// 		block, hit := v.GetBlock(Vector{entry.x + stepSize.x*float32(i), entry.y + stepSize.y*float32(i), entry.z + stepSize.z*float32(i)})
-// 		if !hit {
-// 			continue
-// 		}
+    return ColorFloat32{}
+}
 
-// 		// distanceToLight := Vector{light.Position.x - block.Position.x, light.Position.y - block.Position.y, light.Position.z - block.Position.z}.Length()
-// 		// lightIntensity := distanceToLight * distanceToLight / (light.intensity * light.intensity)
-
-// 		// color = color.Add(block.SmokeColor.MulScalar(block.Intensity * lightIntensity))
-// 		color = ColorFloat32{
-// 			R: (color.R + block.SmokeColor.R),
-// 			G: (color.G + block.SmokeColor.G),
-// 			B: (color.B + block.SmokeColor.B),
-// 			A: (color.A + block.SmokeColor.A),
-// 		}
-// 	}
-
-// 	return color
-// }
-
-// var (
-// 	averageUnsafe = 0
-// 	averageSafe   = 0
-// 	counter       = 0
-// )
-
-func (v *VoxelGrid) IntersectVoxels(ray Ray, light Light, steps int) ColorFloat32 {
-	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
-	if !hit {
-		return ColorFloat32{}
-	}
-
-	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
-	for i := 0; i < steps; i++ {
-		block, exists := v.GetBlockUnsafe(entry)
-		if !exists {
-			entry = entry.Add(stepSize)
-			continue
-		}
-
-		// calculate some simple shading
-		distanceToLight := Vector{light.Position.x - block.Position.x, light.Position.y - block.Position.y, light.Position.z - block.Position.z}.Length()
-		lightIntensity := distanceToLight * distanceToLight / (light.intensity * light.intensity)
-
-
-		return block.LightColor.MulScalar(block.Intensity * lightIntensity)
-	}
-
-	return ColorFloat32{}
+type VolumeMaterial struct {
+	transmittance float32
+	color         ColorFloat32
+	density       float32
 }
 
 // Original intersection method with fixes for color and transparency
-func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
+func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterail VolumeMaterial) ColorFloat32 {
 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
 	if !hit {
 		return ColorFloat32{}
@@ -4342,7 +4338,7 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 	stepLength := stepSize.Length()
 
 	var accumColor ColorFloat32
-	transmittance := float32(1.0)
+	transmittance := volumeMaterail.transmittance
 
 	currentPos := entry
 	for i := 0; i < steps; i++ {
@@ -4358,11 +4354,7 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 			continue
 		}
 
-		// Calculate density with a minimum value to ensure visibility
-		density := math32.Max(block.Intensity, 0.1)
-		// density := block.Intensity
-
-		// Calculate extinction with adjusted coefficient
+		density := volumeMaterail.density
 		extinction := density * extinctionCoeff
 
 		// Calculate light direction and phase function
@@ -4373,7 +4365,7 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 
 		// Calculate light contribution through volume
 		lightRay := Ray{origin: currentPos, direction: lightDir}
-		lightTransmittance := v.calculateLightTransmittance(lightRay, light)
+		lightTransmittance := v.calculateLightTransmittance(lightRay, light, density)
 
 		// Increased scattering for better visibility
 		scattering := extinction * scatteringAlbedo * phaseFunction * 2.0
@@ -4384,10 +4376,10 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 
 		// Calculate color contribution with enhanced intensity
 		lightContribution := ColorFloat32{
-			R: (block.SmokeColor.R + block.LightColor.R) * light.Color[0] * lightTransmittance * scattering,
-			G: (block.SmokeColor.G + block.LightColor.G) * light.Color[1] * lightTransmittance * scattering,
-			B: (block.SmokeColor.B + block.LightColor.B) * light.Color[2] * lightTransmittance * scattering,
-			A: (block.SmokeColor.A + block.LightColor.A) * density, // Tie alpha to density
+			R: block.SmokeColor.R * light.Color[0] * lightTransmittance * scattering,
+			G: block.SmokeColor.G * light.Color[1] * lightTransmittance * scattering,
+			B: block.SmokeColor.B * light.Color[2] * lightTransmittance * scattering,
+			A: block.SmokeColor.A * density, // Tie alpha to density
 		}
 
 		// Accumulate color with transmittance
@@ -4406,7 +4398,7 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light) ColorFloat32 {
 	return accumColor
 }
 
-func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light) float32 {
+func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light, intensity float32) float32 {
 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
 	if !hit {
 		return 1.0
@@ -4420,9 +4412,9 @@ func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light) float32 {
 	currentPos := entry
 
 	for i := 0; i < lightSamples; i++ {
-		block, exists := v.GetBlockUnsafe(currentPos)
+		_, exists := v.GetBlockUnsafe(currentPos)
 		if exists {
-			extinction := block.Intensity * 0.05 // Reduced extinction coefficient
+			extinction := intensity * 0.05 // Reduced extinction coefficient
 			transmittance *= math32.Exp(-extinction * stepLength)
 		}
 		currentPos = currentPos.Add(stepSize)
@@ -4431,7 +4423,7 @@ func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light) float32 {
 	return transmittance
 }
 
-func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light) {
+func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light, volumeMaterial VolumeMaterial) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(blocks); i++ {
 		wg.Add(1)
@@ -4447,7 +4439,7 @@ func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []Bl
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, samples, light)
+					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, samples, light, volumeMaterial)
 
 					// Write the pixel color to the pixel buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -4466,7 +4458,7 @@ func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []Bl
 	}
 }
 
-func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light) {
+func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light, volumeMaterial VolumeMaterial) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(blocks); i++ {
 		wg.Add(1)
@@ -4482,7 +4474,7 @@ func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []Block
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c := voxelGrid.IntersectVoxels(Ray{origin: camera.Position, direction: rayDir}, light, 16)
+					c := voxelGrid.IntersectVoxels(Ray{origin: camera.Position, direction: rayDir}, light, 16, volumeMaterial.density)
 
 					// Write the pixel color to the pixel buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -4500,137 +4492,3 @@ func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []Block
 		wg.Wait()
 	}
 }
-
-// func (v *VoxelGrid) SetBlock(x, y, z int, block Block) {
-// 	v.Blocks[x+y*v.Resolution+z*v.Resolution*v.Resolution] = block
-// }
-
-// Unsafe Voxel Grid
-
-// type UnsafeVoxelGrid struct {
-// 	Blocks     unsafe.Pointer
-// 	BBMin      Vector
-// 	BBMax      Vector
-// 	Resolution int
-// }
-
-// func NewUnsafeVoxelGrid(resolution int, minBB, maxBB Vector) *UnsafeVoxelGrid {
-// 	size := resolution * resolution * resolution
-// 	data := make([]Block, size)
-// 	return &UnsafeVoxelGrid{
-// 		Blocks:     unsafe.Pointer(&data[0]),
-// 		Resolution: resolution,
-// 		BBMin:      minBB,
-// 		BBMax:      maxBB,
-// 	}
-// }
-
-// func (v *UnsafeVoxelGrid) CalculateLightingUnsafe(samples int, depth int, light Light, intensity float32) {
-// 	for i := 0; i < v.Resolution; i++ {
-// 		for j := 0; j < v.Resolution; j++ {
-// 			for k := 0; k < v.Resolution; k++ {
-// 				offset := i + j*v.Resolution + k*v.Resolution*v.Resolution
-// 				c := ColorFloat32{0, 0, 0, 0}
-// 				for l := 0; l < samples; l++ {
-// 					randomVector := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
-// 					// calculate the light color
-// 					ray := Ray{origin: (*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{})))).Position, direction: randomVector}
-// 					c = c.Average(TraceRayV2(ray, depth, light, samples))
-// 				}
-// 				(*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{})))).LightColor = c
-// 				(*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{})))).Intensity = intensity
-// 			}
-// 		}
-// 	}
-// }
-
-// func (v *UnsafeVoxelGrid) GetBlock(pos Vector) *Block {
-// 	x := int((pos.x - v.BBMin.x) / (v.BBMax.x - v.BBMin.x) * float32(v.Resolution))
-// 	y := int((pos.y - v.BBMin.y) / (v.BBMax.y - v.BBMin.y) * float32(v.Resolution))
-// 	z := int((pos.z - v.BBMin.z) / (v.BBMax.z - v.BBMin.z) * float32(v.Resolution))
-
-// 	offset := x + y*v.Resolution + z*v.Resolution*v.Resolution
-// 	return (*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{}))))
-// }
-
-// func (v *UnsafeVoxelGrid) IntersectUnsafe(ray Ray, steps int) (color ColorFloat32) {
-// 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMin, v.BBMax, ray)
-// 	if !hit {
-// 		return ColorFloat32{0, 0, 0, 0}
-// 	}
-
-// 	// calculate the step size
-// 	stepSize := Vector{entry.x - exit.x, entry.y - exit.y, entry.z - exit.z}
-// 	stepSize = Vector{stepSize.x / float32(steps), stepSize.y / float32(steps), stepSize.z / float32(steps)}
-
-// 	for i := 0; i < steps; i++ {
-// 		block := v.GetBlock(Vector{entry.x + stepSize.x*float32(i), entry.y + stepSize.y*float32(i), entry.z + stepSize.z*float32(i)})
-// 		color = color.Add(block.LightColor.MulScalar(block.Intensity))
-// 	}
-// 	return color
-// }
-
-// func DrawRaysBlockUnsafeVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *UnsafeVoxelGrid) {
-// 	var wg sync.WaitGroup
-// 	for i := 0; i < len(blocks); i++ {
-// 		wg.Add(1)
-// 		go func(blockIndex int) {
-// 			defer wg.Done()
-// 			block := blocks[blockIndex]
-// 			for y := block.startY; y < block.endY; y += 1 {
-// 				if y*scaling >= screenHeight {
-// 					continue
-// 				}
-// 				for x := block.startX; x < block.endX; x += 1 {
-// 					if x*scaling >= screenWidth {
-// 						continue
-// 					}
-// 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-// 					c := voxelGrid.IntersectUnsafe(Ray{origin: camera.Position, direction: rayDir}, 100)
-
-// 					// Write the pixel color to the pixel buffer
-// 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
-// 					block.pixelBuffer[index] = clampUint8(c.R)
-// 					block.pixelBuffer[index+1] = clampUint8(c.G)
-// 					block.pixelBuffer[index+2] = clampUint8(c.B)
-// 					block.pixelBuffer[index+3] = clampUint8(c.A)
-// 				}
-// 			}
-// 			block.image.WritePixels(block.pixelBuffer)
-// 		}(i)
-// 	}
-
-// 	if performanceOptions.Selected == 0 {
-// 		wg.Wait()
-// 	}
-// }
-
-// func (v *UnsafeVoxelGrid) SetBlock(x, y, z int, block Block) {
-// 	offset := x + y*v.Resolution + z*v.Resolution*v.Resolution
-// 	ptr := (*Block)(unsafe.Add(v.Blocks, offset*int(unsafe.Sizeof(Block{}))))
-// 	*ptr = block
-// }
-
-// test get block functions
-
-// func TestGetBlock(samples int) {
-// 	// create a new voxel grid
-// 	v := NewVoxelGrid(100, Vector{0, 0, 0}, Vector{100, 100, 100}, ColorFloat32{35, 156, 77, 155.0}, 0.75)
-// 	start := time.Now()
-// 	for i := 0; i < samples; i++ {
-// 		_, _ = v.GetBlock(Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100})
-// 	}
-// 	elapsed := time.Since(start)
-// 	fmt.Println("GetBlock:", elapsed)
-// }
-
-// func TestGetBlockUnsafe(samples int) {
-// 	// create a new voxel grid
-// 	v := NewUnsafeVoxelGrid(100, Vector{0, 0, 0}, Vector{100, 100, 100})
-// 	start := time.Now()
-// 	for i := 0; i < samples; i++ {
-// 		_ = v.GetBlock(Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100})
-// 	}
-// 	elapsed := time.Since(start)
-// 	fmt.Println("GetBlockUnsafe:", elapsed)
-// }
