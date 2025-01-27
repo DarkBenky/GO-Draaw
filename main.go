@@ -21,6 +21,7 @@ package main
 import (
 	"bufio"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -28,6 +29,7 @@ import (
 	"io/ioutil"
 	"math"
 	"math/rand"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -44,6 +46,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
+
+	"github.com/labstack/echo/v4"
 )
 
 const screenWidth = 800
@@ -3891,6 +3895,79 @@ func MakeNewBlocksAdvance(scaling int) []BlocksImageAdvance {
 	return blocks
 }
 
+// Handler
+func hello(c echo.Context) error {
+	return c.String(http.StatusOK, "Hello, World!")
+}
+
+func (g *Game) submitColor(c echo.Context) error {
+	type Color struct {
+		R               float64 `json:"r"`
+		G               float64 `json:"g"`
+		B               float64 `json:"b"`
+		A               float64 `json:"a"`
+		Reflection      float64 `json:"reflection"`
+		Roughness       float64 `json:"roughness"`
+		directToScatter float64 `json:"directToScatter"`
+		Metallic        float64 `json:"metalic"`
+	}
+
+	color := new(Color)
+	if err := c.Bind(color); err != nil {
+		return err
+	}
+
+	// write old and new color to the console
+	fmt.Println("Old Color:", g.r, g.g, g.b, g.a)
+	fmt.Println("New Color:", color.R, color.G, color.B, color.A)
+
+	// Unsafe assignment
+	*(*float64)(unsafe.Pointer(&g.r)) = color.R
+	*(*float64)(unsafe.Pointer(&g.g)) = color.G
+	*(*float64)(unsafe.Pointer(&g.b)) = color.B
+	*(*float64)(unsafe.Pointer(&g.a)) = color.A
+	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(color.Reflection)
+	*(*float32)(unsafe.Pointer(&g.roughness)) = float32(color.Roughness)
+	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(color.directToScatter)
+	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(color.Metallic)
+
+
+
+	return c.JSON(http.StatusOK, color)
+}
+
+func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		c.Response().Header().Set("Access-Control-Allow-Origin", "*")
+		c.Response().Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE")
+		c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+
+		if c.Request().Method == "OPTIONS" {
+			return c.NoContent(http.StatusOK)
+		}
+
+		return next(c)
+	}
+}
+
+func startServer(game *Game) {
+    e := echo.New()
+
+    // CORS middleware
+    e.Use(corsMiddleware)
+
+    // Routes
+    e.GET("/", func(c echo.Context) error {
+        return c.String(http.StatusOK, "Hello, world!")
+    })
+    e.POST("/submitColor", game.submitColor)
+
+    // Start server
+    if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
+        e.Logger.Fatal("failed to start server:", err)
+    }
+}
+
 func main() {
 	// TestGetBlock(100_000)
 	// TestGetBlockUnsafe(100_000)
@@ -4037,11 +4114,11 @@ func main() {
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
-	VolumeMaterial := VolumeMaterial{transmittance: 50, color: ColorFloat32{50, 0, 88, 25}, density: 0.001}
+	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
 	VoxelGrid := NewVoxelGrid(16, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 	// VoxelGrid.CalculateLighting(16, 1, light)
-	VoxelGrid.SetRandomSmokeColor()
+	VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	// VoxelGrid.SetRandomLightColor()
 
 	// print some color values
@@ -4101,9 +4178,12 @@ func main() {
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Ebiten Benchmark")
 
+	go startServer(game)
+
 	if err := ebiten.RunGame(game); err != nil {
 		panic(err)
 	}
+
 }
 
 // Voxel Smoke Simulation
@@ -4169,6 +4249,15 @@ func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFl
 func (v *VoxelGrid) SetBlockSmokeColor(color ColorFloat32) {
 	for i := range v.Blocks {
 		v.Blocks[i].SmokeColor = color
+	}
+}
+
+func (v *VoxelGrid) SetBlockSmokeColorWithRandomnes(color ColorFloat32, randomness float32) {
+	for i := range v.Blocks {
+		rRandom := (rand.Float32() - 0.5) * randomness
+		gRandom := (rand.Float32() - 0.5) * randomness
+		bRandom := (rand.Float32() - 0.5) * randomness
+		v.Blocks[i].SmokeColor = ColorFloat32{color.R + rRandom, color.G + gRandom, color.B + bRandom, color.A}
 	}
 }
 
@@ -4277,45 +4366,44 @@ func (v *VoxelGrid) GetBlockUnsafe(pos Vector) (Block, bool) {
 }
 
 func (v *VoxelGrid) IntersectVoxels(ray Ray, light Light, steps int, Intensity float32) ColorFloat32 {
-    hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
-    if !hit {
-        return ColorFloat32{}
-    }
+	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+	if !hit {
+		return ColorFloat32{}
+	}
 
-    maxDist := exit.Sub(entry).Length()
-    currentDist := float32(0)
-    
-    for currentDist < maxDist && steps > 0 {
-        block, exists := v.GetBlockUnsafe(entry)
-        if !exists {
-            // Step by minimum safe distance or stepSize, whichever is larger
-            stepDist := block.MinStepDist
-            if stepDist < float32(0.1) {
-                stepDist = 0.1 // Minimum step to avoid getting stuck
-            }
-            entry = entry.Add(ray.direction.Mul(stepDist))
-            currentDist += stepDist
-            steps--
-            continue
-        }
+	maxDist := exit.Sub(entry).Length()
+	currentDist := float32(0)
 
-        // Hit something - calculate lighting
-        distanceToLight := Vector{
-            light.Position.x - block.Position.x,
-            light.Position.y - block.Position.y,
-            light.Position.z - block.Position.z,
-        }.Length()
-        lightIntensity := 1.0 / (distanceToLight * distanceToLight / (light.intensity * light.intensity))
+	for currentDist < maxDist && steps > 0 {
+		block, exists := v.GetBlockUnsafe(entry)
+		if !exists {
+			// Step by minimum safe distance or stepSize, whichever is larger
+			stepDist := block.MinStepDist
+			if stepDist < float32(0.1) {
+				stepDist = 0.1 // Minimum step to avoid getting stuck
+			}
+			entry = entry.Add(ray.direction.Mul(stepDist))
+			currentDist += stepDist
+			steps--
+			continue
+		}
 
-        return block.LightColor.MulScalar(Intensity * lightIntensity)
-    }
+		// Hit something - calculate lighting
+		distanceToLight := Vector{
+			light.Position.x - block.Position.x,
+			light.Position.y - block.Position.y,
+			light.Position.z - block.Position.z,
+		}.Length()
+		lightIntensity := 1.0 / (distanceToLight * distanceToLight / (light.intensity * light.intensity))
 
-    return ColorFloat32{}
+		return block.LightColor.MulScalar(Intensity * lightIntensity)
+	}
+
+	return ColorFloat32{}
 }
 
 type VolumeMaterial struct {
 	transmittance float32
-	color         ColorFloat32
 	density       float32
 }
 
