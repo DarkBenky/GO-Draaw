@@ -3931,9 +3931,47 @@ func (g *Game) submitColor(c echo.Context) error {
 	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(color.directToScatter)
 	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(color.Metallic)
 
-
-
 	return c.JSON(http.StatusOK, color)
+}
+
+func (g *Game) submitVoxelData(c echo.Context) error {
+	type Volume struct {
+		Density       float64 `json:"density"`
+		Transmittance float64 `json:"transmittance"`
+		Randomnes     float64 `json:"randomness"`
+		SmokeColorR   float64 `json:"smokeColorR"`
+		SmokeColorG   float64 `json:"smokeColorG"`
+		SmokeColorB   float64 `json:"smokeColorB"`
+		SmokeColorA   float64 `json:"smokeColorA"`
+		VoxelColorR   float64 `json:"voxelColorR"`
+		VoxelColorG   float64 `json:"voxelColorG"`
+		VoxelColorB   float64 `json:"voxelColorB"`
+		VoxelColorA   float64 `json:"voxelColorA"`
+	}
+
+	volume := new(Volume)
+	if err := c.Bind(volume); err != nil {
+		return err
+	}
+
+	fmt.Println("Volume", volume)
+
+	if volume.Density > 0 {
+		g.VoxelGrid.SetBlockSmokeColorWithRandomnesUnsafe(
+			ColorFloat32{float32(volume.SmokeColorR), float32(volume.SmokeColorG), float32(volume.SmokeColorB), float32(volume.SmokeColorA)},
+			float32(volume.Randomnes))
+	} else {
+		g.VoxelGrid.SetBlockSmokeColorUnsafe(ColorFloat32{float32(volume.SmokeColorR), float32(volume.SmokeColorG), float32(volume.SmokeColorB), float32(volume.SmokeColorA)})
+	}
+
+	// write old and new color to the console
+	fmt.Println("Old Volume:", g.VolumeMaterial.density, g.VolumeMaterial.transmittance)
+	fmt.Println("New Volume:", volume.Density, volume.Transmittance)
+
+	*(*float32)(unsafe.Pointer(&g.VolumeMaterial.density)) = float32(volume.Density)
+	*(*float32)(unsafe.Pointer(&g.VolumeMaterial.transmittance)) = float32(volume.Transmittance)
+
+	return c.JSON(http.StatusOK, volume)
 }
 
 func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
@@ -3951,21 +3989,18 @@ func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func startServer(game *Game) {
-    e := echo.New()
+	e := echo.New()
 
-    // CORS middleware
-    e.Use(corsMiddleware)
+	// CORS middleware
+	e.Use(corsMiddleware)
 
-    // Routes
-    e.GET("/", func(c echo.Context) error {
-        return c.String(http.StatusOK, "Hello, world!")
-    })
-    e.POST("/submitColor", game.submitColor)
+	e.POST("/submitColor", game.submitColor)
+	e.POST("/submitVoxel", game.submitVoxelData)
 
-    // Start server
-    if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
-        e.Logger.Fatal("failed to start server:", err)
-    }
+	// Start server
+	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		e.Logger.Fatal("failed to start server:", err)
+	}
 }
 
 func main() {
@@ -4116,7 +4151,7 @@ func main() {
 
 	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
-	VoxelGrid := NewVoxelGrid(16, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
+	VoxelGrid := NewVoxelGrid(96, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 	// VoxelGrid.CalculateLighting(16, 1, light)
 	VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	// VoxelGrid.SetRandomLightColor()
@@ -4204,18 +4239,45 @@ type VoxelGrid struct {
 	VolumeMaterial VolumeMaterial
 }
 
+// safe
+// func (v *VoxelGrid) CalcualteSDF() {
+// 	for i, b1 := range v.Blocks {
+// 		for j, b2 := range v.Blocks {
+// 			// Calculate the distance between the two blocks
+// 			if i != j && b1.LightColor.A > 0 && b2.LightColor.A > 0 {
+// 				dist := b1.Position.Sub(b2.Position).Length()
+// 				if dist < b1.MinStepDist {
+// 					b1.MinStepDist = dist
+// 				}
+// 			}
+// 		}
+// 	}
+// }
+
 func (v *VoxelGrid) CalcualteSDF() {
-	for i, b1 := range v.Blocks {
-		for j, b2 := range v.Blocks {
-			// Calculate the distance between the two blocks
-			if i != j && b1.LightColor.A > 0 && b2.LightColor.A > 0 {
-				dist := b1.Position.Sub(b2.Position).Length()
-				if dist < b1.MinStepDist {
-					b1.MinStepDist = dist
-				}
-			}
-		}
-	}
+    var wg sync.WaitGroup
+
+    for i := range v.Blocks {
+        wg.Add(1)
+        go func(i int) {
+            defer wg.Done()
+            b1 := &v.Blocks[i]
+            for j := range v.Blocks {
+                if i != j {
+                    b2 := &v.Blocks[j]
+                    if b1.LightColor.A > 0 && b2.LightColor.A > 0 {
+                        dist := b1.Position.Sub(b2.Position).Length()
+                        minStepDistPtr := (*float32)(unsafe.Pointer(&b1.MinStepDist))
+                        if dist < *minStepDistPtr {
+                            *minStepDistPtr = dist
+                        }
+                    }
+                }
+            }
+        }(i)
+    }
+
+    wg.Wait()
 }
 
 func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFloat32, VolumeMaterial VolumeMaterial) *VoxelGrid {
@@ -4252,12 +4314,32 @@ func (v *VoxelGrid) SetBlockSmokeColor(color ColorFloat32) {
 	}
 }
 
+func (v *VoxelGrid) SetBlockSmokeColorUnsafe(color ColorFloat32) {
+	for i := range v.Blocks {
+		// Unsafe assignment
+		smokeColorPtr := (*ColorFloat32)(unsafe.Pointer(&v.Blocks[i].SmokeColor))
+		*smokeColorPtr = color
+	}
+}
+
 func (v *VoxelGrid) SetBlockSmokeColorWithRandomnes(color ColorFloat32, randomness float32) {
 	for i := range v.Blocks {
 		rRandom := (rand.Float32() - 0.5) * randomness
 		gRandom := (rand.Float32() - 0.5) * randomness
 		bRandom := (rand.Float32() - 0.5) * randomness
 		v.Blocks[i].SmokeColor = ColorFloat32{color.R + rRandom, color.G + gRandom, color.B + bRandom, color.A}
+	}
+}
+
+func (v *VoxelGrid) SetBlockSmokeColorWithRandomnesUnsafe(color ColorFloat32, randomness float32) {
+	for i := range v.Blocks {
+		rRandom := (rand.Float32() - 0.5) * randomness
+		gRandom := (rand.Float32() - 0.5) * randomness
+		bRandom := (rand.Float32() - 0.5) * randomness
+
+		// Unsafe assignment
+		smokeColorPtr := (*ColorFloat32)(unsafe.Pointer(&v.Blocks[i].SmokeColor))
+		*smokeColorPtr = ColorFloat32{color.R + rRandom, color.G + gRandom, color.B + bRandom, color.A}
 	}
 }
 
