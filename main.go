@@ -4061,17 +4061,18 @@ func (g *Game) submitColor(c echo.Context) error {
 
 func (g *Game) submitVoxelData(c echo.Context) error {
 	type Volume struct {
-		Density       float64 `json:"density"`
-		Transmittance float64 `json:"transmittance"`
-		Randomnes     float64 `json:"randomness"`
-		SmokeColorR   float64 `json:"smokeColorR"`
-		SmokeColorG   float64 `json:"smokeColorG"`
-		SmokeColorB   float64 `json:"smokeColorB"`
-		SmokeColorA   float64 `json:"smokeColorA"`
-		VoxelColorR   float64 `json:"voxelColorR"`
-		VoxelColorG   float64 `json:"voxelColorG"`
-		VoxelColorB   float64 `json:"voxelColorB"`
-		VoxelColorA   float64 `json:"voxelColorA"`
+		Density         float64 `json:"density"`
+		Transmittance   float64 `json:"transmittance"`
+		Randomnes       float64 `json:"randomness"`
+		SmokeColorR     float64 `json:"smokeColorR"`
+		SmokeColorG     float64 `json:"smokeColorG"`
+		SmokeColorB     float64 `json:"smokeColorB"`
+		SmokeColorA     float64 `json:"smokeColorA"`
+		VoxelColorR     float64 `json:"voxelColorR"`
+		VoxelColorG     float64 `json:"voxelColorG"`
+		VoxelColorB     float64 `json:"voxelColorB"`
+		VoxelColorA     float64 `json:"voxelColorA"`
+		RandomnessVoxel float64 `json:"randomnessVoxel"`
 	}
 
 	volume := new(Volume)
@@ -4087,6 +4088,16 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 			float32(volume.Randomnes))
 	} else {
 		g.VoxelGrid.SetBlockSmokeColorUnsafe(ColorFloat32{float32(volume.SmokeColorR), float32(volume.SmokeColorG), float32(volume.SmokeColorB), float32(volume.SmokeColorA)})
+	}
+
+	if volume.RandomnessVoxel > 0 {
+		g.VoxelGrid.SetBlockLightColorWithRandomnesUnsafe(
+			ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)},
+			float32(volume.RandomnessVoxel))
+	} else {
+		g.VoxelGrid.SetBlockLightColorWithUnsafe(
+			ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)}
+		)
 	}
 
 	// write old and new color to the console

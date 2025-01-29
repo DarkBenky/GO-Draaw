@@ -1,8 +1,9 @@
 # TODO List
 
 - [ ] Fix Distance Buffer
+- [ ] Add Textures for triangles ([link](https://chatgpt.com/c/6799fedf-17ac-8004-a51b-2bfaacdf7b98))
 - [ ] Finish Voxel renderer
-  - [ ] Implement Render Method
+  - [X] Implement Render Method
   - [x] Implement Ray Between Sun and Point in Volume
   - [ ] Add Baked Lighting from Volume
   - [ ] Particle System
