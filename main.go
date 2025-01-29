@@ -4474,6 +4474,35 @@ func (v *VoxelGrid) SetBlockLightColor(color ColorFloat32) {
 	}
 }
 
+func (v *VoxelGrid) SetBlockLightColorUnsafe(color ColorFloat32) {
+	for i := range v.Blocks {
+		// Unsafe assignment
+		lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&v.Blocks[i].LightColor))
+		*lightColorPtr = color
+	}
+}
+
+func (v *VoxelGrid) SetBlockLightColorWithRandomnes(color ColorFloat32, randomness float32) {
+	for i := range v.Blocks {
+		rRandom := (rand.Float32() - 0.5) * randomness
+		gRandom := (rand.Float32() - 0.5) * randomness
+		bRandom := (rand.Float32() - 0.5) * randomness
+		v.Blocks[i].LightColor = ColorFloat32{color.R + rRandom, color.G + gRandom, color.B + bRandom, color.A}
+	}
+}
+
+func (v *VoxelGrid) SetBlockLightColorWithRandomnesUnsafe(color ColorFloat32, randomness float32) {
+	for i := range v.Blocks {
+		rRandom := (rand.Float32() - 0.5) * randomness
+		gRandom := (rand.Float32() - 0.5) * randomness
+		bRandom := (rand.Float32() - 0.5) * randomness
+
+		// Unsafe assignment
+		lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&v.Blocks[i].LightColor))
+		*lightColorPtr = ColorFloat32{color.R + rRandom, color.G + gRandom, color.B + bRandom, color.A}
+	}
+}
+
 func (v *VoxelGrid) SetRandomSmokeColor() {
 	for i := range v.Blocks {
 		v.Blocks[i].SmokeColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 255}
