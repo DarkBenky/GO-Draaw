@@ -1355,7 +1355,7 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	h := ray.direction.Cross(edge2)
 	a := edge1.Dot(h)
 	if a > -0.00001 && a < 0.00001 {
-		return Intersection{}, false
+		return Intersection{Distance: math.MaxFloat32}, false
 	}
 	f := 1.0 / a
 	s := ray.origin.Sub(triangle.v1)
@@ -1366,11 +1366,20 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	q := s.Cross(edge1)
 	v := f * ray.direction.Dot(q)
 	if v < 0.0 || u+v > 1.0 {
-		return Intersection{}, false
+		return Intersection{Distance: math.MaxFloat32}, false
 	}
 	t := f * edge2.Dot(q)
 	if t > 0.00001 {
-		return Intersection{PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)), Color: triangle.color, Normal: triangle.Normal, Direction: ray.direction, Distance: t, reflection: triangle.reflection, directToScatter: triangle.directToScatter, Roughness: triangle.Roughness, Metallic: triangle.Metallic}, true
+		return Intersection{
+			PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
+			Color:               triangle.color,
+			Normal:              triangle.Normal,
+			Direction:           ray.direction,
+			Distance:            t,
+			reflection:          triangle.reflection,
+			directToScatter:     triangle.directToScatter,
+			Roughness:           triangle.Roughness,
+			Metallic:            triangle.Metallic}, true
 	}
 	return Intersection{}, false
 }
@@ -2543,7 +2552,7 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+					c, distance, normal := TraceRayV3Advance(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
 
 					// Write the pixel color to the float buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -2551,6 +2560,25 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 					block.colorRGB_Float32[index+1] = c.G
 					block.colorRGB_Float32[index+2] = c.B
 					block.colorRGB_Float32[index+3] = c.A
+
+					block.distanceBuffer[index] = distance
+					block.distanceBuffer[index+1] = distance
+					block.distanceBuffer[index+2] = distance
+					block.distanceBuffer[index+3] = distance
+
+					if distance != math.MaxFloat32 {
+						block.maxDistance = math32.Max(block.maxDistance, distance)
+						block.minDistance = math32.Min(block.minDistance, distance)
+					}
+
+					// Normalize the normal vector
+					normal = normal.Normalize()
+
+					// Convert the normal to the range [0 - 255]
+					block.normalsBuffer[index] = clampToUint8((normal.x + 1) * 127.5)
+					block.normalsBuffer[index+1] = clampToUint8((normal.y + 1) * 127.5)
+					block.normalsBuffer[index+2] = clampToUint8((normal.z + 1) * 127.5)
+					block.normalsBuffer[index+3] = 255
 
 					// Track the maximum values
 					block.maxColor.R = math32.Max(block.maxColor.R, c.R)
@@ -2565,11 +2593,43 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 
 	// Compute global maximum color values
 	maxColor := ColorFloat32{0, 0, 0, 0}
+	maxDistance := float32(0)
+	minDistance := float32(math32.MaxFloat32)
 	for _, block := range blocks {
 		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
 		maxColor.G = math32.Max(maxColor.G, block.maxColor.G)
 		maxColor.B = math32.Max(maxColor.B, block.maxColor.B)
+		maxDistance = math32.Max(maxDistance, block.maxDistance)
+		minDistance = math32.Min(minDistance, block.minDistance)
 	}
+
+	// normalize the distance buffer
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			defer wg.Done()
+
+			// Handle edge case when all distances are equal
+			normalizer := maxDistance - minDistance
+			if normalizer == 0 {
+				normalizer = 1
+			}
+
+			for i := 0; i < len(block.distanceBuffer); i += 4 {
+				normalizedValue := (block.distanceBuffer[i] - minDistance) / normalizer
+				value := clampToUint8(normalizedValue)
+
+				// Set RGBA values
+				baseIndex := (i / 4) * 4
+				block.distanceBufferProcessed[baseIndex] = value
+				block.distanceBufferProcessed[baseIndex+1] = value
+				block.distanceBufferProcessed[baseIndex+2] = value
+				block.distanceBufferProcessed[baseIndex+3] = 255
+			}
+		}(block)
+	}
+
+	wg.Wait()
 
 	// Apply color grading and write pixels
 	for _, block := range blocks {
@@ -2578,6 +2638,8 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 		} else {
 			block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
 		}
+		block.distanceImage.WritePixels(block.distanceBufferProcessed)
+		block.normalImage.WritePixels(block.normalsBuffer)
 	}
 }
 
@@ -2614,6 +2676,46 @@ func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth
 		wg.Wait()
 	}
 }
+
+// Time taken for V2:  8.789734794642856e+06
+// Time taken for V2-Unsafe:  9.21041036607143e+06
+// func DrawRaysBlockUnsafe(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+// 	var wg sync.WaitGroup
+// 	ScreenSpaceCoordinatesPtr := unsafe.Pointer(&ScreenSpaceCoordinates[0][0])
+// 	for _, block := range blocks {
+// 		wg.Add(1)
+// 		go func(block BlocksImage) {
+// 			pixelBufferPtr := unsafe.Pointer(&block.pixelBuffer[0])
+// 			defer wg.Done()
+// 			for y := block.startY; y < block.endY; y += 1 {
+// 				if y*scaling >= screenHeight {
+// 					continue
+// 				}
+// 				for x := block.startX; x < block.endX; x += 1 {
+// 					if x*scaling >= screenWidth {
+// 						continue
+// 					}
+// 					// rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+// 					rayDir := *(*Vector)(unsafe.Pointer(uintptr(ScreenSpaceCoordinatesPtr) + uintptr((x*scaling*screenHeight+y*scaling)*12)))
+// 					c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+// 					// Write the pixel color to the pixel buffer
+// 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+// 					*(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index))) = clampUint8(c.R)
+// 					*(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+1))) = clampUint8(c.G)
+// 					*(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+2))) = clampUint8(c.B)
+// 					*(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+3))) = clampUint8(c.A)
+
+// 				}
+// 			}
+// 			block.image.WritePixels(block.pixelBuffer)
+// 		}(block)
+// 	}
+
+// 	if performanceOptions.Selected == 0 {
+// 		wg.Wait()
+// 	}
+// }
 
 func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light) {
 	var wg sync.WaitGroup
@@ -3424,6 +3526,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
+	// Render a single frame
 	if renderFrame.Selected == 1 {
 		// Draw the frame
 		Blocks := MakeNewBlocks(g.scaleFactor / 2)
@@ -3563,7 +3666,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		for _, block := range g.BlocksImageAdvance {
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(block.startX), float64(block.startY))
-			g.currentFrame.DrawImage(block.image, op)
+			g.currentFrame.DrawImage(block.distanceImage, op)
 		}
 	}
 
@@ -3866,9 +3969,16 @@ type BlocksImage struct {
 type BlocksImageAdvance struct {
 	startX, startY, endX, endY int
 	image                      *ebiten.Image
+	distanceImage              *ebiten.Image
+	normalImage                *ebiten.Image
 	pixelBuffer                []uint8
+	distanceBuffer             []float32
+	distanceBufferProcessed    []uint8
+	normalsBuffer              []uint8
 	colorRGB_Float32           []float32
 	maxColor                   ColorFloat32
+	maxDistance                float32
+	minDistance                float32
 }
 
 func MakeNewBlocks(scaling int) []BlocksImage {
@@ -3889,7 +3999,22 @@ func MakeNewBlocksAdvance(scaling int) []BlocksImageAdvance {
 
 	for w := 0; w < screenWidth/scaling; w += blockSize {
 		for h := 0; h < screenHeight/scaling; h += blockSize {
-			blocks = append(blocks, BlocksImageAdvance{startX: w, startY: h, endX: w + blockSize, endY: h + blockSize, image: ebiten.NewImage(blockSize, blockSize), pixelBuffer: make([]uint8, blockSize*blockSize*4), colorRGB_Float32: make([]float32, blockSize*blockSize*4)})
+			blocks = append(blocks,
+				BlocksImageAdvance{startX: w,
+					startY:                  h,
+					endX:                    w + blockSize,
+					endY:                    h + blockSize,
+					image:                   ebiten.NewImage(blockSize, blockSize),
+					pixelBuffer:             make([]uint8, blockSize*blockSize*4),
+					colorRGB_Float32:        make([]float32, blockSize*blockSize*4),
+					distanceBuffer:          make([]float32, blockSize*blockSize*4),
+					distanceBufferProcessed: make([]uint8, blockSize*blockSize*4),
+					normalsBuffer:           make([]uint8, blockSize*blockSize*4),
+					distanceImage:           ebiten.NewImage(blockSize, blockSize),
+					normalImage:             ebiten.NewImage(blockSize, blockSize),
+					minDistance:             math.MaxFloat32,
+					maxDistance:             0,
+				})
 		}
 	}
 	return blocks
@@ -4151,7 +4276,7 @@ func main() {
 
 	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
-	VoxelGrid := NewVoxelGrid(96, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
+	VoxelGrid := NewVoxelGrid(32, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 	// VoxelGrid.CalculateLighting(16, 1, light)
 	VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	// VoxelGrid.SetRandomLightColor()
@@ -4255,29 +4380,29 @@ type VoxelGrid struct {
 // }
 
 func (v *VoxelGrid) CalcualteSDF() {
-    var wg sync.WaitGroup
+	var wg sync.WaitGroup
 
-    for i := range v.Blocks {
-        wg.Add(1)
-        go func(i int) {
-            defer wg.Done()
-            b1 := &v.Blocks[i]
-            for j := range v.Blocks {
-                if i != j {
-                    b2 := &v.Blocks[j]
-                    if b1.LightColor.A > 0 && b2.LightColor.A > 0 {
-                        dist := b1.Position.Sub(b2.Position).Length()
-                        minStepDistPtr := (*float32)(unsafe.Pointer(&b1.MinStepDist))
-                        if dist < *minStepDistPtr {
-                            *minStepDistPtr = dist
-                        }
-                    }
-                }
-            }
-        }(i)
-    }
+	for i := range v.Blocks {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			b1 := &v.Blocks[i]
+			for j := range v.Blocks {
+				if i != j {
+					b2 := &v.Blocks[j]
+					if b1.LightColor.A > 0 && b2.LightColor.A > 0 {
+						dist := b1.Position.Sub(b2.Position).Length()
+						minStepDistPtr := (*float32)(unsafe.Pointer(&b1.MinStepDist))
+						if dist < *minStepDistPtr {
+							*minStepDistPtr = dist
+						}
+					}
+				}
+			}
+		}(i)
+	}
 
-    wg.Wait()
+	wg.Wait()
 }
 
 func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFloat32, VolumeMaterial VolumeMaterial) *VoxelGrid {

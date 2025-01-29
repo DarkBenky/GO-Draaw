@@ -1,11 +1,16 @@
 # TODO List
 
+- [ ] Fix Distance Buffer
 - [ ] Finish Voxel renderer
   - [ ] Implement Render Method
   - [x] Implement Ray Between Sun and Point in Volume
   - [ ] Add Baked Lighting from Volume
   - [ ] Particle System
 - [ ] Finish Backend + Frontend connection
+  - [X] Color
+  - [X] Volume
+  - [ ] Voxels
+  - [ ] Shaders
 - [ ] Ability to save BVH / Voxel Volume
 - [ ] Fix Render frame
 - [ ] Crete benchmark to test optimal BVH structure for example (all in one array or only bbox and pointer or int to array of triangles)
@@ -27,7 +32,7 @@
   - [ ] BlendModes ([link](https://www.sketch.com/blog/blend-modes/))
   - [ ] Fix dither
 - [ ] Depth Map
-- [ ] Normal Map
+- [X] Normal Map
 - [X] HDR for normal renderer (Linear, Logarithmic)
 - [X] Fix the scaling of the Block based renderer
 - [ ] Enable to down scale number of triangles in mesh
@@ -148,7 +153,81 @@
   } 
 
   ```
-  
+
+  ```go
+    func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+      var wg sync.WaitGroup
+      for _, block := range blocks {
+          wg.Add(1)
+          go func(block BlocksImage) {
+              defer wg.Done()
+              for y := block.startY; y < block.endY; y += 1 {
+                  if y*scaling >= screenHeight {
+                      continue
+                  }
+                  for x := block.startX; x < block.endX; x += 1 {
+                      if x*scaling >= screenWidth {
+                          continue
+                      }
+                      rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+                      c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+                      // Write the pixel color to the pixel buffer
+                      index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+                      block.pixelBuffer[index] = clampUint8(c.R)
+                      block.pixelBuffer[index+1] = clampUint8(c.G)
+                      block.pixelBuffer[index+2] = clampUint8(c.B)
+                      block.pixelBuffer[index+3] = clampUint8(c.A)
+                  }
+              }
+              block.image.WritePixels(block.pixelBuffer)
+          }(block)
+      }
+
+      if performanceOptions.Selected == 0 {
+          wg.Wait()
+      }
+  }
+
+  // Time taken for V2:  8.789734794642856e+06
+  // Time taken for V2-Unsafe:  9.21041036607143e+06
+  func DrawRaysBlockUnsafe(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+      var wg sync.WaitGroup
+      ScreenSpaceCoordinatesPtr := unsafe.Pointer(&ScreenSpaceCoordinates[0][0])
+      for _, block := range blocks {
+          wg.Add(1)
+          go func(block BlocksImage) {
+              pixelBufferPtr := unsafe.Pointer(&block.pixelBuffer[0])
+              defer wg.Done()
+              for y := block.startY; y < block.endY; y += 1 {
+                  if y*scaling >= screenHeight {
+                      continue
+                  }
+                  for x := block.startX; x < block.endX; x += 1 {
+                      if x*scaling >= screenWidth {
+                          continue
+                      }
+                      rayDir := *(*Vector)(unsafe.Pointer(uintptr(ScreenSpaceCoordinatesPtr) + uintptr((x*scaling*screenHeight+y*scaling)*12)))
+                      c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+                      // Write the pixel color to the pixel buffer
+                      index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+                      *(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index))) = clampUint8(c.R)
+                      *(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+1))) = clampUint8(c.G)
+                      *(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+2))) = clampUint8(c.B)
+                      *(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+3))) = clampUint8(c.A)
+                  }
+              }
+              block.image.WritePixels(block.pixelBuffer)
+          }(block)
+      }
+
+      if performanceOptions.Selected == 0 {
+          wg.Wait()
+      }
+  }
+  ```
+
 - [X] Create Universal benchmarking function to judge the changes of performance
 - [X] Remove Triangle Bounding Box out of struct
 
@@ -319,6 +398,85 @@
 - [X] Merge the latest branch with main
 - [X] Implement bloom and other post-processing effects
 - [X] Implement shaders for color grading, contrast, etc.
+- [X] Unsafe implementation of Drawing method
+  - *Note* This implementation is not working
+
+  ```golang
+    func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+	var wg sync.WaitGroup
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImage) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(block)
+	}
+
+	if performanceOptions.Selected == 0 {
+		wg.Wait()
+	}
+}
+
+// Time taken for V2:  8.789734794642856e+06
+// Time taken for V2-Unsafe:  9.21041036607143e+06
+func DrawRaysBlockUnsafe(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+	var wg sync.WaitGroup
+	ScreenSpaceCoordinatesPtr := unsafe.Pointer(&ScreenSpaceCoordinates[0][0])
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImage) {
+			pixelBufferPtr := unsafe.Pointer(&block.pixelBuffer[0])
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					// rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					rayDir := *(*Vector)(unsafe.Pointer(uintptr(ScreenSpaceCoordinatesPtr) + uintptr((x*scaling*screenHeight+y*scaling)*12)))
+					c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					*(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index))) = clampUint8(c.R)
+					*(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+1))) = clampUint8(c.G)
+					*(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+2))) = clampUint8(c.B)
+					*(*uint8)(unsafe.Pointer(uintptr(pixelBufferPtr) + uintptr(index+3))) = clampUint8(c.A)
+
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(block)
+	}
+
+	if performanceOptions.Selected == 0 {
+		wg.Wait()
+	}
+}
+
+  ```
 - [ ] *Optional* Optimize for speed
 - [ ] *Optional* Create flame graphs
 - [ ] Trace rays to corners and draw triangles:
@@ -335,14 +493,14 @@
   - [X] Add the previous camera projection - Done, but might need revisiting
   - [ChatGPT Link](https://chatgpt.com/c/6709b2d9-4770-8004-a46b-59e572c0b0cc)
 - [X] Optimize `PrecomputeScreenSpaceCoordinatesSphere` (goroutines; if no movement, no change)
-- [ ] Implement Custom GUI
-  - [ ] Shader Menu
+- [X] Implement Custom GUI
+  - [X] Shader Menu
   - [X] Color Menu
     - [X] Add menu for Specular lighting etc.
   - [ ] Painter Menu
 - [ ] Add painting utilities to the renderer
 - [ ] Update Split os Screen and Num of Go routines based on number of CPUs
-- [ ] Fix pointer dereference issue after long runs
+- [X] Fix pointer dereference issue after long runs
   - **Note** Test on more system maybe it is only problem with instability when OC
   - **Error**:
 
@@ -369,3 +527,4 @@
             /home/user/Desktop/GO-Draaw/main.go:1267 +0xb0
     exit status 2
     ```
+
