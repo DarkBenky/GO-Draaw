@@ -3898,39 +3898,43 @@ func ApplyShader(image *ebiten.Image, shader Shader) *ebiten.Image {
 // }
 
 type Game struct {
-	xyzLock              bool
-	cursorX, cursorY     int
+	// 64-bit pointers (8 bytes each) grouped together
+	currentFrame  *ebiten.Image
+	previousFrame *ebiten.Image
+	renderedFrame *ebiten.Image
+	VoxelGrid     *VoxelGrid
+
+	// 24-bit pointers (3 bytes each) grouped together
 	subImagesRayMarching []*ebiten.Image
-	camera               Camera
-	light                Light
-	scaleFactor          int
-	currentFrame         *ebiten.Image
 	VoxelGridBlocksImage []BlocksImage
-	// averageFramesShader  *ebiten.Shader
-	// ditherColor      *ebiten.Shader
-	// ditherGrayScale  *ebiten.Shader
-	// bloomShader      *ebiten.Shader
-	// contrastShader   *ebiten.Shader
-	// tintShader       *ebiten.Shader
-	// sharpnessShader  *ebiten.Shader
-	r, g, b, a         float64
-	specular           float32
-	reflection         float32
-	previousFrame      *ebiten.Image
-	directToScatter    float32
-	ColorMultiplier    float32
-	renderedFrame      *ebiten.Image
-	BlocksImage        []BlocksImage
-	VoxelGrid          *VoxelGrid
-	BlocksImageAdvance []BlocksImageAdvance
-	Shaders            []Shader
-	// mixShader          *ebiten.Shader
-	roughness           float32
-	metallic            float32
-	VoxelsOrVoxelVolume bool
-	VolumeMaterial      VolumeMaterial
-	// RayMarchShader  *ebiten.Shader
-	// TriangleShader         *ebiten.Shader
+	BlocksImage          []BlocksImage
+	BlocksImageAdvance   []BlocksImageAdvance
+	Shaders              []Shader
+
+	// 32-bit floats (4 bytes each) grouped together
+	specular        float32
+	reflection      float32
+	directToScatter float32
+	ColorMultiplier float32
+	roughness       float32
+	metallic        float32
+
+	// 64-bit floats (8 bytes each) grouped together
+	r, g, b, a float64
+
+	// Larger structs grouped together
+	camera         Camera
+	light          Light
+	VolumeMaterial VolumeMaterial
+
+	// Integer values (4 bytes each) grouped together
+	cursorX, cursorY int
+	scaleFactor      int
+
+	// Boolean flags (1 byte each) at the end
+	RenderVolume bool
+	RenderVoxels bool
+	xyzLock      bool
 }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
@@ -4035,6 +4039,8 @@ func (g *Game) submitColor(c echo.Context) error {
 		Roughness       float64 `json:"roughness"`
 		directToScatter float64 `json:"directToScatter"`
 		Metallic        float64 `json:"metalic"`
+		RenderVolume    bool    `json:"renderVolume"`
+		RenderVoxels    bool    `json:"renderVoxels"`
 	}
 
 	color := new(Color)
@@ -4073,6 +4079,8 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 		VoxelColorB     float64 `json:"voxelColorB"`
 		VoxelColorA     float64 `json:"voxelColorA"`
 		RandomnessVoxel float64 `json:"randomnessVoxel"`
+		RenderVolume    bool    `json:"renderVolume"`
+		RenderVoxel     bool    `json:"renderVoxel"`
 	}
 
 	volume := new(Volume)
@@ -4095,9 +4103,8 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 			ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)},
 			float32(volume.RandomnessVoxel))
 	} else {
-		g.VoxelGrid.SetBlockLightColorWithUnsafe(
-			ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)}
-		)
+		g.VoxelGrid.SetBlockLightColorUnsafe(
+			ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)})
 	}
 
 	// write old and new color to the console
@@ -4106,6 +4113,15 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 
 	*(*float32)(unsafe.Pointer(&g.VolumeMaterial.density)) = float32(volume.Density)
 	*(*float32)(unsafe.Pointer(&g.VolumeMaterial.transmittance)) = float32(volume.Transmittance)
+
+	fmt.Println("Old Render Volume:", g.RenderVolume)
+	fmt.Println("New Render Volume:", volume.RenderVolume)
+
+	fmt.Println("Old Render Voxel:", g.RenderVoxels)
+	fmt.Println("New Render Voxel:", volume.RenderVoxel)
+
+	*(*bool)(unsafe.Pointer(&g.RenderVolume)) = volume.RenderVolume
+	*(*bool)(unsafe.Pointer(&g.RenderVoxels)) = volume.RenderVoxel
 
 	return c.JSON(http.StatusOK, volume)
 }
@@ -4340,8 +4356,7 @@ func main() {
 			Shader{shader: bloomShader, options: map[string]interface{}{"BloomThreshold": 0.05, "BloomIntensity": 1.1, "Alpha": 1.0}, amount: 0.2, multipass: 2},
 			// Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 0.2},
 		},
-		VoxelsOrVoxelVolume: true,
-		VolumeMaterial:      VolumeMaterial,
+		VolumeMaterial: VolumeMaterial,
 	}
 
 	startTime = time.Now()
