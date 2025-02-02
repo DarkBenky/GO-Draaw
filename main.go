@@ -377,6 +377,24 @@ type TriangleSimple struct {
 	Metallic        float32
 }
 
+type TriangleSimpleAdvance struct {
+	color           ColorFloat32
+	v1, v2, v3      Vector
+	Normal          Vector
+	reflection      float32
+	directToScatter float32
+	specular        float32
+	Roughness       float32
+	Metallic        float32
+	materialID      int8
+}
+
+type Texture struct {
+	texture [128][128][4]uint8
+}
+
+type MaterialMap map[uint8]Material
+
 type SphereSimple struct {
 	center Vector
 	radius float32

@@ -1,5 +1,7 @@
 # TODO List
 
+- [ ] Triangle Textures ([link](https://chatgpt.com/c/6799fedf-17ac-8004-a51b-2bfaacdf7b98))
+- [ ] BVH densify
 - [ ] Fix Distance Buffer
 - [ ] Finish Voxel renderer
   - [ ] Implement Render Method
