@@ -1,7 +1,10 @@
 # TODO List
 
+- [ ] Color Mapping Shader
+- [ ] Movement options
 - [ ] Fix Draw Voxels Method
 - [ ] BVH densify
+  - [ ] bvh Array method
 - [ ] Optimize struct to be memory aligned
 - [ ] Fix Distance Buffer
 - [ ] Add Textures for triangles ([link](https://chatgpt.com/c/6799fedf-17ac-8004-a51b-2bfaacdf7b98))
