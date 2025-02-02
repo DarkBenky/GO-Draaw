@@ -3566,14 +3566,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("rendered_frame_%d.png", randomNumber))
 	}
 
-	// Draw Voxel Grid
-
-	DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial)
-
-	// start := time.Now()
-	// DrawRays(g.camera, g.light, g.scaleFactor, scatter, depth, g.subImages)
-	// elapsed := time.Since(start)
-	// start = time.Now()
 	switch renderVersion.Selected {
 	case 0:
 		DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
@@ -3698,10 +3690,22 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame.DrawImage(subImage, op)
 	}
 
-	for _, block := range g.VoxelGridBlocksImage {
-		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(float64(block.startX), float64(block.startY))
-		g.currentFrame.DrawImage(block.image, op)
+	// Draw Voxel Grid
+	if g.RenderVolume {
+		DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial)
+		for _, block := range g.VoxelGridBlocksImage {
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(float64(block.startX), float64(block.startY))
+			g.currentFrame.DrawImage(block.image, op)
+		}
+	}
+	if g.RenderVoxels {
+		DrawRaysBlockVoxels(g.camera, g.scaleFactor, 64, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial)
+		for _, block := range g.VoxelGridBlocksImage {
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(float64(block.startX), float64(block.startY))
+			g.currentFrame.DrawImage(block.image, op)
+		}
 	}
 
 	for _, shader := range g.Shaders {
@@ -4324,7 +4328,7 @@ func main() {
 	VoxelGrid := NewVoxelGrid(32, Vector{0, 0, 0}, Vector{300, 400, 500}, ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 	// VoxelGrid.CalculateLighting(16, 1, light)
 	VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
-	// VoxelGrid.SetRandomLightColor()
+	VoxelGrid.SetRandomLightColor()
 
 	// print some color values
 	for i := 0; i < 8; i++ {
@@ -4375,9 +4379,8 @@ func main() {
 			// Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 0.2},
 		},
 		VolumeMaterial: VolumeMaterial,
+		RenderVoxels:  true,
 	}
-
-	startTime = time.Now()
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Ebiten Benchmark")
@@ -4555,7 +4558,11 @@ func (v *VoxelGrid) SetRandomSmokeColor() {
 
 func (v *VoxelGrid) SetRandomLightColor() {
 	for i := range v.Blocks {
-		v.Blocks[i].LightColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 1}
+		if rand.Float32() < 0.2 {
+			v.Blocks[i].LightColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 255}
+		} else {
+			v.Blocks[i].LightColor = ColorFloat32{0, 0, 0, 0}
+		}
 	}
 }
 
@@ -4563,7 +4570,7 @@ func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light) {
 	wg := sync.WaitGroup{}
 
 	// Create mutex array for each block to prevent race conditions
-	mutexes := make([]sync.Mutex, len(v.Blocks))
+	// mutexes := make([]sync.Mutex, len(v.Blocks))
 
 	for i := range v.Blocks {
 		wg.Add(1)
@@ -4594,9 +4601,14 @@ func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light) {
 			// localColor = localColor.MulScalar(1.0 / float32(samples))
 
 			// Safely update the block's light color
-			mutexes[blockIndex].Lock()
-			v.Blocks[blockIndex].LightColor = localColor
-			mutexes[blockIndex].Unlock()
+			// mutexes[blockIndex].Lock()
+			// v.Blocks[blockIndex].LightColor = localColor
+			// mutexes[blockIndex].Unlock()
+
+			vBlocksBlockIndex := (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(blockIndex*48)))
+			lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&vBlocksBlockIndex.LightColor))
+			// Unsafe assignment
+			*lightColorPtr = localColor
 
 		}(i) // Pass i directly to avoid closure issues
 	}
@@ -4669,14 +4681,14 @@ func (v *VoxelGrid) IntersectVoxels(ray Ray, light Light, steps int, Intensity f
 		}
 
 		// Hit something - calculate lighting
-		distanceToLight := Vector{
-			light.Position.x - block.Position.x,
-			light.Position.y - block.Position.y,
-			light.Position.z - block.Position.z,
-		}.Length()
-		lightIntensity := 1.0 / (distanceToLight * distanceToLight / (light.intensity * light.intensity))
+		// distanceToLight := Vector{
+		// 	light.Position.x - block.Position.x,
+		// 	light.Position.y - block.Position.y,
+		// 	light.Position.z - block.Position.z,
+		// }.Length()
+		// lightIntensity := 1.0 / (distanceToLight * distanceToLight / (light.intensity * light.intensity))
 
-		return block.LightColor.MulScalar(Intensity * lightIntensity)
+		return block.LightColor
 	}
 
 	return ColorFloat32{}
