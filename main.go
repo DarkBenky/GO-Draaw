@@ -3744,124 +3744,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		screen.DrawImage(g.renderedFrame, mainOp)
 	}
 
-	// rayMarchingOpts := &ebiten.DrawRectShaderOptions{}
-	// rayMarchingOpts.Images[0] = g.currentFrame
-	// rayMarchingOpts.Uniforms = map[string]interface{}{
-	// 	"StartPosition": []float32{g.camera.Position.x, g.camera.Position.y, g.camera.Position.z},
-	// 	"TopLeft":     []float32{ScreenSpaceCoordinates[0][0].x, ScreenSpaceCoordinates[0][0].y, ScreenSpaceCoordinates[0][0].z},
-	// 	"TopRight":   []float32{ScreenSpaceCoordinates[screenWidth-1][0].x, ScreenSpaceCoordinates[screenWidth-1][0].y, ScreenSpaceCoordinates[screenWidth-1][0].z},
-	// 	"BottomLeft":  []float32{ScreenSpaceCoordinates[0][screenHeight-1].x, ScreenSpaceCoordinates[0][screenHeight-1].y, ScreenSpaceCoordinates[0][screenHeight-1].z},
-	// }
-
-	// // Apply the ray marching shader
-	// rayMarchingImage.DrawRectShader(
-	// 	rayMarchingImage.Bounds().Dx(),
-	// 	rayMarchingImage.Bounds().Dy(),
-	// 	g.RayMarchShader,
-	// 	rayMarchingOpts,
-	// )
-
-	// // Draw the ray marching image to the screen
-	// op1 := &ebiten.DrawImageOptions{}
-	// op1.GeoM.Scale(float64(screen.Bounds().Dx())/float64(rayMarchingImage.Bounds().Dx()),
-	// 	float64(screen.Bounds().Dy())/float64(rayMarchingImage.Bounds().Dy()))
-	// screen.DrawImage(rayMarchingImage, op1)
-
-	// Create a temporary image for bloom shader
-	// bloomImage := ebiten.NewImageFromImage(g.currentFrame)
-
-	// Apply Bloom shader
-	// bloomOpts := &ebiten.DrawRectShaderOptions{}
-	// bloomOpts.Images[0] = g.currentFrame
-	// bloomOpts.Uniforms = map[string]interface{}{
-	// 	"screenSize":     []float32{float32(bloomImage.Bounds().Dx()), float32(bloomImage.Bounds().Dy())},
-	// 	"bloomThreshold": 1,
-	// }
-
-	// // Apply the bloom shader
-	// bloomImage.DrawRectShader(
-	// 	bloomImage.Bounds().Dx(),
-	// 	bloomImage.Bounds().Dy(),
-	// 	g.bloomShader,
-	// 	bloomOpts,
-	// )
-
-	// Apply Dither shader
-	// ditherImage := ebiten.NewImageFromImage(bloomImage)
-	// ditherOpts := &ebiten.DrawRectShaderOptions{}
-	// ditherOpts.Images[0] = g.currentFrame
-	// ditherOpts.Uniforms = map[string]interface{}{
-	// 	"screenSize":  []float32{float32(ditherImage.Bounds().Dx()), float32(ditherImage.Bounds().Dy())},
-	// 	"BayerMatrix": bayerMatrix,
-	// }
-
-	// // Apply the dither shader
-	// ditherImage.DrawRectShader(
-	// 	ditherImage.Bounds().Dx(),
-	// 	ditherImage.Bounds().Dy(),
-	// 	g.ditherColor,
-	// 	ditherOpts,
-	// )
-
-	// Draw the current frame (bloomImage) to the screen, scaling it to screen size
-	// Draw bloomImage to the screen, scaling it to screen size
-	// Draw bloomImage to the screen, scaling it to screen size
-	// op1 := &ebiten.DrawImageOptions{}
-	// op1.GeoM.Scale(float64(screen.Bounds().Dx())/float64(bloomImage.Bounds().Dx()),
-	// 	float64(screen.Bounds().Dy())/float64(bloomImage.Bounds().Dy()))
-	// screen.DrawImage(bloomImage, op1)
-
-	// Create Triangle Rendering Shader
-	// triangleImage := ebiten.NewImageFromImage(ditherImage)
-	// triangleOpts := &ebiten.DrawRectShaderOptions{}
-	// triangleOpts.Images[0] = ditherImage
-	// triangleOpts.Uniforms = map[string]interface{}{
-	// 	"cameraPos": []float32{g.camera.Position.x, g.camera.Position.y, g.camera.Position.z},
-	// 	"cameraDir": []float32{g.camera.xAxis, g.camera.yAxis, g.camera.zAxis},
-	// 	"cameraPitch" : g.camera.xAxis,
-	// 	"cameraYaw" : g.camera.yAxis,
-	// 	"cameraRoll" : g.camera.zAxis,
-	// 	"cameraFoe" : FOV,
-
-	// 	"TriangleV1": TrianglesV1,
-	// 	"TriangleV2": TrianglesV2,
-	// 	"TriangleV3": TrianglesV3,
-
-	// 	"epsilon": 0.0001,
-	// 	"maxDist ": 1000.0,
-	// }
-
-	// // Apply the triangle shader
-	// triangleImage.DrawRectShader(
-	// 	triangleImage.Bounds().Dx(),
-	// 	triangleImage.Bounds().Dy(),
-	// 	g.TriangleShader,
-	// 	triangleOpts,
-	// )
-
-	// screen.DrawImage(triangleImage, op1)
-	// // Prepare the options for ditherImage with darker blending
-	// op2 := &ebiten.DrawImageOptions{}
-	// op2.GeoM.Scale(float64(screen.Bounds().Dx())/float64(ditherImage.Bounds().Dx()),
-	// 	float64(screen.Bounds().Dy())/float64(ditherImage.Bounds().Dy()))
-	// op2.CompositeMode = ebiten.CompositeModeMultiply // Set to multiply for darker blending
-
-	// // Draw ditherImage with darker blending
-	// screen.DrawImage(ditherImage, op2)
-
-	// Show the current FPS
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
-	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Frame Time: %d", elapsed.Nanoseconds()), 0, 20)
-	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Block Frame Time: %d", elapsed2.Nanoseconds()), 0, 40)
-	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SpeedUp: %.2f", SpeedUp/float64(counter)), 0, 60)
-
-	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Unsafe: %d", averageUnsafe/counter), 0, 80)
-	// ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Safe: %d", averageSafe/counter), 0, 100)
-
-	// check if R key is pressed
-	if ebiten.IsKeyPressed(ebiten.KeyR) {
-		g.VoxelGrid.CalculateLighting(16, 1, g.light)
-	}
 }
 
 var BVH *BVHNode
@@ -3945,19 +3828,30 @@ func ApplyShader(image *ebiten.Image, shader Shader) *ebiten.Image {
 // 	return newImage
 // }
 
+const (
+	V1       = uint8(iota)
+	V2       = uint8(iota)
+	V2Log    = uint8(iota)
+	V2Linear = uint8(iota)
+	Native   = uint8(iota)
+	TwoX     = uint8(iota)
+	FourX    = uint8(iota)
+	EightX   = uint8(iota)
+	Classic  = uint8(iota)
+	Normals  = uint8(iota)
+	Depth    = uint8(iota)
+)
+
 type Game struct {
 	// 64-bit pointers (8 bytes each) grouped together
-	currentFrame  *ebiten.Image
-	previousFrame *ebiten.Image
-	renderedFrame *ebiten.Image
-	VoxelGrid     *VoxelGrid
+	currentFrame   *ebiten.Image
+	previousFrame  *ebiten.Image
+	renderedFrame  *ebiten.Image
+	VoxelGrid      *VoxelGrid
+	VolumeMaterial VolumeMaterial
 
-	// 24-bit pointers (3 bytes each) grouped together
-	subImagesRayMarching []*ebiten.Image
-	VoxelGridBlocksImage []BlocksImage
-	BlocksImage          []BlocksImage
-	BlocksImageAdvance   []BlocksImageAdvance
-	Shaders              []Shader
+	// 64-bit floats (8 bytes each) grouped together
+	r, g, b, a float64
 
 	// 32-bit floats (4 bytes each) grouped together
 	specular        float32
@@ -3966,23 +3860,39 @@ type Game struct {
 	ColorMultiplier float32
 	roughness       float32
 	metallic        float32
+	gamma           float32
+	light           Light
 
-	// 64-bit floats (8 bytes each) grouped together
-	r, g, b, a float64
+	// 24-bit pointers (3 bytes each) grouped together
+	subImagesRayMarching []*ebiten.Image
+	VoxelGridBlocksImage []BlocksImage
+	BlocksImage          []BlocksImage
+	BlocksImageAdvance   []BlocksImageAdvance
+	Shaders              []Shader
 
-	// Larger structs grouped together
-	camera         Camera
-	light          Light
-	VolumeMaterial VolumeMaterial
+	// 20-bit pointers (2.5 bytes each) grouped together
+	camera Camera
 
 	// Integer values (4 bytes each) grouped together
 	cursorX, cursorY int
 	scaleFactor      int
 
+	// Uint8 values (1 byte each) grouped together
+	mode       uint8
+	resolution uint8
+	version    uint8
+	depth      uint8
+	scatter    uint8
+
 	// Boolean flags (1 byte each) at the end
 	RenderVolume bool
 	RenderVoxels bool
 	xyzLock      bool
+
+	// Render options (1 byte each)
+	SnapLightToCamera  bool
+	RayMarching        bool
+	PerformanceOptions bool
 }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
@@ -4174,6 +4084,68 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 	return c.JSON(http.StatusOK, volume)
 }
 
+func (g *Game) submitRenderOptions(c echo.Context) error {
+	type RenderOptions struct {
+		Depth       int     `json:"depth"`
+		Scatter     int     `json:"scatter"`
+		Gamma       float64 `json:"gamma"`
+		SnapLight   bool    `json:"snapLight"`
+		RayMarching bool    `json:"rayMarching"`
+		Performance bool    `json:"performance"`
+		Mode        string  `json:"mode"`
+		Resolution  string  `json:"resolution"`
+		Version     string  `json:"version"`
+	}
+
+	renderOptions := new(RenderOptions)
+	if err := c.Bind(renderOptions); err != nil {
+		return err
+	}
+
+	fmt.Println("Render Options", renderOptions)
+
+	// set unsafe values
+	*(*uint8)(unsafe.Pointer(&g.depth)) = uint8(renderOptions.Depth)
+	*(*uint8)(unsafe.Pointer(&g.scatter)) = uint8(renderOptions.Scatter)
+	*(*float32)(unsafe.Pointer(&g.gamma)) = float32(renderOptions.Gamma)
+	*(*bool)(unsafe.Pointer(&g.SnapLightToCamera)) = renderOptions.SnapLight
+	*(*bool)(unsafe.Pointer(&g.RayMarching)) = renderOptions.RayMarching
+	*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = renderOptions.Performance
+
+	switch renderOptions.Version {
+	case "V1":
+		*(*uint8)(unsafe.Pointer(&g.version)) = V1
+	case "V2":
+		*(*uint8)(unsafe.Pointer(&g.version)) = V2
+	case "V2-Log":
+		*(*uint8)(unsafe.Pointer(&g.version)) = V2Log
+	case "V2-Linear":
+		*(*uint8)(unsafe.Pointer(&g.version)) = V2Linear
+	}
+
+	switch renderOptions.Resolution {
+	case "Native":
+		*(*uint8)(unsafe.Pointer(&g.resolution)) = Native
+	case "2X":
+		*(*uint8)(unsafe.Pointer(&g.resolution)) = TwoX
+	case "4X":
+		*(*uint8)(unsafe.Pointer(&g.resolution)) = FourX
+	case "8X":
+		*(*uint8)(unsafe.Pointer(&g.resolution)) = EightX
+	}
+
+	switch renderOptions.Mode {
+	case "Classic":
+		*(*uint8)(unsafe.Pointer(&g.mode)) = Classic
+	case "Normals":
+		*(*uint8)(unsafe.Pointer(&g.mode)) = Normals
+	case "Depth":
+		*(*uint8)(unsafe.Pointer(&g.mode)) = Depth
+	}
+
+	return c.JSON(http.StatusOK, renderOptions)
+}
+
 func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		c.Response().Header().Set("Access-Control-Allow-Origin", "*")
@@ -4196,6 +4168,7 @@ func startServer(game *Game) {
 
 	e.POST("/submitColor", game.submitColor)
 	e.POST("/submitVoxel", game.submitVoxelData)
+	e.POST("/submitRenderOptions", game.submitRenderOptions)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -4294,6 +4267,16 @@ func main() {
 		panic(err)
 	}
 
+	src, err = LoadShader("shaders/ColorMapping.kage")
+	if err != nil {
+		panic(err)
+	}
+
+	colorMappingShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
 	// src, err = LoadShader("shaders/AverageFrames.kage")
 	// if err != nil {
 	// 	panic(err)
@@ -4351,10 +4334,8 @@ func main() {
 
 	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
-	fmt.Println()
-
 	VoxelGrid := NewVoxelGrid(32, obj.BoundingBox[0], obj.BoundingBox[1], ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
-	
+
 	VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	VoxelGrid.SetRandomLightColor()
 	fmt.Println("BVH:", BVH)
@@ -4402,6 +4383,17 @@ func main() {
 		// TriangleShader: 	   rayCasterShader,
 		// averageFramesShader: averageFramesShader,
 		Shaders: []Shader{
+			Shader{
+				shader: colorMappingShader,
+				options: map[string]interface{}{
+					"ColorR": 16.0,
+					"ColorG": 16.0,
+					"ColorB": 16.0,
+					"Alpha":  0.8,
+				},
+				amount:    0.5,
+				multipass: 4,
+			},
 			// Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5, "Alpha": 0.1}, amount: 0.1},
 			// Shader{shader: tintShader, options: map[string]interface{}{"TintColor": []float32{0.2, 0.6, 0.1}, "TintStrength": 0.1, "Alpha": 1}, amount: 0.5},
 			// Shader{shader: ditherShaderColor, options: map[string]interface{}{"BayerMatrix": bayerMatrix, "Alpha": float32(0.5)}, amount: 1.0,},
@@ -4483,15 +4475,14 @@ type VoxelGrid struct {
 
 func (v *VoxelGrid) ConvertBVHtoVoxelGrid(bvh *BVHNode) {
 	for i := range v.Blocks {
-		hit , t := bvh.PointInBoundingBox(v.Blocks[i].Position)
+		hit, t := bvh.PointInBoundingBox(v.Blocks[i].Position)
 		if hit {
 			v.Blocks[i].LightColor = t.color
-		}else{
+		} else {
 			v.Blocks[i].LightColor = ColorFloat32{0, 0, 0, 0}
 		}
 	}
 }
-
 
 func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFloat32, VolumeMaterial VolumeMaterial) *VoxelGrid {
 	xDiff := maxBB.x - minBB.x

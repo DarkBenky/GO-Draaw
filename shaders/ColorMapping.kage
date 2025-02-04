@@ -1,0 +1,27 @@
+package main
+
+// Uniform variables defining the number of colors per channel and fixed alpha
+var ColorR float
+var ColorG float
+var ColorB float
+var Alpha float
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Sample the original color from the source image
+    originalColor := imageSrc0At(texCoord)
+    
+    stepR := 1 / ColorR
+    stepG := 1 / ColorG
+    stepB := 1 / ColorB
+
+    // Quantize the color channels
+    mappedR := floor(originalColor.r / stepR) * stepR
+    mappedG := floor(originalColor.g / stepG) * stepG
+    mappedB := floor(originalColor.b / stepB) * stepB
+
+
+    // Build the resulting color with the quantized channels and fixed Alpha
+    resultColor := vec4(mappedR, mappedG, mappedB, Alpha)
+
+    return resultColor
+}
