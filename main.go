@@ -3861,6 +3861,7 @@ type Game struct {
 	roughness       float32
 	metallic        float32
 	gamma           float32
+	FOV             float32
 	light           Light
 
 	// 24-bit pointers (3 bytes each) grouped together
@@ -4095,6 +4096,7 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 		Mode        string  `json:"mode"`
 		Resolution  string  `json:"resolution"`
 		Version     string  `json:"version"`
+		FOV         float64 `json:"fov"`
 	}
 
 	renderOptions := new(RenderOptions)
@@ -4111,6 +4113,7 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	*(*bool)(unsafe.Pointer(&g.SnapLightToCamera)) = renderOptions.SnapLight
 	*(*bool)(unsafe.Pointer(&g.RayMarching)) = renderOptions.RayMarching
 	*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = renderOptions.Performance
+	*(*float32)(unsafe.Pointer(&g.FOV)) = float32(renderOptions.FOV)
 
 	switch renderOptions.Version {
 	case "V1":
