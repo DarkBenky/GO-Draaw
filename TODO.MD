@@ -2,12 +2,16 @@
 
 - [ ] Color Mapping Shader
 - [ ] Movement options
-- [ ] Fix Draw Voxels Method
+- [X] Fix Draw Voxels Method\
 - [ ] BVH densify
   - [ ] bvh Array method
 - [ ] Optimize struct to be memory aligned
 - [ ] Fix Distance Buffer
 - [ ] Add Textures for triangles ([link](https://chatgpt.com/c/6799fedf-17ac-8004-a51b-2bfaacdf7b98))
+  - [ ] Triangle Struct for Material
+    - [ ] Methods
+  - [ ] BVH
+  - [ ] Draw Method
 - [ ] Finish Voxel renderer
   - [X] Implement Render Method
   - [x] Implement Ray Between Sun and Point in Volume

@@ -393,7 +393,11 @@ type Texture struct {
 	texture [128][128][4]uint8
 }
 
-type MaterialMap map[uint8]Material
+type MaterialMap map[uint8]Texture
+
+var (
+	materialMap = make(MaterialMap)
+)
 
 type SphereSimple struct {
 	center Vector
@@ -1373,7 +1377,7 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	h := ray.direction.Cross(edge2)
 	a := edge1.Dot(h)
 	if a > -0.00001 && a < 0.00001 {
-		return Intersection{Distance: math.MaxFloat32}, false
+		return Intersection{}, false
 	}
 	f := 1.0 / a
 	s := ray.origin.Sub(triangle.v1)
@@ -1384,7 +1388,7 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	q := s.Cross(edge1)
 	v := f * ray.direction.Dot(q)
 	if v < 0.0 || u+v > 1.0 {
-		return Intersection{Distance: math.MaxFloat32}, false
+		return Intersection{}, false
 	}
 	t := f * edge2.Dot(q)
 	if t > 0.00001 {
@@ -1401,6 +1405,86 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	}
 	return Intersection{}, false
 }
+
+type IntersectionAdvance struct {
+	Color               ColorFloat32
+	PointOfIntersection Vector
+	Normal              Vector
+	Direction           Vector
+	TextureColor        color.RGBA
+	Distance            float32
+	reflection          float32
+	specular            float32
+}
+
+
+func (ray Ray) IntersectTriangle(triangle TriangleSimpleAdvance) (IntersectionAdvance, bool) {
+	// Möller–Trumbore intersection algorithm
+	edge1 := triangle.v2.Sub(triangle.v1)
+	edge2 := triangle.v3.Sub(triangle.v1)
+	h := ray.direction.Cross(edge2)
+	a := edge1.Dot(h)
+	if a > -0.00001 && a < 0.00001 {
+		return IntersectionAdvance{}, false
+	}
+	f := 1.0 / a
+	s := ray.origin.Sub(triangle.v1)
+	u := f * s.Dot(h)
+	if u < 0.0 || u > 1.0 {
+		return IntersectionAdvance{}, false
+	}
+	q := s.Cross(edge1)
+	v := f * ray.direction.Dot(q)
+	if v < 0.0 || u+v > 1.0 {
+		return IntersectionAdvance{}, false
+	}
+	t := f * edge2.Dot(q)
+	if t <= 0.00001 {
+		return IntersectionAdvance{}, false
+	}
+
+	// Compute the intersection point
+	intersectionPoint := ray.origin.Add(ray.direction.Mul(t))
+
+	// Compute barycentric coordinates
+	w := 1.0 - u - v
+
+	// Sample the texture using barycentric coordinates
+	texU := int(w*127) // Scale to [0,127] range
+	texV := int(v*127)
+	if texU < 0 {
+		texU = 0
+	} else if texU > 127 {
+		texU = 127
+	}
+	if texV < 0 {
+		texV = 0
+	} else if texV > 127 {
+		texV = 127
+	}
+
+	Material := materialMap[uint8(1)]
+	texColor := color.RGBA{
+		R: Material.texture[texU][texV][0],
+		G: Material.texture[texU][texV][1],
+		B: Material.texture[texU][texV][2],
+		A: Material.texture[texU][texV][3],
+	}
+	
+
+	// Return intersection data
+	return IntersectionAdvance{
+		PointOfIntersection: intersectionPoint,
+		Color:               triangle.color, // Base color
+		TextureColor:        texColor,       // Sampled texture color
+		Normal:              triangle.Normal,
+		Direction:           ray.direction,
+		Distance:            t,
+		reflection:          triangle.reflection,
+		specular:            triangle.specular,
+	}, true
+}
+
 
 // func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
 // 	// Initialize the closest intersection and hit status
@@ -1753,12 +1837,12 @@ func TraceRayV3(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 
 func TraceRayV3Advance(ray Ray, depth int, light Light, samples int) (c ColorFloat32, distance float32, normal Vector) {
 	if depth <= 0 {
-		return ColorFloat32{}, math32.MaxFloat32, Vector{}
+		return ColorFloat32{}, 0, Vector{}
 	}
 
 	intersection, intersect := ray.IntersectBVH(BVH)
 	if !intersect {
-		return ColorFloat32{}, math32.MaxFloat32, Vector{}
+		return ColorFloat32{}, 0, Vector{}
 	}
 
 	viewDir := ray.origin.Sub(intersection.PointOfIntersection).Normalize()
@@ -2608,7 +2692,7 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 					block.distanceBuffer[index] = distance
 					block.distanceBuffer[index+1] = distance
 					block.distanceBuffer[index+2] = distance
-					block.distanceBuffer[index+3] = distance
+					block.distanceBuffer[index+3] = 255
 
 					if distance != math.MaxFloat32 {
 						block.maxDistance = math32.Max(block.maxDistance, distance)
@@ -2648,32 +2732,32 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 	}
 
 	// normalize the distance buffer
-	for _, block := range blocks {
-		wg.Add(1)
-		go func(block BlocksImageAdvance) {
-			defer wg.Done()
+	// for _, block := range blocks {
+	// 	wg.Add(1)
+	// 	go func(block BlocksImageAdvance) {
+	// 		defer wg.Done()
 
-			// Handle edge case when all distances are equal
-			normalizer := maxDistance - minDistance
-			if normalizer == 0 {
-				normalizer = 1
-			}
+	// 		// Handle edge case when all distances are equal
+	// 		normalizer := maxDistance - minDistance
+	// 		if normalizer == 0 {
+	// 			normalizer = 1
+	// 		}
 
-			for i := 0; i < len(block.distanceBuffer); i += 4 {
-				normalizedValue := (block.distanceBuffer[i] - minDistance) / normalizer
-				value := clampToUint8(normalizedValue)
+	// 		for i := 0; i < len(block.distanceBuffer); i += 4 {
+	// 			normalizedValue := (block.distanceBuffer[i] - minDistance) / normalizer
+	// 			value := clampToUint8(normalizedValue)
 
-				// Set RGBA values
-				baseIndex := (i / 4) * 4
-				block.distanceBufferProcessed[baseIndex] = value
-				block.distanceBufferProcessed[baseIndex+1] = value
-				block.distanceBufferProcessed[baseIndex+2] = value
-				block.distanceBufferProcessed[baseIndex+3] = 255
-			}
-		}(block)
-	}
+	// 			// Set RGBA values
+	// 			baseIndex := (i / 4) * 4
+	// 			block.distanceBufferProcessed[baseIndex] = value
+	// 			block.distanceBufferProcessed[baseIndex+1] = value
+	// 			block.distanceBufferProcessed[baseIndex+2] = value
+	// 			block.distanceBufferProcessed[baseIndex+3] = 255
+	// 		}
+	// 	}(block)
+	// }
 
-	wg.Wait()
+	// wg.Wait()
 
 	// Apply color grading and write pixels
 	for _, block := range blocks {
@@ -2682,7 +2766,7 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 		} else {
 			block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
 		}
-		block.distanceImage.WritePixels(block.distanceBufferProcessed)
+		// block.distanceImage.WritePixels(block.distanceBufferProcessed)
 		block.normalImage.WritePixels(block.normalsBuffer)
 	}
 }
@@ -3592,16 +3676,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("rendered_frame_%d.png", randomNumber))
 	}
 
-	switch renderVersion.Selected {
-	case 0:
-		DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
-	case 1:
-		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
-	case 2:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, gamaSlider.sliderValue)
-	case 3:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, gamaSlider.sliderValue)
-	}
+	// switch renderVersion.Selected {
+	// case 0:
+	// 	DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+	// case 1:
+	// 	DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+	// case 2:
+	// 	DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, gamaSlider.sliderValue)
+	// case 3:
+	// 	DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, gamaSlider.sliderValue)
+	// }
 
 	// elapsed2 := time.Since(start)
 
@@ -3686,25 +3770,65 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	g.previousFrame = g.currentFrame
 
-	if renderVersion.Selected == 0 {
-		for _, block := range g.BlocksImage {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(float64(block.startX), float64(block.startY))
-			g.currentFrame.DrawImage(block.image, op)
-		}
-	} else if renderVersion.Selected == 1 {
-		for _, block := range g.BlocksImage {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(float64(block.startX), float64(block.startY))
-			g.currentFrame.DrawImage(block.image, op)
+	switch g.version {
+	case V1:
+		DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+	case V2:
+		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+	case V2Log:
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, g.gamma)
+	case V2Linear:
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, g.gamma)
+	}
+
+	if g.version == V2Log || g.version == V2Linear {
+		switch g.mode {
+		case Classic:
+			for _, block := range g.BlocksImageAdvance {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				g.currentFrame.DrawImage(block.image, op)
+			}
+		case Depth:
+			for _, block := range g.BlocksImageAdvance {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				g.currentFrame.DrawImage(block.distanceImage, op)
+			}
+		case Normals:
+			for _, block := range g.BlocksImageAdvance {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				g.currentFrame.DrawImage(block.normalImage, op)
+			}
 		}
 	} else {
-		for _, block := range g.BlocksImageAdvance {
+		for _, block := range g.BlocksImage {
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(block.startX), float64(block.startY))
-			g.currentFrame.DrawImage(block.distanceImage, op)
+			g.currentFrame.DrawImage(block.image, op)
 		}
 	}
+
+	// if renderVersion.Selected == 0 {
+	// 	for _, block := range g.BlocksImage {
+	// 		op := &ebiten.DrawImageOptions{}
+	// 		op.GeoM.Translate(float64(block.startX), float64(block.startY))
+	// 		g.currentFrame.DrawImage(block.image, op)
+	// 	}
+	// } else if renderVersion.Selected == 1 {
+	// 	for _, block := range g.BlocksImage {
+	// 		op := &ebiten.DrawImageOptions{}
+	// 		op.GeoM.Translate(float64(block.startX), float64(block.startY))
+	// 		g.currentFrame.DrawImage(block.image, op)
+	// 	}
+	// } else {
+	// 	for _, block := range g.BlocksImageAdvance {
+	// 		op := &ebiten.DrawImageOptions{}
+	// 		op.GeoM.Translate(float64(block.startX), float64(block.startY))
+	// 		g.currentFrame.DrawImage(block.distanceImage, op)
+	// 	}
+	// }
 
 	for i, subImage := range g.subImagesRayMarching {
 		op := &ebiten.DrawImageOptions{}
@@ -4117,12 +4241,16 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 
 	switch renderOptions.Version {
 	case "V1":
+		fmt.Println("V1")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V1
 	case "V2":
+		fmt.Println("V2")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V2
 	case "V2-Log":
+		fmt.Println("V2-Log")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V2Log
 	case "V2-Linear":
+		fmt.Println("V2-Linear")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V2Linear
 	}
 
@@ -4139,10 +4267,13 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 
 	switch renderOptions.Mode {
 	case "Classic":
+		fmt.Println("Classic")
 		*(*uint8)(unsafe.Pointer(&g.mode)) = Classic
 	case "Normals":
+		fmt.Println("Normals")
 		*(*uint8)(unsafe.Pointer(&g.mode)) = Normals
 	case "Depth":
+		fmt.Println("Depth")
 		*(*uint8)(unsafe.Pointer(&g.mode)) = Depth
 	}
 
@@ -4349,6 +4480,20 @@ func main() {
 		fmt.Println(VoxelGrid.Blocks[i*8].LightColor)
 	}
 
+	// generate random material 
+	texture := new(Texture)
+	for i, row := range texture.texture {
+		for j, _ := range row {
+			texture.texture[i][j][0] = uint8(rand.Intn(255))
+			texture.texture[i][j][1] = uint8(rand.Intn(255))
+			texture.texture[i][j][2] = uint8(rand.Intn(255))
+			texture.texture[i][j][3] = uint8(rand.Intn(255))
+		}
+	}
+
+	materialMap[0] = *texture
+
+
 	// subImages := make([]*ebiten.Image, numCPU)
 	subImages := [numCPU]*ebiten.Image{}
 
@@ -4394,8 +4539,8 @@ func main() {
 					"ColorB": 16.0,
 					"Alpha":  0.8,
 				},
-				amount:    0.5,
-				multipass: 4,
+				amount:    0.1,
+				multipass: 1,
 			},
 			// Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5, "Alpha": 0.1}, amount: 0.1},
 			// Shader{shader: tintShader, options: map[string]interface{}{"TintColor": []float32{0.2, 0.6, 0.1}, "TintStrength": 0.1, "Alpha": 1}, amount: 0.5},
