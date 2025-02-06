@@ -1,6 +1,7 @@
 # TODO List
 
-- [ ] Color Mapping Shader
+- [X] Color Mapping Shader
+- [X] IntersectTriangleTexture fix add textures
 - [ ] Movement options
 - [X] Fix Draw Voxels Method\
 - [ ] BVH densify
