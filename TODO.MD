@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Why V2 is faster than V2-LOG...
 - [X] Color Mapping Shader
 - [X] IntersectTriangleTexture fix add textures
 - [ ] Movement options

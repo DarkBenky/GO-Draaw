@@ -1335,7 +1335,7 @@ func (ray Ray) IntersectBVH(nodeBVH *BVHNode) (Intersection, bool) {
 	return closestIntersection, hit
 }
 
-func (ray Ray) IntersectBVH_Texture(nodeBVH *BVHNode, textureMap map[uint8]*Texture) (Intersection, bool) {
+func (ray Ray) IntersectBVH_Texture(nodeBVH *BVHNode, textureMap *[128]Texture) (Intersection, bool) {
 	// Preallocate a stack large enough for the BVH depth
 	stack := make([]*BVHNode, maxDepth)
 	stackIndex := 0
@@ -1468,7 +1468,7 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	return Intersection{}, false
 }
 
-func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap map[uint8]*Texture) (Intersection, bool) {
+func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[128]Texture) (Intersection, bool) {
 	// Möller–Trumbore intersection algorithm
 	edge1 := triangle.v2.Sub(triangle.v1)
 	edge2 := triangle.v3.Sub(triangle.v1)
@@ -1997,7 +1997,7 @@ func TraceRayV3Advance(ray Ray, depth int, light Light, samples int) (c ColorFlo
 	}, intersection.Distance, intersection.Normal
 }
 
-func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, textureMap map[uint8]*Texture) (c ColorFloat32, distance float32, normal Vector) {
+func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, textureMap *[128]Texture) (c ColorFloat32, distance float32, normal Vector) {
 	if depth <= 0 {
 		return ColorFloat32{}, 0, Vector{}
 	}
@@ -2933,7 +2933,7 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 	}
 }
 
-func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, textureMap map[uint8]*Texture) {
+func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, textureMap *[128]Texture) {
 	var wg sync.WaitGroup
 
 	// Process each block
@@ -4252,7 +4252,7 @@ type Game struct {
 
 	// 64-bit floats (8 bytes each) grouped together
 	r, g, b, a float64
-	TextureMap map[uint8]*Texture
+	TextureMap *[128]Texture
 
 	// 32-bit floats (4 bytes each) grouped together
 	specular        float32
@@ -4771,8 +4771,9 @@ func main() {
 		}
 	}
 
-	materialMap := make(map[uint8]*Texture)
-	materialMap[uint8(1)] = texture
+	materialMap := [128]Texture{}
+	// materialMap := [128]Texture{}
+	materialMap[1] = *texture
 
 	fmt.Println("Texture:", texture)
 
@@ -4809,7 +4810,7 @@ func main() {
 		BlocksImageAdvance:   MakeNewBlocksAdvance(scale),
 		VoxelGridBlocksImage: MakeNewBlocks(scale),
 		VoxelGrid:            VoxelGrid,
-		TextureMap:           materialMap,
+		TextureMap:           &materialMap,
 		// RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
 		// averageFramesShader: averageFramesShader,
