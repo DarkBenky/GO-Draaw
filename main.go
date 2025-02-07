@@ -2747,8 +2747,8 @@ func clampToUint8(value float32) uint8 {
 	return uint8(math32.Min(math32.Max(value, 0), 255))
 }
 
-func ColorGradeLogarithmic(colors []float32, maxRed, maxGreen, maxBlue float32, gamma float32) []uint8 {
-	// Avoid division by zero
+func ColorGradeLogarithmic(colors []float32, maxRed, maxGreen, maxBlue, gamma float32) []uint8 {
+	// Ensure we do not divide by zero.
 	if maxRed < 1 {
 		maxRed = 1
 	}
@@ -2759,40 +2759,42 @@ func ColorGradeLogarithmic(colors []float32, maxRed, maxGreen, maxBlue float32, 
 		maxBlue = 1
 	}
 
-	colorsUint8 := make([]uint8, len(colors))
+	// Precompute constant values
+	logMaxRed := math32.Log(maxRed + 1)
+	logMaxGreen := math32.Log(maxGreen + 1)
+	logMaxBlue := math32.Log(maxBlue + 1)
+	// Combine the two gamma corrections:
+	//   pow( pow(x, gamma), 1/(gamma-1) ) == pow(x, gamma/(gamma-1) )
+	gammaExp := gamma / (gamma - 1)
 
+	// Allocate output slice.
+	out := make([]uint8, len(colors))
+
+	// Process each pixel (assuming RGBA order)
 	for i := 0; i < len(colors); i += 4 {
 		// Apply logarithmic tone mapping
-		red := math32.Log(colors[i]*maxRed+1) / math32.Log(maxRed+1)
-		green := math32.Log(colors[i+1]*maxGreen+1) / math32.Log(maxGreen+1)
-		blue := math32.Log(colors[i+2]*maxBlue+1) / math32.Log(maxBlue+1)
+		red := math32.Log(colors[i]*maxRed+1) / logMaxRed
+		green := math32.Log(colors[i+1]*maxGreen+1) / logMaxGreen
+		blue := math32.Log(colors[i+2]*maxBlue+1) / logMaxBlue
 
-		// Apply gamma correction
-		red = math32.Pow(red, gamma)
-		green = math32.Pow(green, gamma)
-		blue = math32.Pow(blue, gamma)
-
-		// red := colors[i] / maxRed
-		// green := colors[i+1] / maxGreen
-		// blue := colors[i+2] / maxBlue
-
-		// apply gamma correction
-		red = math32.Pow(red, 1/(gamma-1))
-		green = math32.Pow(green, 1/(gamma-1))
-		blue = math32.Pow(blue, 1/(gamma-1))
+		// Apply combined gamma correction
+		red = math32.Pow(red, gammaExp)
+		green = math32.Pow(green, gammaExp)
+		blue = math32.Pow(blue, gammaExp)
 
 		// Scale to 0-255 and clamp
-		colorsUint8[i] = clampToUint8(red)
-		colorsUint8[i+1] = clampToUint8(green)
-		colorsUint8[i+2] = clampToUint8(blue)
-		colorsUint8[i+3] = 255 // Alpha channel
+		out[i] = clampToUint8(red)
+		out[i+1] = clampToUint8(green)
+		out[i+2] = clampToUint8(blue)
+		out[i+3] = 255 // Alpha channel
 	}
 
-	return colorsUint8
+	return out
 }
 
-func ColorGradeLinear(colors []float32, maxRed, maxGreen, maxBlue float32, gamma float32) []uint8 {
-	// Avoid division by zero
+
+func ColorGradeLinear(colors []float32, maxRed, maxGreen, maxBlue, gamma float32) []uint8 {
+	// Ensure we do not divide by zero.
 	if maxRed < 1 {
 		maxRed = 1
 	}
@@ -2803,135 +2805,32 @@ func ColorGradeLinear(colors []float32, maxRed, maxGreen, maxBlue float32, gamma
 		maxBlue = 1
 	}
 
-	colorsUint8 := make([]uint8, len(colors))
+	// Precompute the gamma exponent for efficiency.
+	gammaExp := 1 / (gamma - 1)
+	out := make([]uint8, len(colors))
 
+	// Process each pixel (assuming RGBA order)
 	for i := 0; i < len(colors); i += 4 {
 		red := colors[i] / maxRed
 		green := colors[i+1] / maxGreen
 		blue := colors[i+2] / maxBlue
 
-		// apply gamma correction
-		red = math32.Pow(red, 1/(gamma-1))
-		green = math32.Pow(green, 1/(gamma-1))
-		blue = math32.Pow(blue, 1/(gamma-1))
+		// Apply gamma correction
+		red = math32.Pow(red, gammaExp)
+		green = math32.Pow(green, gammaExp)
+		blue = math32.Pow(blue, gammaExp)
 
 		// Scale to 0-255 and clamp
-		colorsUint8[i] = clampToUint8(red)
-		colorsUint8[i+1] = clampToUint8(green)
-		colorsUint8[i+2] = clampToUint8(blue)
-		colorsUint8[i+3] = 255 // Alpha channel
+		out[i] = clampToUint8(red)
+		out[i+1] = clampToUint8(green)
+		out[i+2] = clampToUint8(blue)
+		out[i+3] = 255 // Alpha channel
 	}
 
-	return colorsUint8
+	return out
 }
 
-func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32) {
-	var wg sync.WaitGroup
 
-	// Process each block
-	for _, block := range blocks {
-		wg.Add(1)
-		go func(block BlocksImageAdvance) {
-			defer wg.Done()
-			for y := block.startY; y < block.endY; y++ {
-				if y*scaling >= screenHeight {
-					continue
-				}
-				for x := block.startX; x < block.endX; x++ {
-					if x*scaling >= screenWidth {
-						continue
-					}
-					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c, distance, normal := TraceRayV3Advance(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
-
-					// Write the pixel color to the float buffer
-					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
-					block.colorRGB_Float32[index] = c.R
-					block.colorRGB_Float32[index+1] = c.G
-					block.colorRGB_Float32[index+2] = c.B
-					block.colorRGB_Float32[index+3] = c.A
-
-					block.distanceBuffer[index] = distance
-					block.distanceBuffer[index+1] = distance
-					block.distanceBuffer[index+2] = distance
-					block.distanceBuffer[index+3] = 255
-
-					if distance != math.MaxFloat32 {
-						block.maxDistance = math32.Max(block.maxDistance, distance)
-						block.minDistance = math32.Min(block.minDistance, distance)
-					}
-
-					// Normalize the normal vector
-					normal = normal.Normalize()
-
-					// Convert the normal to the range [0 - 255]
-					block.normalsBuffer[index] = clampToUint8((normal.x + 1) * 127.5)
-					block.normalsBuffer[index+1] = clampToUint8((normal.y + 1) * 127.5)
-					block.normalsBuffer[index+2] = clampToUint8((normal.z + 1) * 127.5)
-					block.normalsBuffer[index+3] = 255
-
-					// Track the maximum values
-					block.maxColor.R = math32.Max(block.maxColor.R, c.R)
-					block.maxColor.G = math32.Max(block.maxColor.G, c.G)
-					block.maxColor.B = math32.Max(block.maxColor.B, c.B)
-				}
-			}
-		}(block)
-	}
-
-	wg.Wait()
-
-	// Compute global maximum color values
-	maxColor := ColorFloat32{0, 0, 0, 0}
-	maxDistance := float32(0)
-	minDistance := float32(math32.MaxFloat32)
-	for _, block := range blocks {
-		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
-		maxColor.G = math32.Max(maxColor.G, block.maxColor.G)
-		maxColor.B = math32.Max(maxColor.B, block.maxColor.B)
-		maxDistance = math32.Max(maxDistance, block.maxDistance)
-		minDistance = math32.Min(minDistance, block.minDistance)
-	}
-
-	// normalize the distance buffer
-	// for _, block := range blocks {
-	// 	wg.Add(1)
-	// 	go func(block BlocksImageAdvance) {
-	// 		defer wg.Done()
-
-	// 		// Handle edge case when all distances are equal
-	// 		normalizer := maxDistance - minDistance
-	// 		if normalizer == 0 {
-	// 			normalizer = 1
-	// 		}
-
-	// 		for i := 0; i < len(block.distanceBuffer); i += 4 {
-	// 			normalizedValue := (block.distanceBuffer[i] - minDistance) / normalizer
-	// 			value := clampToUint8(normalizedValue)
-
-	// 			// Set RGBA values
-	// 			baseIndex := (i / 4) * 4
-	// 			block.distanceBufferProcessed[baseIndex] = value
-	// 			block.distanceBufferProcessed[baseIndex+1] = value
-	// 			block.distanceBufferProcessed[baseIndex+2] = value
-	// 			block.distanceBufferProcessed[baseIndex+3] = 255
-	// 		}
-	// 	}(block)
-	// }
-
-	// wg.Wait()
-
-	// Apply color grading and write pixels
-	for _, block := range blocks {
-		if renderVersion.Selected == logMode {
-			block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
-		} else {
-			block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
-		}
-		// block.distanceImage.WritePixels(block.distanceBufferProcessed)
-		block.normalImage.WritePixels(block.normalsBuffer)
-	}
-}
 
 func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, textureMap *[128]Texture) {
 	var wg sync.WaitGroup
@@ -2950,7 +2849,7 @@ func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, sample
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c, distance, normal := TraceRayV3AdvanceTexture(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap)
+					c, _, normal := TraceRayV3AdvanceTexture(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap)
 
 					// Write the pixel color to the float buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -2959,15 +2858,15 @@ func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, sample
 					block.colorRGB_Float32[index+2] = c.B
 					block.colorRGB_Float32[index+3] = c.A
 
-					block.distanceBuffer[index] = distance
-					block.distanceBuffer[index+1] = distance
-					block.distanceBuffer[index+2] = distance
-					block.distanceBuffer[index+3] = 255
+					// block.distanceBuffer[index] = distance
+					// block.distanceBuffer[index+1] = distance
+					// block.distanceBuffer[index+2] = distance
+					// block.distanceBuffer[index+3] = 255
 
-					if distance != math.MaxFloat32 {
-						block.maxDistance = math32.Max(block.maxDistance, distance)
-						block.minDistance = math32.Min(block.minDistance, distance)
-					}
+					// if distance != math.MaxFloat32 {
+					// 	block.maxDistance = math32.Max(block.maxDistance, distance)
+					// 	block.minDistance = math32.Min(block.minDistance, distance)
+					// }
 
 					// Normalize the normal vector
 					normal = normal.Normalize()
@@ -2991,14 +2890,14 @@ func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, sample
 
 	// Compute global maximum color values
 	maxColor := ColorFloat32{0, 0, 0, 0}
-	maxDistance := float32(0)
-	minDistance := float32(math32.MaxFloat32)
+	// maxDistance := float32(0)
+	// minDistance := float32(math32.MaxFloat32)
 	for _, block := range blocks {
 		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
 		maxColor.G = math32.Max(maxColor.G, block.maxColor.G)
 		maxColor.B = math32.Max(maxColor.B, block.maxColor.B)
-		maxDistance = math32.Max(maxDistance, block.maxDistance)
-		minDistance = math32.Min(minDistance, block.minDistance)
+		// maxDistance = math32.Max(maxDistance, block.maxDistance)
+		// minDistance = math32.Min(minDistance, block.minDistance)
 	}
 
 	// normalize the distance buffer
@@ -3072,6 +2971,114 @@ func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth
 
 	if performanceOptions.Selected == 0 {
 		wg.Wait()
+	}
+}
+
+func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32) {
+	var wg sync.WaitGroup
+
+	// Process each block
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y++ {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x++ {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c, _, normal := TraceRayV3Advance(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					// Write the pixel color to the float buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.colorRGB_Float32[index] = c.R
+					block.colorRGB_Float32[index+1] = c.G
+					block.colorRGB_Float32[index+2] = c.B
+					block.colorRGB_Float32[index+3] = c.A
+
+					// block.distanceBuffer[index] = distance
+					// block.distanceBuffer[index+1] = distance
+					// block.distanceBuffer[index+2] = distance
+					// block.distanceBuffer[index+3] = 255
+
+					// if distance != math.MaxFloat32 {
+					// 	block.maxDistance = math32.Max(block.maxDistance, distance)
+					// 	block.minDistance = math32.Min(block.minDistance, distance)
+					// }
+
+					// Normalize the normal vector
+					normal = normal.Normalize()
+
+					// Convert the normal to the range [0 - 255]
+					block.normalsBuffer[index] = uint8((normal.x + 1) * 127.5)
+					block.normalsBuffer[index+1] = uint8((normal.y + 1) * 127.5)
+					block.normalsBuffer[index+2] = uint8((normal.z + 1) * 127.5)
+					block.normalsBuffer[index+3] = 255
+
+					// Track the maximum values
+					block.maxColor.R = math32.Max(block.maxColor.R, c.R)
+					block.maxColor.G = math32.Max(block.maxColor.G, c.G)
+					block.maxColor.B = math32.Max(block.maxColor.B, c.B)
+				}
+			}
+		}(block)
+	}
+
+	wg.Wait()
+
+	// Compute global maximum color values
+	maxColor := ColorFloat32{0, 0, 0, 0}
+	// maxDistance := float32(0)
+	// minDistance := float32(math32.MaxFloat32)
+	for _, block := range blocks {
+		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
+		maxColor.G = math32.Max(maxColor.G, block.maxColor.G)
+		maxColor.B = math32.Max(maxColor.B, block.maxColor.B)
+		// maxDistance = math32.Max(maxDistance, block.maxDistance)
+		// minDistance = math32.Min(minDistance, block.minDistance)
+	}
+
+	// normalize the distance buffer
+	// for _, block := range blocks {
+	// 	wg.Add(1)
+	// 	go func(block BlocksImageAdvance) {
+	// 		defer wg.Done()
+
+	// 		// Handle edge case when all distances are equal
+	// 		normalizer := maxDistance - minDistance
+	// 		if normalizer == 0 {
+	// 			normalizer = 1
+	// 		}
+
+	// 		for i := 0; i < len(block.distanceBuffer); i += 4 {
+	// 			normalizedValue := (block.distanceBuffer[i] - minDistance) / normalizer
+	// 			value := clampToUint8(normalizedValue)
+
+	// 			// Set RGBA values
+	// 			baseIndex := (i / 4) * 4
+	// 			block.distanceBufferProcessed[baseIndex] = value
+	// 			block.distanceBufferProcessed[baseIndex+1] = value
+	// 			block.distanceBufferProcessed[baseIndex+2] = value
+	// 			block.distanceBufferProcessed[baseIndex+3] = 255
+	// 		}
+	// 	}(block)
+	// }
+
+	// wg.Wait()
+
+	// Apply color grading and write pixels
+	for _, block := range blocks {
+		if renderVersion.Selected == logMode {
+			block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+		} else {
+			block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+		}
+		// block.distanceImage.WritePixels(block.distanceBufferProcessed)
+		block.normalImage.WritePixels(block.normalsBuffer)
 	}
 }
 
@@ -4063,12 +4070,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				op.GeoM.Translate(float64(block.startX), float64(block.startY))
 				g.currentFrame.DrawImage(block.image, op)
 			}
-		case Depth:
-			for _, block := range g.BlocksImageAdvance {
-				op := &ebiten.DrawImageOptions{}
-				op.GeoM.Translate(float64(block.startX), float64(block.startY))
-				g.currentFrame.DrawImage(block.distanceImage, op)
-			}
+		// case Depth:
+		// 	for _, block := range g.BlocksImageAdvance {
+		// 		op := &ebiten.DrawImageOptions{}
+		// 		op.GeoM.Translate(float64(block.startX), float64(block.startY))
+		// 		g.currentFrame.DrawImage(block.distanceImage, op)
+		// 	}
 		case Normals:
 			for _, block := range g.BlocksImageAdvance {
 				op := &ebiten.DrawImageOptions{}
@@ -4333,16 +4340,16 @@ type BlocksImage struct {
 type BlocksImageAdvance struct {
 	startX, startY, endX, endY int
 	image                      *ebiten.Image
-	distanceImage              *ebiten.Image
+	// distanceImage              *ebiten.Image
 	normalImage                *ebiten.Image
 	pixelBuffer                []uint8
 	distanceBuffer             []float32
-	distanceBufferProcessed    []uint8
+	// distanceBufferProcessed    []uint8
 	normalsBuffer              []uint8
 	colorRGB_Float32           []float32
 	maxColor                   ColorFloat32
-	maxDistance                float32
-	minDistance                float32
+	// maxDistance                float32
+	// minDistance                float32
 }
 
 func MakeNewBlocks(scaling int) []BlocksImage {
@@ -4372,12 +4379,12 @@ func MakeNewBlocksAdvance(scaling int) []BlocksImageAdvance {
 					pixelBuffer:             make([]uint8, blockSize*blockSize*4),
 					colorRGB_Float32:        make([]float32, blockSize*blockSize*4),
 					distanceBuffer:          make([]float32, blockSize*blockSize*4),
-					distanceBufferProcessed: make([]uint8, blockSize*blockSize*4),
+					// distanceBufferProcessed: make([]uint8, blockSize*blockSize*4),
 					normalsBuffer:           make([]uint8, blockSize*blockSize*4),
-					distanceImage:           ebiten.NewImage(blockSize, blockSize),
+					// distanceImage:           ebiten.NewImage(blockSize, blockSize),
 					normalImage:             ebiten.NewImage(blockSize, blockSize),
-					minDistance:             math.MaxFloat32,
-					maxDistance:             0,
+					// minDistance:             math.MaxFloat32,
+					// maxDistance:             0,
 				})
 		}
 	}
