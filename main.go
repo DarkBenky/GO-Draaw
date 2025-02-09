@@ -379,6 +379,7 @@ type TriangleSimple struct {
 
 type Texture struct {
 	texture [128][128]ColorFloat32
+	normals [128][128]Vector
 }
 type MaterialMap map[uint8]*Texture
 
@@ -4494,6 +4495,8 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 func (g *Game) submitTextures(c echo.Context) error {
     type TextureRequest struct {
         Textures        map[string]interface{} `json:"textures"`
+        Normals         map[string]interface{} `json:"normals"`
+        Normal          map[string]interface{} `json:"normal"`
         DirectToScatter float64                `json:"directToScatter"`
         Reflection      float64                `json:"reflection"`
         Roughness       float64                `json:"roughness"`
@@ -4508,69 +4511,84 @@ func (g *Game) submitTextures(c echo.Context) error {
         })
     }
 
-    // Convert object-like texture data to []float32
-    textureData := make([]float32, 0)
+    // Convert texture data
+    expectedLength := 128 * 128 * 4
+    textureData := make([]float32, expectedLength)
+    normalData := make([]float32, expectedLength)
+
+    // Process color texture
     if textureObj, ok := request.Textures["data"].(map[string]interface{}); ok {
-        // Pre-allocate slice with expected size
-        expectedLength := 128 * 128 * 4
-        textureData = make([]float32, expectedLength)
-        
-        // Convert indexed object to array
         for key, value := range textureObj {
-            index, err := strconv.Atoi(key)
-            if err != nil {
-                continue
-            }
-            
-            // Handle different numeric types from JavaScript
-            switch v := value.(type) {
-            case float64:
-                if index < len(textureData) {
+            if index, err := strconv.Atoi(key); err == nil && index < len(textureData) {
+                switch v := value.(type) {
+                case float64:
                     textureData[index] = float32(v)
-                }
-            case float32:
-                if index < len(textureData) {
+                case float32:
                     textureData[index] = v
-                }
-            case int:
-                if index < len(textureData) {
+                case int:
                     textureData[index] = float32(v)
                 }
             }
         }
     }
 
-    // // Update game state
-    // g.directToScatter = float32(request.DirectToScatter)
-    // g.reflection = float32(request.Reflection)
-    // g.roughness = float32(request.Roughness)
-    // g.metallic = float32(request.Metallic)
+    // Process normal texture
+    if normalObj, ok := request.Normals["data"].(map[string]interface{}); ok {
+        for key, value := range normalObj {
+            if index, err := strconv.Atoi(key); err == nil && index < len(normalData) {
+                switch v := value.(type) {
+                case float64:
+                    normalData[index] = float32(v)
+                case float32:
+                    normalData[index] = v
+                case int:
+                    normalData[index] = float32(v)
+                }
+            }
+        }
+    }
 
-	// unsafe update texture data
-	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(request.DirectToScatter)
-	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
-	*(*float32)(unsafe.Pointer(&g.roughness)) = float32(request.Roughness)
-	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(request.Metallic)
+    // Update material properties using unsafe
+    *(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(request.DirectToScatter)
+    *(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
+    *(*float32)(unsafe.Pointer(&g.roughness)) = float32(request.Roughness)
+    *(*float32)(unsafe.Pointer(&g.metallic)) = float32(request.Metallic)
 
-	// convert to 128 * 128 * ColorRGBA_Float32
-	texture := Texture{}
-	for i := 0; i < 128*128; i++ {
-		x := i % 128
-		y := i / 128
-		texture.texture[x][y] = ColorFloat32{textureData[i*4], textureData[i*4+1], textureData[i*4+2], textureData[i*4+3]}
-	}
+    // Convert and update color texture
+    texture := Texture{}
+    for i := 0; i < 128*128; i++ {
+        x := i % 128
+        y := i / 128
+        texture.texture[x][y] = ColorFloat32{
+            textureData[i*4],
+            textureData[i*4+1],
+            textureData[i*4+2],
+            textureData[i*4+3],
+        }
+    }
 
-	// unsafe update texture
-	*(*Texture)(unsafe.Pointer(&g.TextureMap[1])) = texture
+    // Convert and update normal texture
+    normalTexture := [128][128]Vector{}
+    for i := 0; i < 128*128; i++ {
+        x := i % 128
+        y := i / 128
+        normalTexture[x][y] = Vector{
+            normalData[i*4],
+            normalData[i*4+1],
+            normalData[i*4+2],
+            // normalData[i*4+3],
+        }
+    }
 
-    // Store texture data
-    // Assuming you have a method to handle the texture data
-    // g.updateTexture(request.Index, textureData)
+    // Unsafe update both textures
+    *(*Texture)(unsafe.Pointer(&g.TextureMap[request.Index].texture)) = texture
+	*(*[128][128]Vector)(unsafe.Pointer(&g.TextureMap[request.Index].normals)) = normalTexture
 
     return c.JSON(http.StatusOK, map[string]interface{}{
         "status": "success",
         "index": request.Index,
-        "size": len(textureData),
+        "textureSize": len(textureData),
+        "normalSize": len(normalData),
     })
 }
 

@@ -1,5 +1,12 @@
 # TODO List
 
+- [ ] GOAMD64
+  - v1: Base AMD64 features (default).
+  - v2: Adds support for SSE3, SSSE3, and SSE4.1 instructions.
+  - v3: Includes all v2 features plus SSE4.2, AVX, and AVX2.
+  - v4: Enables all v3 features along with AVX512.
+  - GOAMD64=v3 go build main.go
+  - [ ] float 32 Vs float 64
 - [ ] add support for normal maps
   - [ ] check if it does not have api ([link](https://cpetry.github.io/NormalMap-Online/))
 - [ ] Why V2 is faster than V2-LOG...
