@@ -2792,7 +2792,6 @@ func ColorGradeLogarithmic(colors []float32, maxRed, maxGreen, maxBlue, gamma fl
 	return out
 }
 
-
 func ColorGradeLinear(colors []float32, maxRed, maxGreen, maxBlue, gamma float32) []uint8 {
 	// Ensure we do not divide by zero.
 	if maxRed < 1 {
@@ -2829,8 +2828,6 @@ func ColorGradeLinear(colors []float32, maxRed, maxGreen, maxBlue, gamma float32
 
 	return out
 }
-
-
 
 func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, textureMap *[128]Texture) {
 	var wg sync.WaitGroup
@@ -4049,17 +4046,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	switch g.version {
 	case V1:
-		DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+		DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage)
 	case V2:
-		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImage)
+		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage)
 	case V2Log:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, g.gamma)
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma)
 	case V2Linear:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, g.gamma)
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma)
 	case V2LinearTexture:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap)
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap)
 	case V2LinearTexture2:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap)
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap)
 	}
 
 	if g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
@@ -4259,6 +4256,7 @@ type Game struct {
 
 	// 64-bit floats (8 bytes each) grouped together
 	r, g, b, a float64
+	scatter    int
 	TextureMap *[128]Texture
 
 	// 32-bit floats (4 bytes each) grouped together
@@ -4291,7 +4289,7 @@ type Game struct {
 	resolution uint8
 	version    uint8
 	depth      uint8
-	scatter    uint8
+	
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume bool
@@ -4341,13 +4339,13 @@ type BlocksImageAdvance struct {
 	startX, startY, endX, endY int
 	image                      *ebiten.Image
 	// distanceImage              *ebiten.Image
-	normalImage                *ebiten.Image
-	pixelBuffer                []uint8
-	distanceBuffer             []float32
+	normalImage    *ebiten.Image
+	pixelBuffer    []uint8
+	distanceBuffer []float32
 	// distanceBufferProcessed    []uint8
-	normalsBuffer              []uint8
-	colorRGB_Float32           []float32
-	maxColor                   ColorFloat32
+	normalsBuffer    []uint8
+	colorRGB_Float32 []float32
+	maxColor         ColorFloat32
 	// maxDistance                float32
 	// minDistance                float32
 }
@@ -4372,17 +4370,17 @@ func MakeNewBlocksAdvance(scaling int) []BlocksImageAdvance {
 		for h := 0; h < screenHeight/scaling; h += blockSize {
 			blocks = append(blocks,
 				BlocksImageAdvance{startX: w,
-					startY:                  h,
-					endX:                    w + blockSize,
-					endY:                    h + blockSize,
-					image:                   ebiten.NewImage(blockSize, blockSize),
-					pixelBuffer:             make([]uint8, blockSize*blockSize*4),
-					colorRGB_Float32:        make([]float32, blockSize*blockSize*4),
-					distanceBuffer:          make([]float32, blockSize*blockSize*4),
+					startY:           h,
+					endX:             w + blockSize,
+					endY:             h + blockSize,
+					image:            ebiten.NewImage(blockSize, blockSize),
+					pixelBuffer:      make([]uint8, blockSize*blockSize*4),
+					colorRGB_Float32: make([]float32, blockSize*blockSize*4),
+					distanceBuffer:   make([]float32, blockSize*blockSize*4),
 					// distanceBufferProcessed: make([]uint8, blockSize*blockSize*4),
-					normalsBuffer:           make([]uint8, blockSize*blockSize*4),
+					normalsBuffer: make([]uint8, blockSize*blockSize*4),
 					// distanceImage:           ebiten.NewImage(blockSize, blockSize),
-					normalImage:             ebiten.NewImage(blockSize, blockSize),
+					normalImage: ebiten.NewImage(blockSize, blockSize),
 					// minDistance:             math.MaxFloat32,
 					// maxDistance:             0,
 				})
@@ -4493,6 +4491,89 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 	return c.JSON(http.StatusOK, volume)
 }
 
+func (g *Game) submitTextures(c echo.Context) error {
+    type TextureRequest struct {
+        Textures        map[string]interface{} `json:"textures"`
+        DirectToScatter float64                `json:"directToScatter"`
+        Reflection      float64                `json:"reflection"`
+        Roughness       float64                `json:"roughness"`
+        Metallic        float64                `json:"metallic"`
+        Index          int                     `json:"index"`
+    }
+
+    request := new(TextureRequest)
+    if err := c.Bind(request); err != nil {
+        return c.JSON(http.StatusBadRequest, map[string]string{
+            "error": "Failed to parse request: " + err.Error(),
+        })
+    }
+
+    // Convert object-like texture data to []float32
+    textureData := make([]float32, 0)
+    if textureObj, ok := request.Textures["data"].(map[string]interface{}); ok {
+        // Pre-allocate slice with expected size
+        expectedLength := 128 * 128 * 4
+        textureData = make([]float32, expectedLength)
+        
+        // Convert indexed object to array
+        for key, value := range textureObj {
+            index, err := strconv.Atoi(key)
+            if err != nil {
+                continue
+            }
+            
+            // Handle different numeric types from JavaScript
+            switch v := value.(type) {
+            case float64:
+                if index < len(textureData) {
+                    textureData[index] = float32(v)
+                }
+            case float32:
+                if index < len(textureData) {
+                    textureData[index] = v
+                }
+            case int:
+                if index < len(textureData) {
+                    textureData[index] = float32(v)
+                }
+            }
+        }
+    }
+
+    // // Update game state
+    // g.directToScatter = float32(request.DirectToScatter)
+    // g.reflection = float32(request.Reflection)
+    // g.roughness = float32(request.Roughness)
+    // g.metallic = float32(request.Metallic)
+
+	// unsafe update texture data
+	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(request.DirectToScatter)
+	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
+	*(*float32)(unsafe.Pointer(&g.roughness)) = float32(request.Roughness)
+	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(request.Metallic)
+
+	// convert to 128 * 128 * ColorRGBA_Float32
+	texture := Texture{}
+	for i := 0; i < 128*128; i++ {
+		x := i % 128
+		y := i / 128
+		texture.texture[x][y] = ColorFloat32{textureData[i*4], textureData[i*4+1], textureData[i*4+2], textureData[i*4+3]}
+	}
+
+	// unsafe update texture
+	*(*Texture)(unsafe.Pointer(&g.TextureMap[1])) = texture
+
+    // Store texture data
+    // Assuming you have a method to handle the texture data
+    // g.updateTexture(request.Index, textureData)
+
+    return c.JSON(http.StatusOK, map[string]interface{}{
+        "status": "success",
+        "index": request.Index,
+        "size": len(textureData),
+    })
+}
+
 func (g *Game) submitRenderOptions(c echo.Context) error {
 	type RenderOptions struct {
 		Depth       int     `json:"depth"`
@@ -4593,6 +4674,7 @@ func startServer(game *Game) {
 	e.POST("/submitColor", game.submitColor)
 	e.POST("/submitVoxel", game.submitVoxelData)
 	e.POST("/submitRenderOptions", game.submitRenderOptions)
+	e.POST("/submitTextures", game.submitTextures)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {

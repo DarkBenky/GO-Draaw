@@ -1,6 +1,8 @@
 # TODO List
 
+- [ ] add support for normal maps
 - [ ] Why V2 is faster than V2-LOG...
+  - [ ] Profiling
 - [X] Color Mapping Shader
 - [X] IntersectTriangleTexture fix add textures
 - [ ] Movement options
