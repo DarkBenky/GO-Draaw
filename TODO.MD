@@ -1,6 +1,7 @@
 # TODO List
 
 - [ ] add support for normal maps
+  - [ ] check if it does not have api ([link](https://cpetry.github.io/NormalMap-Online/))
 - [ ] Why V2 is faster than V2-LOG...
   - [ ] Profiling
 - [X] Color Mapping Shader
