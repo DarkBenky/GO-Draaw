@@ -2333,7 +2333,7 @@ func calculateSurfaceArea(bbox [2]Vector) float32 {
 
 // Call recursively and set triangle properties
 func (node *BVHNode) SetPropertiesWithID(id uint8, reflection, specular, directToScatter, roughness, metallic float32) {
-	if node.Left == nil && node.Right == nil && node.active && node.Triangles.id == id  {
+	if node.Left == nil && node.Right == nil && node.active && node.Triangles.id == id {
 		node.Triangles.reflection = reflection
 		node.Triangles.specular = specular
 		node.Triangles.directToScatter = directToScatter
@@ -2730,7 +2730,7 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 	}
 }
 
-func DrawRaysBlock(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+func DrawRaysBlock(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage, performance bool) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(blocks); i++ {
 		wg.Add(1)
@@ -2760,7 +2760,7 @@ func DrawRaysBlock(camera Camera, light Light, scaling int, samples int, depth i
 		}(i)
 	}
 
-	if performanceOptions.Selected == 0 {
+	if !performance {
 		wg.Wait()
 	}
 }
@@ -2857,7 +2857,7 @@ func ColorGradeLinear(colors []float32, maxRed, maxGreen, maxBlue, gamma float32
 	return out
 }
 
-func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, textureMap *[128]Texture) {
+func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, textureMap *[128]Texture, performance bool) {
 	var wg sync.WaitGroup
 
 	// Process each block
@@ -2911,7 +2911,9 @@ func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, sample
 		}(block)
 	}
 
-	wg.Wait()
+	if !performance {
+		wg.Wait()
+	}
 
 	// Compute global maximum color values
 	maxColor := ColorFloat32{0, 0, 0, 0}
@@ -2965,7 +2967,7 @@ func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, sample
 	}
 }
 
-func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage) {
+func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage, performance bool) {
 	var wg sync.WaitGroup
 	for _, block := range blocks {
 		wg.Add(1)
@@ -2994,12 +2996,12 @@ func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth
 		}(block)
 	}
 
-	if performanceOptions.Selected == 0 {
+	if !performance {
 		wg.Wait()
 	}
 }
 
-func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32) {
+func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool) {
 	var wg sync.WaitGroup
 
 	// Process each block
@@ -3053,7 +3055,9 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 		}(block)
 	}
 
-	wg.Wait()
+	if !performance {
+		wg.Wait()
+	}
 
 	// Compute global maximum color values
 	maxColor := ColorFloat32{0, 0, 0, 0}
@@ -3961,9 +3965,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		Blocks := MakeNewBlocks(g.scaleFactor / 2)
 
 		if renderVersion.Selected == 0 {
-			DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks)
+			DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks, g.PerformanceOptions)
 		} else {
-			DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks)
+			DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks, g.PerformanceOptions)
 		}
 		for _, block := range g.BlocksImage {
 			op := &ebiten.DrawImageOptions{}
@@ -4073,17 +4077,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	switch g.version {
 	case V1:
-		DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage)
+		DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions)
 	case V2:
-		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage)
+		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions)
 	case V2Log:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma)
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions)
 	case V2Linear:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma)
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions)
 	case V2LinearTexture:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap)
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
 	case V2LinearTexture2:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap)
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
 	}
 
 	if g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
@@ -4527,6 +4531,7 @@ func (g *Game) submitTextures(c echo.Context) error {
 		Roughness       float64                `json:"roughness"`
 		Metallic        float64                `json:"metallic"`
 		Index           int                    `json:"index"`
+		Specular        float64                `json:"specular"`
 	}
 
 	request := new(TextureRequest)
@@ -4578,8 +4583,9 @@ func (g *Game) submitTextures(c echo.Context) error {
 	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
 	*(*float32)(unsafe.Pointer(&g.roughness)) = float32(request.Roughness)
 	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(request.Metallic)
+	*(*float32)(unsafe.Pointer(&g.specular)) = float32(request.Specular)
 
-	BVH.SetPropertiesWithID(1, float32(request.DirectToScatter), float32(request.Reflection), float32(request.Roughness), float32(request.Metallic))
+	BVH.SetPropertiesWithID(uint8(1), float32(request.Reflection), float32(request.Specular), float32(request.DirectToScatter), float32(request.Roughness), float32(request.Metallic))
 
 	// Convert and update color texture
 	texture := Texture{}

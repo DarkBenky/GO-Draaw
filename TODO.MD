@@ -1,5 +1,7 @@
 # TODO List
 
+- [ ] Remove GUI
+- [ ] Update submitTexture tu submit specular
 - [ ] Test BVH.SetPropertiesWithID
 - [ ] Add Multiplayer for Textures In Frontend
 - [X] Fix Benchmarking
