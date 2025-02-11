@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Add Multiplayer for Textures In Frontend
 - [X] Fix Benchmarking
 - [ ] GOAMD64
   - v1: Base AMD64 features (default).
