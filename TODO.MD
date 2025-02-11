@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Test BVH.SetPropertiesWithID
 - [ ] Add Multiplayer for Textures In Frontend
 - [X] Fix Benchmarking
 - [ ] GOAMD64

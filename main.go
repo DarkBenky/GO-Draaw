@@ -376,6 +376,7 @@ type TriangleSimple struct {
 	specular        float32
 	Roughness       float32
 	Metallic        float32
+	id              uint8
 }
 
 type Texture struct {
@@ -2330,6 +2331,25 @@ func calculateSurfaceArea(bbox [2]Vector) float32 {
 	return 2 * (dx*dy + dy*dz + dz*dx)
 }
 
+// Call recursively and set triangle properties
+func (node *BVHNode) SetPropertiesWithID(id uint8, reflection, specular, directToScatter, roughness, metallic float32) {
+	if node.Left == nil && node.Right == nil && node.active && node.Triangles.id == id  {
+		node.Triangles.reflection = reflection
+		node.Triangles.specular = specular
+		node.Triangles.directToScatter = directToScatter
+		node.Triangles.Roughness = roughness
+		node.Triangles.Metallic = metallic
+		return
+	}
+
+	if node.Left != nil {
+		node.Left.SetPropertiesWithID(id, reflection, specular, directToScatter, roughness, metallic)
+	}
+	if node.Right != nil {
+		node.Right.SetPropertiesWithID(id, reflection, specular, directToScatter, roughness, metallic)
+	}
+}
+
 func buildBVHNode(triangles []TriangleSimple, depth int, maxDepth int) *BVHNode {
 	if len(triangles) == 0 {
 		return nil
@@ -2374,6 +2394,9 @@ func buildBVHNode(triangles []TriangleSimple, depth int, maxDepth int) *BVHNode 
 				reflection:      triangles[0].reflection,
 				specular:        triangles[0].specular,
 				directToScatter: 0.5,
+				Roughness:       triangles[0].Roughness,
+				Metallic:        triangles[0].Metallic,
+				id:              uint8(1),
 			},
 			active: true,
 		}
@@ -4555,6 +4578,8 @@ func (g *Game) submitTextures(c echo.Context) error {
 	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
 	*(*float32)(unsafe.Pointer(&g.roughness)) = float32(request.Roughness)
 	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(request.Metallic)
+
+	BVH.SetPropertiesWithID(1, float32(request.DirectToScatter), float32(request.Reflection), float32(request.Roughness), float32(request.Metallic))
 
 	// Convert and update color texture
 	texture := Texture{}
