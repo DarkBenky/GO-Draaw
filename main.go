@@ -382,6 +382,7 @@ type TriangleSimple struct {
 type Texture struct {
 	texture [128][128]ColorFloat32
 	normals [128][128]Vector
+	// add material properties like specular and reflection etc .
 }
 type MaterialMap map[uint8]*Texture
 

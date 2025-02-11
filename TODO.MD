@@ -1,5 +1,15 @@
 # TODO List
 
+- [ ] Add material properties type like specular etc.
+
+  ```golang
+  type Texture struct {
+    texture [128][128]ColorFloat32
+    normals [128][128]Vector
+  }
+
+  ```
+
 - [ ] Remove GUI
 - [ ] Update submitTexture tu submit specular
 - [ ] Test BVH.SetPropertiesWithID
