@@ -22,6 +22,7 @@ import (
 	"bufio"
 	"encoding/csv"
 	"errors"
+	"flag"
 	"fmt"
 	"image"
 	"image/color"
@@ -58,7 +59,7 @@ const FOV = 45
 var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 
 const maxDepth = 16
-const numCPU = 16
+const numCPU = 8
 
 const Benchmark = false
 
@@ -1494,9 +1495,6 @@ func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[12
 		return Intersection{}, false
 	}
 
-	// Compute the intersection point
-	intersectionPoint := ray.origin.Add(ray.direction.Mul(t))
-
 	// Compute barycentric coordinates
 	w := 1.0 - u - v
 
@@ -1519,15 +1517,21 @@ func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[12
 
 	// fmt.Println(Material.texture[texU][texV])
 
+	normal := triangle.Normal.Add(textureMap[uint8(1)].normals[texU][texV])
+	// normal = normal.Normalize()
+
 	// Return intersection data
 	return Intersection{
-		PointOfIntersection: intersectionPoint,
+		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
 		Color:               textureMap[uint8(1)].texture[texU][texV], // Texture color
-		Normal:              triangle.Normal,
+		Normal:              normal,                                   // Normal perturbation
 		Direction:           ray.direction,
 		Distance:            t,
 		reflection:          triangle.reflection,
 		specular:            triangle.specular,
+		Roughness:           triangle.Roughness,
+		directToScatter:     triangle.directToScatter,
+		Metallic:            triangle.Metallic,
 	}, true
 }
 
@@ -1900,7 +1904,7 @@ func TraceRayV3Advance(ray Ray, depth int, light Light, samples int) (c ColorFlo
 	NdotH := math32.Max(0.0, intersection.Normal.Dot(halfwayDir))
 
 	// Calculate Fresnel term
-	F0 := float32(intersection.Metallic) // Base reflectivity for non-metals
+	F0 := intersection.Metallic // Base reflectivity for non-metals
 	fresnel := FresnelSchlick(NdotV, F0)
 
 	// Calculate roughness-based distribution
@@ -1998,14 +2002,14 @@ func TraceRayV3Advance(ray Ray, depth int, light Light, samples int) (c ColorFlo
 	}, intersection.Distance, intersection.Normal
 }
 
-func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, textureMap *[128]Texture) (c ColorFloat32, distance float32, normal Vector) {
+func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, textureMap *[128]Texture, BVH *BVHNode) (c ColorFloat32, normal Vector) {
 	if depth <= 0 {
-		return ColorFloat32{}, 0, Vector{}
+		return ColorFloat32{}, Vector{}
 	}
 
 	intersection, intersect := ray.IntersectBVH_Texture(BVH, textureMap)
 	if !intersect {
-		return ColorFloat32{}, 0, Vector{}
+		return ColorFloat32{}, Vector{}
 	}
 
 	viewDir := ray.origin.Sub(intersection.PointOfIntersection).Normalize()
@@ -2018,7 +2022,7 @@ func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, text
 	NdotH := math32.Max(0.0, intersection.Normal.Dot(halfwayDir))
 
 	// Calculate Fresnel term
-	F0 := float32(intersection.Metallic) // Base reflectivity for non-metals
+	F0 := intersection.Metallic // Base reflectivity for non-metals
 	fresnel := FresnelSchlick(NdotV, F0)
 
 	// Calculate roughness-based distribution
@@ -2026,7 +2030,7 @@ func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, text
 
 	// Scatter calculation using hemisphere sampling
 	var scatteredColor ColorFloat32
-	rayOriginOffset := intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001))
+	rayOriginOffset := intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.01))
 
 	for i := 0; i < samples; i++ {
 		scatterDirection := SampleHemisphere(intersection.Normal)
@@ -2071,7 +2075,7 @@ func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, text
 		origin:    rayOriginOffset,
 		direction: lightDir,
 	}
-	_, inShadow := shadowRay.IntersectBVH_Texture(BVH, textureMap)
+	_, inShadow := shadowRay.IntersectBVH(BVH)
 
 	// Calculate specular using GGX distribution
 	var lightIntensity float32 = 0.005
@@ -2105,7 +2109,7 @@ func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, text
 
 	// Calculate bounced contribution
 	bounceRay := Ray{origin: rayOriginOffset, direction: reflectDir}
-	bouncedColor, _, _ := TraceRayV3AdvanceTexture(bounceRay, depth-1, light, samples, textureMap)
+	bouncedColor, _ := TraceRayV3AdvanceTexture(bounceRay, depth-1, light, samples, textureMap, BVH)
 
 	// Final color composition with energy conservation
 	return ColorFloat32{
@@ -2113,7 +2117,7 @@ func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, text
 		G: finalColor.G*(1.0-fresnel) + bouncedColor.G*fresnel,
 		B: finalColor.B*(1.0-fresnel) + bouncedColor.B*fresnel,
 		A: finalColor.A,
-	}, intersection.Distance, intersection.Normal
+	}, intersection.Normal
 }
 
 func (v Vector) LengthSquared() float32 {
@@ -2847,7 +2851,7 @@ func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, sample
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c, _, normal := TraceRayV3AdvanceTexture(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap)
+					c, normal := TraceRayV3AdvanceTexture(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap, BVH)
 
 					// Write the pixel color to the float buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -3507,7 +3511,6 @@ func calculateMin15PercentFPS() float64 {
 		sum += fps
 	}
 	averageMin10PercentFPS := sum / float64(tenPercentCount)
-	fmt.Printf("Calculated average FPS of lowest 15%%: %.2f\n", averageMin10PercentFPS)
 	return averageMin10PercentFPS
 }
 
@@ -3558,7 +3561,7 @@ func getSystemInfo() (string, int, float64, uint64, error) {
 	return cpuName, numCores, clockSpeed, totalRAM, nil
 }
 
-func dumpBenchmarkData() error {
+func dumpBenchmarkData(rendererVersion int) error {
 	const csvFileName = "benchmark_results.csv"
 
 	fmt.Println("Starting benchmark data dump...")
@@ -3652,6 +3655,7 @@ func dumpBenchmarkData() error {
 		fmt.Sprintf("%d", numCores),          // Cores
 		fmt.Sprintf("%.2f", clockSpeed),      // Clock speed
 		fmt.Sprintf("%d", totalRAM),          // Total RAM
+		fmt.Sprintf("%d", rendererVersion),   // Render Version
 	}
 	records = append(records, newRecord)
 
@@ -3664,6 +3668,7 @@ func dumpBenchmarkData() error {
 	fmt.Printf("Cores: %d\n", numCores)
 	fmt.Printf("Clock Speed: %.2f GHz\n", clockSpeed)
 	fmt.Printf("Total RAM: %d GB\n", totalRAM)
+	fmt.Println("RenderVesionCode:", rendererVersion)
 
 	// Write data back to CSV
 	return writeCSV(csvFileName, records)
@@ -3685,7 +3690,7 @@ func (g *Game) Update() error {
 
 		if time.Since(startTime) > time.Second*40 {
 			// Dump code and FPS to CSV
-			if err := dumpBenchmarkData(); err != nil {
+			if err := dumpBenchmarkData(int(g.version)); err != nil {
 				fmt.Println("Error dumping benchmark data:", err)
 			}
 			os.Exit(0)
@@ -3897,9 +3902,9 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Increment frame count and add current FPS to the average
+	fps := ebiten.ActualFPS()
 	if Benchmark {
 		FrameCount++
-		fps := ebiten.ActualFPS()
 		AverageFrameRate += fps
 
 		MinFrameRate = math.Min(MinFrameRate, fps)
@@ -3910,8 +3915,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	/// Clear the current frame
 	g.currentFrame.Clear()
-
-	fps := ebiten.ActualFPS()
 
 	// Perform path tracing and draw rays into the current frame
 
@@ -4290,7 +4293,6 @@ type Game struct {
 	resolution uint8
 	version    uint8
 	depth      uint8
-	
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume bool
@@ -4493,103 +4495,104 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 }
 
 func (g *Game) submitTextures(c echo.Context) error {
-    type TextureRequest struct {
-        Textures        map[string]interface{} `json:"textures"`
-        Normals         map[string]interface{} `json:"normals"`
-        Normal          map[string]interface{} `json:"normal"`
-        DirectToScatter float64                `json:"directToScatter"`
-        Reflection      float64                `json:"reflection"`
-        Roughness       float64                `json:"roughness"`
-        Metallic        float64                `json:"metallic"`
-        Index          int                     `json:"index"`
-    }
+	type TextureRequest struct {
+		Textures        map[string]interface{} `json:"textures"`
+		Normals         map[string]interface{} `json:"normals"`
+		Normal          map[string]interface{} `json:"normal"`
+		DirectToScatter float64                `json:"directToScatter"`
+		Reflection      float64                `json:"reflection"`
+		Roughness       float64                `json:"roughness"`
+		Metallic        float64                `json:"metallic"`
+		Index           int                    `json:"index"`
+	}
 
-    request := new(TextureRequest)
-    if err := c.Bind(request); err != nil {
-        return c.JSON(http.StatusBadRequest, map[string]string{
-            "error": "Failed to parse request: " + err.Error(),
-        })
-    }
+	request := new(TextureRequest)
+	if err := c.Bind(request); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Failed to parse request: " + err.Error(),
+		})
+	}
 
-    // Convert texture data
-    expectedLength := 128 * 128 * 4
-    textureData := make([]float32, expectedLength)
-    normalData := make([]float32, expectedLength)
+	// Convert texture data
+	expectedLength := 128 * 128 * 4
+	textureData := make([]float32, expectedLength)
+	normalData := make([]float32, expectedLength)
 
-    // Process color texture
-    if textureObj, ok := request.Textures["data"].(map[string]interface{}); ok {
-        for key, value := range textureObj {
-            if index, err := strconv.Atoi(key); err == nil && index < len(textureData) {
-                switch v := value.(type) {
-                case float64:
-                    textureData[index] = float32(v)
-                case float32:
-                    textureData[index] = v
-                case int:
-                    textureData[index] = float32(v)
-                }
-            }
-        }
-    }
+	// Process color texture
+	if textureObj, ok := request.Textures["data"].(map[string]interface{}); ok {
+		for key, value := range textureObj {
+			if index, err := strconv.Atoi(key); err == nil && index < len(textureData) {
+				switch v := value.(type) {
+				case float64:
+					textureData[index] = float32(v)
+				case float32:
+					textureData[index] = v
+				case int:
+					textureData[index] = float32(v)
+				}
+			}
+		}
+	}
 
-    // Process normal texture
-    if normalObj, ok := request.Normals["data"].(map[string]interface{}); ok {
-        for key, value := range normalObj {
-            if index, err := strconv.Atoi(key); err == nil && index < len(normalData) {
-                switch v := value.(type) {
-                case float64:
-                    normalData[index] = float32(v)
-                case float32:
-                    normalData[index] = v
-                case int:
-                    normalData[index] = float32(v)
-                }
-            }
-        }
-    }
+	// Process normal texture
+	if normalObj, ok := request.Normals["data"].(map[string]interface{}); ok {
+		for key, value := range normalObj {
+			if index, err := strconv.Atoi(key); err == nil && index < len(normalData) {
+				switch v := value.(type) {
+				case float64:
+					normalData[index] = float32(v)
+				case float32:
+					normalData[index] = v
+				case int:
+					normalData[index] = float32(v)
+				}
+			}
+		}
+	}
 
-    // Update material properties using unsafe
-    *(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(request.DirectToScatter)
-    *(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
-    *(*float32)(unsafe.Pointer(&g.roughness)) = float32(request.Roughness)
-    *(*float32)(unsafe.Pointer(&g.metallic)) = float32(request.Metallic)
+	// Update material properties using unsafe
+	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(request.DirectToScatter)
+	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
+	*(*float32)(unsafe.Pointer(&g.roughness)) = float32(request.Roughness)
+	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(request.Metallic)
 
-    // Convert and update color texture
-    texture := Texture{}
-    for i := 0; i < 128*128; i++ {
-        x := i % 128
-        y := i / 128
-        texture.texture[x][y] = ColorFloat32{
-            textureData[i*4],
-            textureData[i*4+1],
-            textureData[i*4+2],
-            textureData[i*4+3],
-        }
-    }
+	// Convert and update color texture
+	texture := Texture{}
+	for i := 0; i < 128*128; i++ {
+		x := i % 128
+		y := i / 128
+		texture.texture[x][y] = ColorFloat32{
+			textureData[i*4],
+			textureData[i*4+1],
+			textureData[i*4+2],
+			textureData[i*4+3],
+		}
+	}
 
-    // Convert and update normal texture
-    normalTexture := [128][128]Vector{}
-    for i := 0; i < 128*128; i++ {
-        x := i % 128
-        y := i / 128
-        normalTexture[x][y] = Vector{
-            normalData[i*4],
-            normalData[i*4+1],
-            normalData[i*4+2],
-            // normalData[i*4+3],
-        }
-    }
+	// Convert and update normal texture
+	normalTexture := [128][128]Vector{}
+	for i := 0; i < 128*128; i++ {
+		x := i % 128
+		y := i / 128
+		normal := Vector{
+			normalData[i*4],
+			normalData[i*4+1],
+			normalData[i*4+2],
+		}
+		normalTexture[x][y] = normal
+		fmt.Println(normal)
+	}
 
-    // Unsafe update both textures
-    *(*Texture)(unsafe.Pointer(&g.TextureMap[request.Index].texture)) = texture
-	*(*[128][128]Vector)(unsafe.Pointer(&g.TextureMap[request.Index].normals)) = normalTexture
+	// Unsafe update both textures
+	*(*Texture)(unsafe.Pointer(&g.TextureMap[uint8(1)].texture)) = texture
+	*(*[128][128]Vector)(unsafe.Pointer(&g.TextureMap[uint8(1)].normals)) = normalTexture
 
-    return c.JSON(http.StatusOK, map[string]interface{}{
-        "status": "success",
-        "index": request.Index,
-        "textureSize": len(textureData),
-        "normalSize": len(normalData),
-    })
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"status":      "success",
+		"index":       request.Index,
+		"textureSize": len(textureData),
+		"normalSize":  len(normalData),
+	})
 }
 
 func (g *Game) submitRenderOptions(c echo.Context) error {
@@ -4700,7 +4703,10 @@ func startServer(game *Game) {
 	}
 }
 
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+
 func main() {
+
 	// TestGetBlock(100_000)
 	// TestGetBlockUnsafe(100_000)
 
@@ -4862,27 +4868,23 @@ func main() {
 
 	VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	VoxelGrid.SetRandomLightColor()
-	fmt.Println("BVH:", BVH)
+	// fmt.Println("BVH:", BVH)
 	// VoxelGrid.ConvertBVHtoVoxelGrid(BVH)
 
 	// print some color values
-	for i := 0; i < 8; i++ {
-		fmt.Println(VoxelGrid.Blocks[i*8].LightColor)
-	}
+	// for i := 0; i < 8; i++ {
+	// 	fmt.Println(VoxelGrid.Blocks[i*8].LightColor)
+	// }
 
 	// generate random material
-	texture := new(Texture)
-	for i, row := range texture.texture {
-		for j := range row {
-			texture.texture[i][j] = ColorFloat32{rand.Float32() * 512, rand.Float32() * 512, rand.Float32() * 512, 255}
-		}
-	}
+	// texture := new(Texture)
+	// for i, row := range texture.texture {
+	// 	for j := range row {
+	// 		texture.texture[i][j] = ColorFloat32{rand.Float32() * 512, rand.Float32() * 512, rand.Float32() * 512, 255}
+	// 	}
+	// }
 
-	materialMap := [128]Texture{}
-	// materialMap := [128]Texture{}
-	materialMap[1] = *texture
-
-	fmt.Println("Texture:", texture)
+	// fmt.Println("Texture:", texture)
 
 	// subImages := make([]*ebiten.Image, numCPU)
 	subImages := [numCPU]*ebiten.Image{}
@@ -4900,6 +4902,7 @@ func main() {
 	sphereBVH = *BuildBvhForSpheres(obj.ConvertToSquare(256), 6)
 
 	game := &Game{
+		version:              V2,
 		xyzLock:              true,
 		cursorX:              screenHeight / 2,
 		cursorY:              screenWidth / 2,
@@ -4917,7 +4920,7 @@ func main() {
 		BlocksImageAdvance:   MakeNewBlocksAdvance(scale),
 		VoxelGridBlocksImage: MakeNewBlocks(scale),
 		VoxelGrid:            VoxelGrid,
-		TextureMap:           &materialMap,
+		TextureMap:           &[128]Texture{},
 		// RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
 		// averageFramesShader: averageFramesShader,
@@ -4948,6 +4951,8 @@ func main() {
 
 	go startServer(game)
 
+	// set start time
+	startTime = time.Now()
 	if err := ebiten.RunGame(game); err != nil {
 		panic(err)
 	}
