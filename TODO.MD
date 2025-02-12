@@ -6,9 +6,34 @@
   type Texture struct {
     texture [128][128]ColorFloat32
     normals [128][128]Vector
+    reflection      float32
+    directToScatter float32
+    specular        float32
+    Roughness       float32
+    Metallic        float32
   }
 
   ```
+
+  - BVH array concept
+    // 50 bytes
+    type TriangleBBOX struct {
+      V1orBBoxMin , V2orBBoxMax , V3  // 12 * 3
+      normal Vector // 12
+      id int16 // 2 id for texture
+    }
+
+    - if id == -1 => BBox
+    - else => triangle
+
+    ```golang
+      var i uint16
+      for i = 0; i < 52; i++ {
+        fmt.Println(i)
+    }
+    ```
+
+    [n]TriangleBBOX{}
 
 - [ ] Remove GUI
 - [ ] Update submitTexture tu submit specular
