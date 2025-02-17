@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Test Vector Package ([link](https://github.com/viterin/vek)) with GOAMD64=v3
 - [ ] Make Web server run in different processes
   - [ ] Make it concurrency safe
 - [ ] Merge of Change rebase to Float32Lighting
