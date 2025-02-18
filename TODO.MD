@@ -1,6 +1,6 @@
 # TODO List
 
-- [ ] Add material properties type like specular etc.
+- [X] Add material properties type like specular etc.
 
   ```golang
   type Texture struct {
@@ -34,8 +34,10 @@
     ```
 
     [n]TriangleBBOX{}
+    - [ ] Fix Render Version V4
 
 - [ ] Remove GUI
+- [X] Vec 32 is pretty much same as float64 ([link](https://github.com/DarkBenky/Go-Vec32-Vec64))
 - [ ] Update submitTexture tu submit specular
 - [ ] Test BVH.SetPropertiesWithID
 - [ ] Add Multiplayer for Textures In Frontend

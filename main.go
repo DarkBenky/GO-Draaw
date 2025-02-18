@@ -59,6 +59,7 @@ const FOV = 45
 var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 
 const maxDepth = 16
+const NumNodes = (1 << (maxDepth + 1)) - 1
 const numCPU = 8
 
 const Benchmark = false
@@ -383,8 +384,293 @@ type Texture struct {
 	texture [128][128]ColorFloat32
 	normals [128][128]Vector
 	// add material properties like specular and reflection etc .
+	reflection      float32
+	directToScatter float32
+	specular        float32
+	Roughness       float32
+	Metallic        float32
 }
-type MaterialMap map[uint8]*Texture
+
+type TriangleBBOX struct {
+	V1orBBoxMin, V2orBBoxMax, V3 Vector
+	normal                       Vector
+	id                           int32
+}
+
+type Intersect struct {
+	PointOfIntersection Vector
+	Distance            float32
+	textureX            int16
+	textureY            int16
+}
+
+func IntersectTriangle(ray Ray, V1 Vector, V2 Vector, V3 Vector) (bool, Intersect) {
+	// Möller–Trumbore intersection algorithm
+	edge1 := V2.Sub(V1)
+	edge2 := V3.Sub(V1)
+	h := ray.direction.Cross(edge2)
+	a := edge1.Dot(h)
+	if a > -0.00001 && a < 0.00001 {
+		return false, Intersect{}
+	}
+	f := 1.0 / a
+	s := ray.origin.Sub(V1)
+	u := f * s.Dot(h)
+	if u < 0.0 || u > 1.0 {
+		return false, Intersect{}
+	}
+	q := s.Cross(edge1)
+	v := f * ray.direction.Dot(q)
+	if v < 0.0 || u+v > 1.0 {
+		return false, Intersect{}
+	}
+	t := f * edge2.Dot(q)
+	if t > 0.00001 {
+		// Compute barycentric coordinates
+		w := 1.0 - u - v
+
+		// Sample the texture using barycentric coordinates
+		texU := int16(w * 127) // Scale to [0,127] range
+		texV := int16(v * 127)
+		if texU < 0 {
+			texU = 0
+		} else if texU > 127 {
+			texU = 127
+		}
+		if texV < 0 {
+			texV = 0
+		} else if texV > 127 {
+			texV = 127
+		}
+
+		return true, Intersect{
+			PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
+			Distance:            t,
+			textureX:            texU,
+			textureY:            texV,
+		}
+	}
+	return false, Intersect{}
+}
+
+func IntersectBoundingBox(ray Ray, BBoxMin, BBoxMax Vector) (hit bool, dist float32) {
+	invDir := Vector{1.0 / ray.direction.x, 1.0 / ray.direction.y, 1.0 / ray.direction.z}
+	tx1 := (BBoxMin.x - ray.origin.x) * invDir.x
+	tx2 := (BBoxMax.x - ray.origin.x) * invDir.x
+	tmin := math32.Min(tx1, tx2)
+	tmax := math32.Max(tx1, tx2)
+
+	ty1 := (BBoxMin.y - ray.origin.y) * invDir.y
+	ty2 := (BBoxMax.y - ray.origin.y) * invDir.y
+	tmin = math32.Max(tmin, math32.Min(ty1, ty2))
+	tmax = math32.Min(tmax, math32.Max(ty1, ty2))
+
+	tz1 := (BBoxMin.z - ray.origin.z) * invDir.z
+	tz2 := (BBoxMax.z - ray.origin.z) * invDir.z
+	tmin = math32.Max(tmin, math32.Min(tz1, tz2))
+	tmax = math32.Min(tmax, math32.Max(tz1, tz2))
+
+	return tmax >= math32.Max(0.0, tmin), tmin
+}
+
+type BVHArray struct {
+	triangles [NumNodes]TriangleBBOX
+	textures  [128]Texture
+}
+
+func (bvh *BVHArray) IntersectBVH(ray Ray) (bool, Intersection) {
+	const (
+		stackSize = 64 // Power of 2 for better memory alignment
+		eps       = 1e-7
+	)
+
+	// Fixed size stack, avoid allocations
+	var stack [stackSize]int32
+	stackPtr := 0
+	stack[stackPtr] = 1 // root
+
+	// Cache texture reference
+	tex := &bvh.textures[0]
+
+	// Precompute inverse direction with safety checks
+	invDir := Vector{
+		x: func() float32 {
+			if math32.Abs(ray.direction.x) < eps {
+				return 1.0 / eps
+			}
+			return 1.0 / ray.direction.x
+		}(),
+		y: func() float32 {
+			if math32.Abs(ray.direction.y) < eps {
+				return 1.0 / eps
+			}
+			return 1.0 / ray.direction.y
+		}(),
+		z: func() float32 {
+			if math32.Abs(ray.direction.z) < eps {
+				return 1.0 / eps
+			}
+			return 1.0 / ray.direction.z
+		}(),
+	}
+
+	var (
+		closestIntersection Intersection
+		bestDistance        = float32(math32.MaxFloat32)
+		hasHit              = false
+	)
+
+	// Direct pointer access to triangles array
+	triPtr := unsafe.Pointer(&bvh.triangles[0])
+
+	for stackPtr >= 0 {
+		index := int(stack[stackPtr])
+		stackPtr--
+
+		// Get triangle using pointer arithmetic
+		tri := (*TriangleBBOX)(unsafe.Pointer(uintptr(triPtr) + uintptr(index)*unsafe.Sizeof(TriangleBBOX{})))
+
+		if tri.id != int32(-1) {
+			if hit, intersect := IntersectTriangle(ray, tri.V1orBBoxMin, tri.V2orBBoxMax, tri.V3); hit {
+				if intersect.Distance < bestDistance {
+					bestDistance = intersect.Distance
+					hasHit = true
+
+					// Combine normals and create intersection
+					// normal := tri.normal.Add(tex.normals[intersect.textureX][intersect.textureY])
+					closestIntersection = Intersection{
+						PointOfIntersection: intersect.PointOfIntersection,
+						Color:               tex.texture[intersect.textureX][intersect.textureY],
+						Normal:              tri.normal,
+						Distance:            intersect.Distance,
+						reflection:          tex.reflection,
+						directToScatter:     tex.directToScatter,
+						specular:            tex.specular,
+						Roughness:           tex.Roughness,
+						Metallic:            tex.Metallic,
+					}
+				}
+			}
+			continue
+		}
+
+		// Process internal node
+		leftIdx := 2 * index
+		rightIdx := leftIdx + 1
+
+		// Check bounds to avoid array overflow
+		// if rightIdx >= len(bvh.triangles) {
+		// 	continue
+		// }
+
+		// Test both children's bounding boxes
+		// if bvh.triangles[leftIdx].id != int32(0) {
+		if leftHit, _ := IntersectBoundingBoxFast(ray,
+			invDir,
+			bvh.triangles[leftIdx].V2orBBoxMax,
+			bvh.triangles[leftIdx].V1orBBoxMin); leftHit {
+			stackPtr++
+			stack[stackPtr] = int32(leftIdx)
+		}
+		// }
+
+		// if bvh.triangles[rightIdx].id != int32(0) {
+		if rightHit, _ := IntersectBoundingBoxFast(ray,
+			invDir,
+			bvh.triangles[rightIdx].V2orBBoxMax,
+			bvh.triangles[rightIdx].V1orBBoxMin); rightHit {
+			stackPtr++
+			stack[stackPtr] = int32(rightIdx)
+		}
+		// }
+	}
+
+	return hasHit, closestIntersection
+}
+
+// Optimized box intersection test
+func IntersectBoundingBoxFast(ray Ray, invDir Vector, BBoxMax, BBoxMin Vector) (bool, float32) {
+	tmin := (BBoxMin.x - ray.origin.x) * invDir.x
+	tmax := (BBoxMax.x - ray.origin.x) * invDir.x
+	if tmin > tmax {
+		tmin, tmax = tmax, tmin
+	}
+
+	tymin := (BBoxMin.y - ray.origin.y) * invDir.y
+	tymax := (BBoxMax.y - ray.origin.y) * invDir.y
+	if tymin > tymax {
+		tymin, tymax = tymax, tymin
+	}
+
+	if tmin > tymax || tymin > tmax {
+		return false, 0
+	}
+
+	if tymin > tmin {
+		tmin = tymin
+	}
+	if tymax < tmax {
+		tmax = tymax
+	}
+
+	tzmin := (BBoxMin.z - ray.origin.z) * invDir.z
+	tzmax := (BBoxMax.z - ray.origin.z) * invDir.z
+	if tzmin > tzmax {
+		tzmin, tzmax = tzmax, tzmin
+	}
+
+	return tzmax >= tmin && tzmin <= tmax, tmin
+}
+
+// Optimized AABB intersection test using pre-calculated inverse ray direction
+// func IntersectBoundingBoxFast(rayOrigin Vector, rayDirInv Vector, min, max Vector) (bool, float32) {
+// 	t1 := (min.x - rayOrigin.x) * rayDirInv.x
+// 	t2 := (max.x - rayOrigin.x) * rayDirInv.x
+// 	tmin := math32.Min(t1, t2)
+// 	tmax := math32.Max(t1, t2)
+
+// 	t1 = (min.y - rayOrigin.y) * rayDirInv.y
+// 	t2 = (max.y - rayOrigin.y) * rayDirInv.y
+// 	tmin = math32.Max(tmin, math32.Min(t1, t2))
+// 	tmax = math32.Min(tmax, math32.Max(t1, t2))
+
+// 	t1 = (min.z - rayOrigin.z) * rayDirInv.z
+// 	t2 = (max.z - rayOrigin.z) * rayDirInv.z
+// 	tmin = math32.Max(tmin, math32.Min(t1, t2))
+// 	tmax = math32.Min(tmax, math32.Max(t1, t2))
+
+// 	return tmax >= tmin && tmax > 0, tmin
+// }
+
+// start with index 1
+func (bvh *BVHNode) ConvertToArray(index int, bvhArr *BVHArray) {
+	// if bvh == nil {
+	// 	return
+	// }
+
+	if bvh.active {
+		bvhArr.triangles[index] = TriangleBBOX{
+			V1orBBoxMin: bvh.Triangles.v1,
+			V2orBBoxMax: bvh.Triangles.v2,
+			V3:          bvh.Triangles.v3,
+			normal:      bvh.Triangles.Normal,
+			id:          int32(1),
+		}
+	} else {
+		bvhArr.triangles[index] = TriangleBBOX{
+			V1orBBoxMin: bvh.BoundingBox[0],
+			V2orBBoxMax: bvh.BoundingBox[1],
+			id:          int32(-1),
+		}
+	}
+
+	if bvh.Left != nil {
+		bvh.Left.ConvertToArray(2*index, bvhArr)
+	}
+	if bvh.Right != nil {
+		bvh.Right.ConvertToArray(2*index+1, bvhArr)
+	}
+}
 
 type SphereSimple struct {
 	center Vector
@@ -1529,11 +1815,11 @@ func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[12
 		Normal:              normal,                                   // Normal perturbation
 		Direction:           ray.direction,
 		Distance:            t,
-		reflection:          triangle.reflection,
-		specular:            triangle.specular,
-		Roughness:           triangle.Roughness,
-		directToScatter:     triangle.directToScatter,
-		Metallic:            triangle.Metallic,
+		reflection:          textureMap[uint8(1)].reflection,
+		specular:            textureMap[uint8(1)].specular,
+		Roughness:           textureMap[uint8(1)].Roughness,
+		directToScatter:     textureMap[uint8(1)].directToScatter,
+		Metallic:            textureMap[uint8(1)].Metallic,
 	}, true
 }
 
@@ -1876,6 +2162,131 @@ func TraceRayV3(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 	// Calculate bounced contribution
 	bounceRay := Ray{origin: rayOriginOffset, direction: reflectDir}
 	bouncedColor := TraceRayV3(bounceRay, depth-1, light, samples)
+
+	// Final color composition with energy conservation
+	return ColorFloat32{
+		R: finalColor.R*(1.0-fresnel) + bouncedColor.R*fresnel,
+		G: finalColor.G*(1.0-fresnel) + bouncedColor.G*fresnel,
+		B: finalColor.B*(1.0-fresnel) + bouncedColor.B*fresnel,
+		A: finalColor.A,
+	}
+}
+
+func TraceRayV4(ray Ray, depth int, light Light, samples int, bvh *BVHArray) ColorFloat32 {
+	if depth <= 0 {
+		return ColorFloat32{}
+	}
+
+	intersect, intersection := bvh.IntersectBVH(ray)
+	if !intersect {
+		return ColorFloat32{}
+	} else {
+		return ColorFloat32{
+			125,
+			0,
+			0,
+			255,
+		}
+	}
+
+	viewDir := ray.origin.Sub(intersection.PointOfIntersection).Normalize()
+	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+	halfwayDir := lightDir.Add(viewDir).Normalize()
+
+	// Calculate important dot products
+	NdotL := math32.Max(0.0, intersection.Normal.Dot(lightDir))
+	NdotV := math32.Max(0.0, intersection.Normal.Dot(viewDir))
+	NdotH := math32.Max(0.0, intersection.Normal.Dot(halfwayDir))
+
+	// Calculate Fresnel term
+	F0 := float32(intersection.Metallic) // Base reflectivity for non-metals
+	fresnel := FresnelSchlick(NdotV, F0)
+
+	// Calculate roughness-based distribution
+	distribution := GGXDistribution(NdotH, intersection.Roughness)
+
+	// Scatter calculation using hemisphere sampling
+	var scatteredColor ColorFloat32
+	rayOriginOffset := intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001))
+
+	for i := 0; i < samples; i++ {
+		scatterDirection := SampleHemisphere(intersection.Normal)
+		scatterDirection = scatterDirection.Perturb(intersection.Normal, intersection.Roughness)
+
+		scatterRay := Ray{
+			origin:    rayOriginOffset,
+			direction: scatterDirection.Normalize(),
+		}
+
+		if scatterIntersect, bvhIntersection := bvh.IntersectBVH(scatterRay); scatterIntersect && bvhIntersection.Distance != math32.MaxFloat32 {
+			scatteredColor.R += bvhIntersection.Color.R
+			scatteredColor.G += bvhIntersection.Color.G
+			scatteredColor.B += bvhIntersection.Color.B
+		}
+	}
+
+	if samples > 0 {
+		s := float32(samples)
+		scatteredColor = ColorFloat32{
+			R: scatteredColor.R / s,
+			G: scatteredColor.G / s,
+			B: scatteredColor.B / s,
+		}
+	}
+
+	// Calculate reflection direction using Fresnel
+	reflectDir := lightDir.Mul(-1).Reflect(intersection.Normal)
+	reflectRay := Ray{origin: rayOriginOffset, direction: reflectDir}
+	_, tempIntersection := bvh.IntersectBVH(reflectRay)
+
+	// Apply Fresnel to reflection color
+	directReflectionColor := ColorFloat32{
+		R: tempIntersection.Color.R * fresnel,
+		G: tempIntersection.Color.G * fresnel,
+		B: tempIntersection.Color.B * fresnel,
+		A: intersection.Color.A,
+	}
+
+	// Shadow calculation
+	shadowRay := Ray{
+		origin:    rayOriginOffset,
+		direction: lightDir,
+	}
+	inShadow, _ := bvh.IntersectBVH(shadowRay)
+
+	// Calculate specular using GGX distribution
+	var lightIntensity float32 = 0.005
+	if !inShadow {
+		lightIntensity = light.intensity * NdotL
+	}
+
+	specularIntensity := distribution * fresnel * lightIntensity
+
+	specularColor := ColorFloat32{
+		R: specularIntensity * light.Color[0],
+		G: specularIntensity * light.Color[1],
+		B: specularIntensity * light.Color[2],
+	}
+
+	// Calculate diffuse contribution
+	diffuseFactor := (1.0 - fresnel) * (1.0 / math32.Pi)
+	diffuseColor := ColorFloat32{
+		R: intersection.Color.R * diffuseFactor * NdotL * lightIntensity,
+		G: intersection.Color.G * diffuseFactor * NdotL * lightIntensity,
+		B: intersection.Color.B * diffuseFactor * NdotL * lightIntensity,
+	}
+
+	// Combine direct and indirect lighting
+	finalColor := ColorFloat32{
+		R: diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
+		G: diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
+		B: diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
+		A: intersection.Color.A,
+	}
+
+	// Calculate bounced contribution
+	bounceRay := Ray{origin: rayOriginOffset, direction: reflectDir}
+	bouncedColor := TraceRayV4(bounceRay, depth-1, light, samples, bvh)
 
 	// Final color composition with energy conservation
 	return ColorFloat32{
@@ -2499,7 +2910,7 @@ func buildBVHNode(triangles []TriangleSimple, depth int, maxDepth int) *BVHNode 
 	}
 
 	// Create the BVH node with the best split
-	node := &BVHNode{BoundingBox: boundingBox}
+	node := &BVHNode{BoundingBox: boundingBox, active: false}
 	node.Left = buildBVHNode(triangles[:bestSplit], depth+1, maxDepth)
 	node.Right = buildBVHNode(triangles[bestSplit:], depth+1, maxDepth)
 
@@ -2984,6 +3395,40 @@ func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
 					c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(block)
+	}
+
+	if !performance {
+		wg.Wait()
+	}
+}
+
+func DrawRaysBlockV4(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage, performance bool, bvh *BVHArray) {
+	var wg sync.WaitGroup
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImage) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRayV4(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, bvh)
 
 					// Write the pixel color to the pixel buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -3725,7 +4170,7 @@ func (g *Game) Update() error {
 		}
 	} else {
 
-		if snapLightToCamera.Selected == 1 {
+		if g.SnapLightToCamera {
 			g.light.Position = g.camera.Position
 		}
 
@@ -4089,6 +4534,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
 	case V2LinearTexture2:
 		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
+	// case V4:
+	// 	DrawRaysBlockV4(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions, g.bvhArray)
 	}
 
 	if g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
@@ -4276,14 +4723,16 @@ const (
 	Depth            = uint8(iota)
 	V2LinearTexture  = uint8(iota)
 	V2LinearTexture2 = uint8(iota)
+	V4               = uint8(iota)
 )
 
 type Game struct {
 	// 64-bit pointers (8 bytes each) grouped together
-	currentFrame   *ebiten.Image
-	previousFrame  *ebiten.Image
-	renderedFrame  *ebiten.Image
-	VoxelGrid      *VoxelGrid
+	currentFrame  *ebiten.Image
+	previousFrame *ebiten.Image
+	renderedFrame *ebiten.Image
+	VoxelGrid     *VoxelGrid
+	// bvhArray       *BVHArray
 	VolumeMaterial VolumeMaterial
 
 	// 64-bit floats (8 bytes each) grouped together
@@ -4321,6 +4770,7 @@ type Game struct {
 	resolution uint8
 	version    uint8
 	depth      uint8
+	index      uint8
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume bool
@@ -4579,12 +5029,19 @@ func (g *Game) submitTextures(c echo.Context) error {
 		}
 	}
 
+	fmt.Println("Roughness", request.Roughness)
+	fmt.Println("Metallic", request.Metallic)
+	fmt.Println("DirectToScatter", request.DirectToScatter)
+	fmt.Println("Reflection", request.Reflection)
+	fmt.Println("Specular", request.Specular)
+
 	// Update material properties using unsafe
 	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(request.DirectToScatter)
 	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
 	*(*float32)(unsafe.Pointer(&g.roughness)) = float32(request.Roughness)
 	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(request.Metallic)
 	*(*float32)(unsafe.Pointer(&g.specular)) = float32(request.Specular)
+	*(*uint8)(unsafe.Pointer(&g.index)) = uint8(request.Index)
 
 	BVH.SetPropertiesWithID(uint8(1), float32(request.Reflection), float32(request.Specular), float32(request.DirectToScatter), float32(request.Roughness), float32(request.Metallic))
 
@@ -4612,12 +5069,16 @@ func (g *Game) submitTextures(c echo.Context) error {
 			normalData[i*4+2],
 		}
 		normalTexture[x][y] = normal
-		fmt.Println(normal)
 	}
 
 	// Unsafe update both textures
 	*(*Texture)(unsafe.Pointer(&g.TextureMap[uint8(1)].texture)) = texture
 	*(*[128][128]Vector)(unsafe.Pointer(&g.TextureMap[uint8(1)].normals)) = normalTexture
+	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].reflection)) = float32(request.Reflection)
+	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].specular)) = float32(request.Specular)
+	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].directToScatter)) = float32(request.DirectToScatter)
+	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].Roughness)) = float32(request.Roughness)
+	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].Metallic)) = float32(request.Metallic)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"status":      "success",
@@ -4632,9 +5093,9 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 		Depth       int     `json:"depth"`
 		Scatter     int     `json:"scatter"`
 		Gamma       float64 `json:"gamma"`
-		SnapLight   bool    `json:"snapLight"`
-		RayMarching bool    `json:"rayMarching"`
-		Performance bool    `json:"performance"`
+		SnapLight   string  `json:"snapLight"`
+		RayMarching string  `json:"rayMarching"`
+		Performance string  `json:"performance"`
 		Mode        string  `json:"mode"`
 		Resolution  string  `json:"resolution"`
 		Version     string  `json:"version"`
@@ -4652,9 +5113,25 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	*(*uint8)(unsafe.Pointer(&g.depth)) = uint8(renderOptions.Depth)
 	*(*uint8)(unsafe.Pointer(&g.scatter)) = uint8(renderOptions.Scatter)
 	*(*float32)(unsafe.Pointer(&g.gamma)) = float32(renderOptions.Gamma)
-	*(*bool)(unsafe.Pointer(&g.SnapLightToCamera)) = renderOptions.SnapLight
-	*(*bool)(unsafe.Pointer(&g.RayMarching)) = renderOptions.RayMarching
-	*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = renderOptions.Performance
+
+	if renderOptions.SnapLight == "yes" {
+		*(*bool)(unsafe.Pointer(&g.SnapLightToCamera)) = true
+	} else {
+		*(*bool)(unsafe.Pointer(&g.SnapLightToCamera)) = false
+	}
+
+	if renderOptions.RayMarching == "yes" {
+		*(*bool)(unsafe.Pointer(&g.RayMarching)) = true
+	} else {
+		*(*bool)(unsafe.Pointer(&g.RayMarching)) = false
+	}
+
+	if renderOptions.Performance == "yes" {
+		*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = true
+	} else {
+		*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = false
+	}
+
 	*(*float32)(unsafe.Pointer(&g.FOV)) = float32(renderOptions.FOV)
 
 	switch renderOptions.Version {
@@ -4738,7 +5215,6 @@ func startServer(game *Game) {
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
 func main() {
-
 	// TestGetBlock(100_000)
 	// TestGetBlockUnsafe(100_000)
 
@@ -4891,6 +5367,61 @@ func main() {
 	// objects = append(objects, cubes...)
 
 	BVH = ConvertObjectsToBVH(objects, maxDepth)
+
+	// BVHArray := BVHArray{}
+
+	// BVHArray.textures[0].directToScatter = 0.5
+	// BVHArray.textures[0].reflection = 0.5
+	// BVHArray.textures[0].specular = 0.5
+	// BVHArray.textures[0].Metallic = 0.5
+	// BVHArray.textures[0].Roughness = 0.5
+
+	// for i := 0; i < 128; i++ {
+	// 	for j := 0; j < 128; j++ {
+	// 		BVHArray.textures[0].texture[i][j] = ColorFloat32{rand.Float32() * 512, rand.Float32() * 512, rand.Float32() * 512, 255}
+	// 	}
+	// }
+
+	// BVH.ConvertToArray(1, &BVHArray)
+
+	// fmt.Println("BVHArray:", BVHArray.triangles[1])
+	// fmt.Println("BVH:", BVH)
+
+	// test speed of BVH
+
+	// start := time.Now()
+	// for i := 0; i < 1_000_000; i++ {
+	// 	// generate random ray
+	// 	ray := Ray{origin: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}, direction: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}}
+	// 	_, _ = ray.IntersectBVH(BVH)
+	// }
+	// fmt.Println("Calssic Bvh:", time.Since(start))
+
+	// start = time.Now()
+	// for i := 0; i < 1_000_000; i++ {
+	// 	// generate random ray
+	// 	ray := Ray{origin: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}, direction: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}}
+	// 	_, _ = BVHArray.IntersectBVH(ray)
+	// }
+	// fmt.Println("Array Bvh:", time.Since(start))
+
+	// start = time.Now()
+	// textureMap := [128]Texture{}
+	// for i := 0; i < 1_000_000; i++ {
+	// 	// generate random ray
+	// 	ray := Ray{origin: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}, direction: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}}
+	// 	_, _ = ray.IntersectBVH_Texture(BVH, &textureMap)
+	// }
+	// fmt.Println("Texture Bvh:", time.Since(start))
+
+	// start = time.Now()
+	// for i := 0; i < 1_000_000; i++ {
+	// 	// generate random ray
+	// 	ray := Ray{origin: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}, direction: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}}
+	// 	_, _ = ray.IntersectBVH_V2(BVH)
+	// }
+	// fmt.Println("V2 Bvh:", time.Since(start))
+
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
 	scale := 2
 
@@ -4953,6 +5484,7 @@ func main() {
 		VoxelGridBlocksImage: MakeNewBlocks(scale),
 		VoxelGrid:            VoxelGrid,
 		TextureMap:           &[128]Texture{},
+		// bvhArray:             &BVHArray,
 		// RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
 		// averageFramesShader: averageFramesShader,
