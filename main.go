@@ -4534,8 +4534,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
 	case V2LinearTexture2:
 		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
-	// case V4:
-	// 	DrawRaysBlockV4(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions, g.bvhArray)
+		// case V4:
+		// 	DrawRaysBlockV4(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions, g.bvhArray)
 	}
 
 	if g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
@@ -4972,6 +4972,67 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 	return c.JSON(http.StatusOK, volume)
 }
 
+type ShaderParam struct {
+	Type       string                 `json:"type"`
+	Parameters map[string]interface{} `json:"params"`
+}
+
+type ShaderMenu []ShaderParam
+
+func (g *Game) SubmitShader(c echo.Context) error {
+	var shaderMenu ShaderMenu
+	if err := c.Bind(&shaderMenu); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid shader menu format",
+		})
+	}
+
+	// Process each shader
+	// for _, shader := range shaderMenu {
+	// 	switch shader.Type {
+	// 	case "contrast":
+	// 		g.Shaders = append(g.Shaders, Shader{
+	// 			shader:    contrastShader,
+	// 			options:   shader.Parameters,
+	// 			amount:    shader.Parameters["amount"].(float32),
+	// 			multipass: int(shader.Parameters["multipass"].(float64)),
+	// 		})
+	// 	case "tint":
+	// 		g.Shaders = append(g.Shaders, Shader{
+	// 			shader:    tintShader,
+	// 			options:   shader.Parameters,
+	// 			amount:    shader.Parameters["amount"].(float32),
+	// 			multipass: int(shader.Parameters["multipass"].(float64)),
+	// 		})
+	// 	case "bloom":
+	// 		g.Shaders = append(g.Shaders, Shader{
+	// 			shader:    bloomShader,
+	// 			options:   shader.Parameters,
+	// 			amount:    shader.Parameters["amount"].(float32),
+	// 			multipass: int(shader.Parameters["multipass"].(float64)),
+	// 		})
+	// 	case "sharpen":
+	// 		g.Shaders = append(g.Shaders, Shader{
+	// 			shader:    sharpnessShader,
+	// 			options:   shader.Parameters,
+	// 			amount:    shader.Parameters["amount"].(float32),
+	// 			multipass: int(shader.Parameters["multipass"].(float64)),
+	// 		})
+	// 	case "colorMapping":
+	// 		g.Shaders = append(g.Shaders, Shader{
+	// 			shader:    colorMappingShader,
+	// 			options:   shader.Parameters,
+	// 			amount:    shader.Parameters["amount"].(float32),
+	// 			multipass: 1,
+	// 		})
+	// 	}
+	// }
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "Shader menu updated successfully",
+	})
+}
+
 func (g *Game) submitTextures(c echo.Context) error {
 	type TextureRequest struct {
 		Textures        map[string]interface{} `json:"textures"`
@@ -5205,6 +5266,7 @@ func startServer(game *Game) {
 	e.POST("/submitVoxel", game.submitVoxelData)
 	e.POST("/submitRenderOptions", game.submitRenderOptions)
 	e.POST("/submitTextures", game.submitTextures)
+	e.POST("/submitShader", game.SubmitShader)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -5213,6 +5275,14 @@ func startServer(game *Game) {
 }
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+
+var (
+	bloomShader        *ebiten.Shader
+	contrastShader     *ebiten.Shader
+	tintShader         *ebiten.Shader
+	sharpnessShader    *ebiten.Shader
+	colorMappingShader *ebiten.Shader
+)
 
 func main() {
 	// TestGetBlock(100_000)
@@ -5295,15 +5365,15 @@ func main() {
 		panic(err)
 	}
 
-	src, err = LoadShader("shaders/rayMarching.kage")
-	if err != nil {
-		panic(err)
-	}
+	// src, err = LoadShader("shaders/rayMarching.kage")
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	rayMarchingShader, err := ebiten.NewShader(src)
-	if err != nil {
-		panic(err)
-	}
+	// rayMarchingShader, err := ebiten.NewShader(src)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	src, err = LoadShader("shaders/ColorMapping.kage")
 	if err != nil {
@@ -5325,7 +5395,7 @@ func main() {
 	// 	panic(err)
 	// }
 
-	fmt.Println("Shader:", rayMarchingShader)
+	// fmt.Println("Shader:", rayMarchingShader)
 
 	fmt.Println("Shader:", sharpnessShader)
 	// fmt.Println("Shader:", bloomShader)
