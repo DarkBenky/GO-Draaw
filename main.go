@@ -4987,46 +4987,77 @@ func (g *Game) SubmitShader(c echo.Context) error {
 		})
 	}
 
+	for _, shader := range shaderMenu {
+		fmt.Println("Shader Type:", shader.Type)
+		fmt.Println("Shader Parameters:", shader.Parameters)
+	}
+
+
+	shaders := []Shader{}
+
+	fmt.Println("Contrast Shader:", contrastShader)
+	fmt.Println("Tint Shader:", tintShader)
+	fmt.Println("Bloom Shader:", bloomShader)
+	fmt.Println("Sharpness Shader:", sharpnessShader)
+	fmt.Println("Color Mapping Shader:", colorMappingShader)
+
 	// Process each shader
-	// for _, shader := range shaderMenu {
-	// 	switch shader.Type {
-	// 	case "contrast":
-	// 		g.Shaders = append(g.Shaders, Shader{
-	// 			shader:    contrastShader,
-	// 			options:   shader.Parameters,
-	// 			amount:    shader.Parameters["amount"].(float32),
-	// 			multipass: int(shader.Parameters["multipass"].(float64)),
-	// 		})
-	// 	case "tint":
-	// 		g.Shaders = append(g.Shaders, Shader{
-	// 			shader:    tintShader,
-	// 			options:   shader.Parameters,
-	// 			amount:    shader.Parameters["amount"].(float32),
-	// 			multipass: int(shader.Parameters["multipass"].(float64)),
-	// 		})
-	// 	case "bloom":
-	// 		g.Shaders = append(g.Shaders, Shader{
-	// 			shader:    bloomShader,
-	// 			options:   shader.Parameters,
-	// 			amount:    shader.Parameters["amount"].(float32),
-	// 			multipass: int(shader.Parameters["multipass"].(float64)),
-	// 		})
-	// 	case "sharpen":
-	// 		g.Shaders = append(g.Shaders, Shader{
-	// 			shader:    sharpnessShader,
-	// 			options:   shader.Parameters,
-	// 			amount:    shader.Parameters["amount"].(float32),
-	// 			multipass: int(shader.Parameters["multipass"].(float64)),
-	// 		})
-	// 	case "colorMapping":
-	// 		g.Shaders = append(g.Shaders, Shader{
-	// 			shader:    colorMappingShader,
-	// 			options:   shader.Parameters,
-	// 			amount:    shader.Parameters["amount"].(float32),
-	// 			multipass: 1,
-	// 		})
-	// 	}
-	// }
+	for _, shader := range shaderMenu {
+		switch shader.Type {
+		case "contrast":
+			shaders = append(shaders, Shader{
+				shader:    contrastShader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
+		case "tint":
+			// Convert TintColor array from interface{} to [3]float32
+			tintColorInterface := shader.Parameters["TintColor"].([]interface{})
+			tintColor := [3]float32{
+				float32(tintColorInterface[0].(float64)),
+				float32(tintColorInterface[1].(float64)),
+				float32(tintColorInterface[2].(float64)),
+			}
+		
+			
+			// Update parameters with converted TintColor
+			shader.Parameters["TintColor"] = tintColor
+			
+			shaders = append(shaders, Shader{
+				shader:    tintShader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
+		case "bloom":
+			shaders = append(shaders, Shader{
+				shader:    bloomShader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
+		case "sharpen":
+			shaders = append(shaders, Shader{
+				shader:    sharpnessShader,
+				options:   shader.Parameters,
+				amount:   float32( shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
+		case "colorMapping":
+			shaders = append(shaders, Shader{
+				shader:    colorMappingShader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: 1,
+			})
+		}
+	}
+
+	fmt.Println("Shaders:", shaders)
+
+	// assign the shaders to the game shaders using unsafe
+	*(*[]Shader)(unsafe.Pointer(&g.Shaders)) = shaders
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Shader menu updated successfully",
@@ -5044,6 +5075,10 @@ func (g *Game) submitTextures(c echo.Context) error {
 		Metallic        float64                `json:"metallic"`
 		Index           int                    `json:"index"`
 		Specular        float64                `json:"specular"`
+		ColorR 		float64                `json:"colorR"`
+		ColorG 		float64                `json:"colorG"`
+		ColorB 		float64                `json:"colorB"`
+		ColorA 		float64                `json:"colorA"`
 	}
 
 	request := new(TextureRequest)
@@ -5096,6 +5131,8 @@ func (g *Game) submitTextures(c echo.Context) error {
 	fmt.Println("Reflection", request.Reflection)
 	fmt.Println("Specular", request.Specular)
 
+	fmt.Println("Color", request.ColorR, request.ColorG, request.ColorB, request.ColorA)
+
 	// Update material properties using unsafe
 	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(request.DirectToScatter)
 	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(request.Reflection)
@@ -5112,10 +5149,10 @@ func (g *Game) submitTextures(c echo.Context) error {
 		x := i % 128
 		y := i / 128
 		texture.texture[x][y] = ColorFloat32{
-			textureData[i*4],
-			textureData[i*4+1],
-			textureData[i*4+2],
-			textureData[i*4+3],
+			textureData[i*4] * float32(request.ColorR),
+			textureData[i*4+1] * float32(request.ColorG),
+			textureData[i*4+2] * float32(request.ColorB),
+			textureData[i*4+3] * float32(request.ColorA),
 		}
 	}
 
@@ -5329,7 +5366,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	bloomShader, err := ebiten.NewShader(src)
+	bloomShader, err = ebiten.NewShader(src)
 	if err != nil {
 		panic(err)
 	}
@@ -5338,7 +5375,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	contrastShader, err := ebiten.NewShader(src)
+	contrastShader, err = ebiten.NewShader(src)
 	if err != nil {
 		panic(err)
 	}
@@ -5349,7 +5386,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	tintShader, err := ebiten.NewShader(src)
+	tintShader, err = ebiten.NewShader(src)
 	if err != nil {
 		panic(err)
 	}
@@ -5360,7 +5397,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	sharpnessShader, err := ebiten.NewShader(src)
+	sharpnessShader, err = ebiten.NewShader(src)
 	if err != nil {
 		panic(err)
 	}
@@ -5380,7 +5417,7 @@ func main() {
 		panic(err)
 	}
 
-	colorMappingShader, err := ebiten.NewShader(src)
+	colorMappingShader, err = ebiten.NewShader(src)
 	if err != nil {
 		panic(err)
 	}
