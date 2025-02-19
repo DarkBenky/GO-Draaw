@@ -16,12 +16,14 @@
   ```
 
   - BVH array concept
-    // 50 bytes
+
+    ```golang
     type TriangleBBOX struct {
       V1orBBoxMin , V2orBBoxMax , V3  // 12 * 3
       normal Vector // 12
       id int16 // 2 id for texture
     }
+    ```
 
     - if id == -1 => BBox
     - else => triangle
@@ -35,6 +37,7 @@
 
     [n]TriangleBBOX{}
     - [ ] Fix Render Version V4
+- [ ] New BVH for Textures using TriangleBBOX
 
 - [ ] Remove GUI
 - [X] Vec 32 is pretty much same as float64 ([link](https://github.com/DarkBenky/Go-Vec32-Vec64))
