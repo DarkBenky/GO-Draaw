@@ -1759,69 +1759,162 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 }
 
 func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[128]Texture) (Intersection, bool) {
-	// Möller–Trumbore intersection algorithm
-	edge1 := triangle.v2.Sub(triangle.v1)
-	edge2 := triangle.v3.Sub(triangle.v1)
-	h := ray.direction.Cross(edge2)
-	a := edge1.Dot(h)
-	if a > -0.00001 && a < 0.00001 {
-		return Intersection{}, false
-	}
-	f := 1.0 / a
-	s := ray.origin.Sub(triangle.v1)
-	u := f * s.Dot(h)
-	if u < 0.0 || u > 1.0 {
-		return Intersection{}, false
-	}
-	q := s.Cross(edge1)
-	v := f * ray.direction.Dot(q)
-	if v < 0.0 || u+v > 1.0 {
-		return Intersection{}, false
-	}
-	t := f * edge2.Dot(q)
-	if t <= 0.00001 {
-		return Intersection{}, false
-	}
+    // Möller–Trumbore intersection algorithm
+    edge1 := triangle.v2.Sub(triangle.v1)
+    edge2 := triangle.v3.Sub(triangle.v1)
+    h := ray.direction.Cross(edge2)
+    a := edge1.Dot(h)
+    if a > -0.00001 && a < 0.00001 {
+        return Intersection{}, false
+    }
+    f := 1.0 / a
+    s := ray.origin.Sub(triangle.v1)
+    u := f * s.Dot(h)
+    if u < 0.0 || u > 1.0 {
+        return Intersection{}, false
+    }
+    q := s.Cross(edge1)
+    v := f * ray.direction.Dot(q)
+    if v < 0.0 || u+v > 1.0 {
+        return Intersection{}, false
+    }
+    t := f * edge2.Dot(q)
+    if t <= 0.00001 {
+        return Intersection{}, false
+    }
 
-	// Compute barycentric coordinates
-	w := 1.0 - u - v
+    // Compute barycentric coordinates
+    w := 1.0 - u - v
 
-	// Sample the texture using barycentric coordinates
-	texU := int(w * 127) // Scale to [0,127] range
-	texV := int(v * 127)
-	if texU < 0 {
-		texU = 0
-	} else if texU > 127 {
-		texU = 127
-	}
-	if texV < 0 {
-		texV = 0
-	} else if texV > 127 {
-		texV = 127
-	}
+    // Sample the texture using barycentric coordinates
+    texU := int(w * 127) // Scale to [0,127] range
+    texV := int(v * 127)
+    if texU < 0 {
+        texU = 0
+    } else if texU > 127 {
+        texU = 127
+    }
+    if texV < 0 {
+        texV = 0
+    } else if texV > 127 {
+        texV = 127
+    }
 
-	// fmt.Println(texU, texV)
-	// fmt.Println(textureMap)
+    // Calculate tangent space basis vectors
+    deltaUV1 := Vector{1.0, 0.0, 0.0} // UV coordinates of vertex 2 - vertex 1
+    deltaUV2 := Vector{0.0, 1.0, 0.0} // UV coordinates of vertex 3 - vertex 1
 
-	// fmt.Println(Material.texture[texU][texV])
+    // Calculate tangent and bitangent
+    f = 1.0 / (deltaUV1.x*deltaUV2.y - deltaUV2.x*deltaUV1.y)
+    tangent := Vector{
+        f * (deltaUV2.y*edge1.x - deltaUV1.y*edge2.x),
+        f * (deltaUV2.y*edge1.y - deltaUV1.y*edge2.y),
+        f * (deltaUV2.y*edge1.z - deltaUV1.y*edge2.z),
+    }
+    bitangent := Vector{
+        f * (-deltaUV2.x*edge1.x + deltaUV1.x*edge2.x),
+        f * (-deltaUV2.x*edge1.y + deltaUV1.x*edge2.y),
+        f * (-deltaUV2.x*edge1.z + deltaUV1.x*edge2.z),
+    }
 
-	normal := triangle.Normal.Add(textureMap[uint8(1)].normals[texU][texV])
-	// normal = normal.Normalize()
+    // Normalize basis vectors
+    tangent = tangent.Normalize()
+    bitangent = bitangent.Normalize()
+    normal := triangle.Normal.Normalize()
 
-	// Return intersection data
-	return Intersection{
-		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
-		Color:               textureMap[uint8(1)].texture[texU][texV], // Texture color
-		Normal:              normal,                                   // Normal perturbation
-		Direction:           ray.direction,
-		Distance:            t,
-		reflection:          textureMap[uint8(1)].reflection,
-		specular:            textureMap[uint8(1)].specular,
-		Roughness:           textureMap[uint8(1)].Roughness,
-		directToScatter:     textureMap[uint8(1)].directToScatter,
-		Metallic:            textureMap[uint8(1)].Metallic,
-	}, true
+    // Get normal from texture
+    textureNormal := textureMap[uint8(1)].normals[texU][texV]
+
+    // Transform normal from tangent space to world space
+    worldNormal := Vector{
+        tangent.x*textureNormal.x + bitangent.x*textureNormal.y + normal.x*textureNormal.z,
+        tangent.y*textureNormal.x + bitangent.y*textureNormal.y + normal.y*textureNormal.z,
+        tangent.z*textureNormal.x + bitangent.z*textureNormal.y + normal.z*textureNormal.z,
+    }
+
+    // Normalize the final normal
+    worldNormal = worldNormal.Normalize()
+
+    // Return intersection data
+    return Intersection{
+        PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
+        Color:               textureMap[uint8(1)].texture[texU][texV], // Texture color
+        Normal:              worldNormal,                              // Normal perturbation
+        Direction:           ray.direction,
+        Distance:            t,
+        reflection:          textureMap[uint8(1)].reflection,
+        specular:            textureMap[uint8(1)].specular,
+        Roughness:           textureMap[uint8(1)].Roughness,
+        directToScatter:     textureMap[uint8(1)].directToScatter,
+        Metallic:            textureMap[uint8(1)].Metallic,
+    }, true
 }
+
+
+// func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[128]Texture) (Intersection, bool) {
+// 	// Möller–Trumbore intersection algorithm
+// 	edge1 := triangle.v2.Sub(triangle.v1)
+// 	edge2 := triangle.v3.Sub(triangle.v1)
+// 	h := ray.direction.Cross(edge2)
+// 	a := edge1.Dot(h)
+// 	if a > -0.00001 && a < 0.00001 {
+// 		return Intersection{}, false
+// 	}
+// 	f := 1.0 / a
+// 	s := ray.origin.Sub(triangle.v1)
+// 	u := f * s.Dot(h)
+// 	if u < 0.0 || u > 1.0 {
+// 		return Intersection{}, false
+// 	}
+// 	q := s.Cross(edge1)
+// 	v := f * ray.direction.Dot(q)
+// 	if v < 0.0 || u+v > 1.0 {
+// 		return Intersection{}, false
+// 	}
+// 	t := f * edge2.Dot(q)
+// 	if t <= 0.00001 {
+// 		return Intersection{}, false
+// 	}
+
+// 	// Compute barycentric coordinates
+// 	w := 1.0 - u - v
+
+// 	// Sample the texture using barycentric coordinates
+// 	texU := int(w * 127) // Scale to [0,127] range
+// 	texV := int(v * 127)
+// 	if texU < 0 {
+// 		texU = 0
+// 	} else if texU > 127 {
+// 		texU = 127
+// 	}
+// 	if texV < 0 {
+// 		texV = 0
+// 	} else if texV > 127 {
+// 		texV = 127
+// 	}
+
+// 	// fmt.Println(texU, texV)
+// 	// fmt.Println(textureMap)
+
+// 	// fmt.Println(Material.texture[texU][texV])
+
+// 	normal := triangle.Normal.Add(textureMap[uint8(1)].normals[texU][texV])
+// 	// normal = normal.Normalize()
+
+// 	// Return intersection data
+// 	return Intersection{
+// 		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
+// 		Color:               textureMap[uint8(1)].texture[texU][texV], // Texture color
+// 		Normal:              normal,                                   // Normal perturbation
+// 		Direction:           ray.direction,
+// 		Distance:            t,
+// 		reflection:          textureMap[uint8(1)].reflection,
+// 		specular:            textureMap[uint8(1)].specular,
+// 		Roughness:           textureMap[uint8(1)].Roughness,
+// 		directToScatter:     textureMap[uint8(1)].directToScatter,
+// 		Metallic:            textureMap[uint8(1)].Metallic,
+// 	}, true
+// }
 
 // func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
 // 	// Initialize the closest intersection and hit status
@@ -5465,7 +5558,7 @@ func main() {
 	objects := []object{}
 	objects = append(objects, obj)
 
-	camera := Camera{Position: Vector{0, 100, 0}, xAxis: 0, yAxis: 0}
+	camera := Camera{Position: Vector{0, 200, 100}, xAxis: 0, yAxis: 0}
 	light := Light{Position: Vector{0, 1500, 1000}, Color: &[3]float32{10.0, 10.0, 10.0}, intensity: 2.0}
 
 	// bestDepth := OptimizeBVHDepth(objects, camera, light)
