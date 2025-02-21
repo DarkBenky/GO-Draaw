@@ -5068,7 +5068,7 @@ func (g *Game) submitTextures(c echo.Context) error {
 	type TextureRequest struct {
 		Textures        map[string]interface{} `json:"textures"`
 		Normals         map[string]interface{} `json:"normals"`
-		Normal          map[string]interface{} `json:"normal"`
+		// Normal          map[string]interface{} `json:"normal"`
 		DirectToScatter float64                `json:"directToScatter"`
 		Reflection      float64                `json:"reflection"`
 		Roughness       float64                `json:"roughness"`
