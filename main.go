@@ -255,6 +255,10 @@ type Vector struct {
 	x, y, z float32
 }
 
+func (v Vector) Multiply(v2 Vector) Vector {
+	return Vector{v.x * v2.x, v.y * v2.y, v.z * v2.z}
+}
+
 func (v Vector) Length() float32 {
 	return float32(math.Sqrt(float64(v.x*v.x + v.y*v.y + v.z*v.z)))
 }
@@ -1241,6 +1245,36 @@ func BoundingBoxCollisionDistance(BoundingBox [2]Vector, ray Ray) (bool, float32
 	return false, 0.0 // Return 0 distance if no intersection
 }
 
+func BoundingBoxCollisionVector(BBMin Vector, BBMax Vector, ray Ray) (bool, float32) {
+	// Precompute the inverse direction
+	invDirX := 1.0 / ray.direction.x
+	invDirY := 1.0 / ray.direction.y
+	invDirZ := 1.0 / ray.direction.z
+
+	// Compute the tmin and tmax for each axis directly
+	tx1 := (BBMax.x - ray.origin.x) * invDirX
+	tx2 := (BBMin.x - ray.origin.x) * invDirX
+	tmin := min(tx1, tx2)
+	tmax := max(tx1, tx2)
+
+	ty1 := (BBMax.y - ray.origin.y) * invDirY
+	ty2 := (BBMin.y - ray.origin.y) * invDirY
+	tmin = max(tmin, min(ty1, ty2))
+	tmax = min(tmax, max(ty1, ty2))
+
+	tz1 := (BBMax.z - ray.origin.z) * invDirZ
+	tz2 := (BBMin.z - ray.origin.z) * invDirZ
+	tmin = max(tmin, min(tz1, tz2))
+	tmax = min(tmax, max(tz1, tz2))
+
+	// Final intersection check
+	if tmax >= max(0.0, tmin) {
+		return true, tmin
+	}
+
+	return false, 0.0 // Return 0 distance if no intersection
+}
+
 func (triangle *TriangleSimple) Rotate(xAngle, yAngle, zAngle float32) {
 	// Rotation matrices
 	rotationMatrixX := [3][3]float32{
@@ -1633,6 +1667,10 @@ func (ray Ray) IntersectBVH_Texture(nodeBVH *BVHNode, textureMap *[128]Texture) 
 	var closestIntersection Intersection
 	hit := false
 
+	// var time1 time.Duration
+	// count := 1
+	// var time2 time.Duration
+
 	for stackIndex >= 0 {
 		// Pop the top item from the stack
 		currentNode := stack[stackIndex]
@@ -1641,7 +1679,15 @@ func (ray Ray) IntersectBVH_Texture(nodeBVH *BVHNode, textureMap *[128]Texture) 
 		// If the node contains triangles, check for intersections
 		if currentNode.active {
 			// intersection, intersects := IntersectTrianglesSimple(*ray, *currentNode.Triangles)
+			// start := time.Now()
 			intersection, intersects := ray.IntersectTriangleTexture(currentNode.Triangles, textureMap)
+			// time1 += time.Since(start)
+			// start = time.Now()
+			// _, _ = ray.IntersectTriangleTextureGeneral(currentNode.Triangles.v1, currentNode.Triangles.v2, currentNode.Triangles.v3, currentNode.Triangles.Normal, textureMap, currentNode.Triangles.id)
+			// time2 += time.Since(start)
+			// Time1:  620  Time2:  470
+			// Time1:  380  Time2:  280
+			// Time1:  610  Time2:  330
 			if intersects {
 				if !hit || intersection.Distance < closestIntersection.Distance {
 					closestIntersection = intersection
@@ -1686,7 +1732,69 @@ func (ray Ray) IntersectBVH_Texture(nodeBVH *BVHNode, textureMap *[128]Texture) 
 			stack[stackIndex] = currentNode.Right
 		}
 	}
+	// println("Time1: ", time1/time.Duration(count), " Time2: ", time2/time.Duration(count))
+	return closestIntersection, hit
+}
 
+func (ray Ray) IntersectBVHLean_Texture(nodeBVH *BVHLeanNode, textureMap *[128]Texture) (Intersection, bool) {
+	// Preallocate a stack large enough for the BVH depth
+	stack := make([]*BVHLeanNode, maxDepth)
+	stackIndex := 0
+	stack[stackIndex] = nodeBVH
+	var closestIntersection Intersection
+	hit := false
+
+	for stackIndex >= 0 {
+		currentNode := stack[stackIndex]
+		stackIndex--
+
+		// If the node contains triangles, check for intersections
+		if currentNode.active {
+			intersection, intersects := ray.IntersectTriangleTextureGeneral(currentNode.TriangleBBOX.V1orBBoxMin, currentNode.TriangleBBOX.V2orBBoxMax, currentNode.TriangleBBOX.V3, currentNode.TriangleBBOX.normal, textureMap, uint8(currentNode.TriangleBBOX.id))
+			if intersects {
+				if !hit || intersection.Distance < closestIntersection.Distance {
+					closestIntersection = intersection
+					hit = true
+				}
+			}
+			continue
+		}
+		// Check for bounding box intersections for left and right children
+		var leftHit, rightHit bool
+		var leftDist, rightDist float32
+
+		if currentNode.Left != nil {
+			leftHit, leftDist = BoundingBoxCollisionVector(currentNode.Left.TriangleBBOX.V1orBBoxMin, currentNode.Left.TriangleBBOX.V2orBBoxMax, ray)
+		}
+		if currentNode.Right != nil {
+			rightHit, rightDist = BoundingBoxCollisionVector(currentNode.Right.TriangleBBOX.V1orBBoxMin, currentNode.Right.TriangleBBOX.V2orBBoxMax, ray)
+		}
+
+		// Prioritize traversal based on hit distance (closer node first)
+		if leftHit && rightHit {
+			if leftDist < rightDist {
+				// Left is closer, traverse left first
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+			} else {
+				// Right is closer, traverse right first
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+			}
+		} else if leftHit {
+			// Only left child is hit
+			stackIndex++
+			stack[stackIndex] = currentNode.Left
+		} else if rightHit {
+			// Only right child is hit
+			stackIndex++
+			stack[stackIndex] = currentNode.Right
+		}
+	}
 	return closestIntersection, hit
 }
 
@@ -1758,98 +1866,97 @@ func (ray *Ray) IntersectTriangleSimple(triangle TriangleSimple) (Intersection, 
 	return Intersection{}, false
 }
 
-func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[128]Texture) (Intersection, bool) {
-    // Möller–Trumbore intersection algorithm
-    edge1 := triangle.v2.Sub(triangle.v1)
-    edge2 := triangle.v3.Sub(triangle.v1)
-    h := ray.direction.Cross(edge2)
-    a := edge1.Dot(h)
-    if a > -0.00001 && a < 0.00001 {
-        return Intersection{}, false
-    }
-    f := 1.0 / a
-    s := ray.origin.Sub(triangle.v1)
-    u := f * s.Dot(h)
-    if u < 0.0 || u > 1.0 {
-        return Intersection{}, false
-    }
-    q := s.Cross(edge1)
-    v := f * ray.direction.Dot(q)
-    if v < 0.0 || u+v > 1.0 {
-        return Intersection{}, false
-    }
-    t := f * edge2.Dot(q)
-    if t <= 0.00001 {
-        return Intersection{}, false
-    }
+// func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[128]Texture) (Intersection, bool) {
+//     // Möller–Trumbore intersection algorithm
+//     edge1 := triangle.v2.Sub(triangle.v1)
+//     edge2 := triangle.v3.Sub(triangle.v1)
+//     h := ray.direction.Cross(edge2)
+//     a := edge1.Dot(h)
+//     if a > -0.00001 && a < 0.00001 {
+//         return Intersection{}, false
+//     }
+//     f := 1.0 / a
+//     s := ray.origin.Sub(triangle.v1)
+//     u := f * s.Dot(h)
+//     if u < 0.0 || u > 1.0 {
+//         return Intersection{}, false
+//     }
+//     q := s.Cross(edge1)
+//     v := f * ray.direction.Dot(q)
+//     if v < 0.0 || u+v > 1.0 {
+//         return Intersection{}, false
+//     }
+//     t := f * edge2.Dot(q)
+//     if t <= 0.00001 {
+//         return Intersection{}, false
+//     }
 
-    // Compute barycentric coordinates
-    w := 1.0 - u - v
+//     // Compute barycentric coordinates
+//     w := 1.0 - u - v
 
-    // Sample the texture using barycentric coordinates
-    texU := int(w * 127) // Scale to [0,127] range
-    texV := int(v * 127)
-    if texU < 0 {
-        texU = 0
-    } else if texU > 127 {
-        texU = 127
-    }
-    if texV < 0 {
-        texV = 0
-    } else if texV > 127 {
-        texV = 127
-    }
+//     // Sample the texture using barycentric coordinates
+//     texU := int(w * 127) // Scale to [0,127] range
+//     texV := int(v * 127)
+//     if texU < 0 {
+//         texU = 0
+//     } else if texU > 127 {
+//         texU = 127
+//     }
+//     if texV < 0 {
+//         texV = 0
+//     } else if texV > 127 {
+//         texV = 127
+//     }
 
-    // Calculate tangent space basis vectors
-    deltaUV1 := Vector{1.0, 0.0, 0.0} // UV coordinates of vertex 2 - vertex 1
-    deltaUV2 := Vector{0.0, 1.0, 0.0} // UV coordinates of vertex 3 - vertex 1
+//     // Calculate tangent space basis vectors
+//     deltaUV1 := Vector{1.0, 0.0, 0.0} // UV coordinates of vertex 2 - vertex 1
+//     deltaUV2 := Vector{0.0, 1.0, 0.0} // UV coordinates of vertex 3 - vertex 1
 
-    // Calculate tangent and bitangent
-    f = 1.0 / (deltaUV1.x*deltaUV2.y - deltaUV2.x*deltaUV1.y)
-    tangent := Vector{
-        f * (deltaUV2.y*edge1.x - deltaUV1.y*edge2.x),
-        f * (deltaUV2.y*edge1.y - deltaUV1.y*edge2.y),
-        f * (deltaUV2.y*edge1.z - deltaUV1.y*edge2.z),
-    }
-    bitangent := Vector{
-        f * (-deltaUV2.x*edge1.x + deltaUV1.x*edge2.x),
-        f * (-deltaUV2.x*edge1.y + deltaUV1.x*edge2.y),
-        f * (-deltaUV2.x*edge1.z + deltaUV1.x*edge2.z),
-    }
+//     // Calculate tangent and bitangent
+//     f = 1.0 / (deltaUV1.x*deltaUV2.y - deltaUV2.x*deltaUV1.y)
+//     tangent := Vector{
+//         f * (deltaUV2.y*edge1.x - deltaUV1.y*edge2.x),
+//         f * (deltaUV2.y*edge1.y - deltaUV1.y*edge2.y),
+//         f * (deltaUV2.y*edge1.z - deltaUV1.y*edge2.z),
+//     }
+//     bitangent := Vector{
+//         f * (-deltaUV2.x*edge1.x + deltaUV1.x*edge2.x),
+//         f * (-deltaUV2.x*edge1.y + deltaUV1.x*edge2.y),
+//         f * (-deltaUV2.x*edge1.z + deltaUV1.x*edge2.z),
+//     }
 
-    // Normalize basis vectors
-    tangent = tangent.Normalize()
-    bitangent = bitangent.Normalize()
-    normal := triangle.Normal.Normalize()
+//     // Normalize basis vectors
+//     tangent = tangent.Normalize()
+//     bitangent = bitangent.Normalize()
+//     normal := triangle.Normal.Normalize()
 
-    // Get normal from texture
-    textureNormal := textureMap[uint8(1)].normals[texU][texV]
+//     // Get normal from texture
+//     textureNormal := textureMap[uint8(1)].normals[texU][texV]
 
-    // Transform normal from tangent space to world space
-    worldNormal := Vector{
-        tangent.x*textureNormal.x + bitangent.x*textureNormal.y + normal.x*textureNormal.z,
-        tangent.y*textureNormal.x + bitangent.y*textureNormal.y + normal.y*textureNormal.z,
-        tangent.z*textureNormal.x + bitangent.z*textureNormal.y + normal.z*textureNormal.z,
-    }
+//     // Transform normal from tangent space to world space
+//     worldNormal := Vector{
+//         tangent.x*textureNormal.x + bitangent.x*textureNormal.y + normal.x*textureNormal.z,
+//         tangent.y*textureNormal.x + bitangent.y*textureNormal.y + normal.y*textureNormal.z,
+//         tangent.z*textureNormal.x + bitangent.z*textureNormal.y + normal.z*textureNormal.z,
+//     }
 
-    // Normalize the final normal
-    worldNormal = worldNormal.Normalize()
+//     // Normalize the final normal
+//     worldNormal = worldNormal.Normalize()
 
-    // Return intersection data
-    return Intersection{
-        PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
-        Color:               textureMap[uint8(1)].texture[texU][texV], // Texture color
-        Normal:              worldNormal,                              // Normal perturbation
-        Direction:           ray.direction,
-        Distance:            t,
-        reflection:          textureMap[uint8(1)].reflection,
-        specular:            textureMap[uint8(1)].specular,
-        Roughness:           textureMap[uint8(1)].Roughness,
-        directToScatter:     textureMap[uint8(1)].directToScatter,
-        Metallic:            textureMap[uint8(1)].Metallic,
-    }, true
-}
-
+//     // Return intersection data
+//     return Intersection{
+//         PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)),
+//         Color:               textureMap[uint8(1)].texture[texU][texV], // Texture color
+//         Normal:              worldNormal,                              // Normal perturbation
+//         Direction:           ray.direction,
+//         Distance:            t,
+//         reflection:          textureMap[uint8(1)].reflection,
+//         specular:            textureMap[uint8(1)].specular,
+//         Roughness:           textureMap[uint8(1)].Roughness,
+//         directToScatter:     textureMap[uint8(1)].directToScatter,
+//         Metallic:            textureMap[uint8(1)].Metallic,
+//     }, true
+// }
 
 // func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[128]Texture) (Intersection, bool) {
 // 	// Möller–Trumbore intersection algorithm
@@ -1898,7 +2005,7 @@ func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[12
 
 // 	// fmt.Println(Material.texture[texU][texV])
 
-// 	normal := triangle.Normal.Add(textureMap[uint8(1)].normals[texU][texV])
+// 	normal := triangle.Normal.Add(triangle.Normal.Multiply(textureMap[uint8(1)].normals[texU][texV])).Normalize()
 // 	// normal = normal.Normalize()
 
 // 	// Return intersection data
@@ -1915,6 +2022,156 @@ func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[12
 // 		Metallic:            textureMap[uint8(1)].Metallic,
 // 	}, true
 // }
+
+func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[128]Texture) (Intersection, bool) {
+	// Möller–Trumbore intersection algorithm
+	edge1 := triangle.v2.Sub(triangle.v1)
+	edge2 := triangle.v3.Sub(triangle.v1)
+	h := ray.direction.Cross(edge2)
+	a := edge1.Dot(h)
+	if a > -0.00001 && a < 0.00001 {
+		return Intersection{}, false
+	}
+	f := 1.0 / a
+	s := ray.origin.Sub(triangle.v1)
+	u := f * s.Dot(h)
+	if u < 0.0 || u > 1.0 {
+		return Intersection{}, false
+	}
+	q := s.Cross(edge1)
+	v := f * ray.direction.Dot(q)
+	if v < 0.0 || u+v > 1.0 {
+		return Intersection{}, false
+	}
+	t := f * edge2.Dot(q)
+	if t <= 0.00001 {
+		return Intersection{}, false
+	}
+
+	// Compute barycentric coordinates
+	w := 1.0 - u - v
+
+	// Sample the texture using barycentric coordinates
+	texU := int(w * 127)
+	texV := int(v * 127)
+	if texU < 0 {
+		texU = 0
+	} else if texU > 127 {
+		texU = 127
+	}
+	if texV < 0 {
+		texV = 0
+	} else if texV > 127 {
+		texV = 127
+	}
+
+	// Get the normal from the normal map (already in -1 to 1 range)
+	normalMap := textureMap[uint8(1)].normals[texU][texV]
+
+	// Blend the normals using a proper normal blending technique
+	// This uses a hemisphere-based blending approach that preserves detail
+	baseNormal := triangle.Normal
+	perturbedNormal := normalMap
+
+	// Ensure the perturbed normal is in the same hemisphere as the base normal
+	if baseNormal.Dot(perturbedNormal) < 0 {
+		perturbedNormal = perturbedNormal.Mul(-1)
+	}
+
+	// Blend the normals with emphasis on maintaining the base normal's orientation
+	normal := Vector{
+		x: (baseNormal.x + perturbedNormal.x) * 0.5,
+		y: (baseNormal.y + perturbedNormal.y) * 0.5,
+		z: (baseNormal.z + perturbedNormal.z) * 0.5,
+	}.Normalize()
+
+	return Intersection{
+		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)).Add(normal.Mul(0.01)),
+		Color:               textureMap[uint8(1)].texture[texU][texV],
+		Normal:              normal,
+		Direction:           ray.direction,
+		Distance:            t,
+		reflection:          textureMap[uint8(1)].reflection,
+		specular:            textureMap[uint8(1)].specular,
+		Roughness:           textureMap[uint8(1)].Roughness,
+		directToScatter:     textureMap[uint8(1)].directToScatter,
+		Metallic:            textureMap[uint8(1)].Metallic,
+	}, true
+}
+
+func (ray Ray) IntersectTriangleTextureGeneral(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id uint8) (Intersection, bool) {
+	// Möller–Trumbore intersection algorithm
+	edge1 := v2.Sub(v1)
+	edge2 := v3.Sub(v1)
+	h := ray.direction.Cross(edge2)
+	a := edge1.Dot(h)
+	if a > -0.00001 && a < 0.00001 {
+		return Intersection{}, false
+	}
+	f := 1.0 / a
+	s := ray.origin.Sub(v1)
+	u := f * s.Dot(h)
+	if u < 0.0 || u > 1.0 {
+		return Intersection{}, false
+	}
+	q := s.Cross(edge1)
+	v := f * ray.direction.Dot(q)
+	if v < 0.0 || u+v > 1.0 {
+		return Intersection{}, false
+	}
+	t := f * edge2.Dot(q)
+	if t <= 0.00001 {
+		return Intersection{}, false
+	}
+
+	// Compute barycentric coordinates
+	w := 1.0 - u - v
+
+	// Sample the texture using barycentric coordinates
+	texU := int(w * 127)
+	texV := int(v * 127)
+	if texU < 0 {
+		texU = 0
+	} else if texU > 127 {
+		texU = 127
+	}
+	if texV < 0 {
+		texV = 0
+	} else if texV > 127 {
+		texV = 127
+	}
+
+	index := uint8(1)
+
+	// Blend the normals using a proper normal blending technique
+	// This uses a hemisphere-based blending approach that preserves detail
+	perturbedNormal := textureMap[index].normals[texU][texV]
+
+	// Ensure the perturbed normal is in the same hemisphere as the base normal
+	if baseNormal.Dot(perturbedNormal) < 0 {
+		perturbedNormal = perturbedNormal.Mul(-1)
+	}
+
+	// Blend the normals with emphasis on maintaining the base normal's orientation
+	normal := Vector{
+		x: (baseNormal.x + perturbedNormal.x) * 0.5,
+		y: (baseNormal.y + perturbedNormal.y) * 0.5,
+		z: (baseNormal.z + perturbedNormal.z) * 0.5,
+	}.Normalize()
+
+	return Intersection{
+		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)).Add(normal.Mul(0.01)),
+		Color:               textureMap[index].texture[texU][texV],
+		Normal:              normal,
+		Direction:           ray.direction,
+		Distance:            t,
+		reflection:          textureMap[index].reflection,
+		specular:            textureMap[index].specular,
+		Roughness:           textureMap[index].Roughness,
+		directToScatter:     textureMap[index].directToScatter,
+		Metallic:            textureMap[index].Metallic,
+	}, true
+}
 
 // func IntersectTriangles(ray Ray, triangles []Triangle) (Intersection, bool) {
 // 	// Initialize the closest intersection and hit status
@@ -2265,131 +2522,6 @@ func TraceRayV3(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 	}
 }
 
-func TraceRayV4(ray Ray, depth int, light Light, samples int, bvh *BVHArray) ColorFloat32 {
-	if depth <= 0 {
-		return ColorFloat32{}
-	}
-
-	intersect, intersection := bvh.IntersectBVH(ray)
-	if !intersect {
-		return ColorFloat32{}
-	} else {
-		return ColorFloat32{
-			125,
-			0,
-			0,
-			255,
-		}
-	}
-
-	viewDir := ray.origin.Sub(intersection.PointOfIntersection).Normalize()
-	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
-	halfwayDir := lightDir.Add(viewDir).Normalize()
-
-	// Calculate important dot products
-	NdotL := math32.Max(0.0, intersection.Normal.Dot(lightDir))
-	NdotV := math32.Max(0.0, intersection.Normal.Dot(viewDir))
-	NdotH := math32.Max(0.0, intersection.Normal.Dot(halfwayDir))
-
-	// Calculate Fresnel term
-	F0 := float32(intersection.Metallic) // Base reflectivity for non-metals
-	fresnel := FresnelSchlick(NdotV, F0)
-
-	// Calculate roughness-based distribution
-	distribution := GGXDistribution(NdotH, intersection.Roughness)
-
-	// Scatter calculation using hemisphere sampling
-	var scatteredColor ColorFloat32
-	rayOriginOffset := intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.001))
-
-	for i := 0; i < samples; i++ {
-		scatterDirection := SampleHemisphere(intersection.Normal)
-		scatterDirection = scatterDirection.Perturb(intersection.Normal, intersection.Roughness)
-
-		scatterRay := Ray{
-			origin:    rayOriginOffset,
-			direction: scatterDirection.Normalize(),
-		}
-
-		if scatterIntersect, bvhIntersection := bvh.IntersectBVH(scatterRay); scatterIntersect && bvhIntersection.Distance != math32.MaxFloat32 {
-			scatteredColor.R += bvhIntersection.Color.R
-			scatteredColor.G += bvhIntersection.Color.G
-			scatteredColor.B += bvhIntersection.Color.B
-		}
-	}
-
-	if samples > 0 {
-		s := float32(samples)
-		scatteredColor = ColorFloat32{
-			R: scatteredColor.R / s,
-			G: scatteredColor.G / s,
-			B: scatteredColor.B / s,
-		}
-	}
-
-	// Calculate reflection direction using Fresnel
-	reflectDir := lightDir.Mul(-1).Reflect(intersection.Normal)
-	reflectRay := Ray{origin: rayOriginOffset, direction: reflectDir}
-	_, tempIntersection := bvh.IntersectBVH(reflectRay)
-
-	// Apply Fresnel to reflection color
-	directReflectionColor := ColorFloat32{
-		R: tempIntersection.Color.R * fresnel,
-		G: tempIntersection.Color.G * fresnel,
-		B: tempIntersection.Color.B * fresnel,
-		A: intersection.Color.A,
-	}
-
-	// Shadow calculation
-	shadowRay := Ray{
-		origin:    rayOriginOffset,
-		direction: lightDir,
-	}
-	inShadow, _ := bvh.IntersectBVH(shadowRay)
-
-	// Calculate specular using GGX distribution
-	var lightIntensity float32 = 0.005
-	if !inShadow {
-		lightIntensity = light.intensity * NdotL
-	}
-
-	specularIntensity := distribution * fresnel * lightIntensity
-
-	specularColor := ColorFloat32{
-		R: specularIntensity * light.Color[0],
-		G: specularIntensity * light.Color[1],
-		B: specularIntensity * light.Color[2],
-	}
-
-	// Calculate diffuse contribution
-	diffuseFactor := (1.0 - fresnel) * (1.0 / math32.Pi)
-	diffuseColor := ColorFloat32{
-		R: intersection.Color.R * diffuseFactor * NdotL * lightIntensity,
-		G: intersection.Color.G * diffuseFactor * NdotL * lightIntensity,
-		B: intersection.Color.B * diffuseFactor * NdotL * lightIntensity,
-	}
-
-	// Combine direct and indirect lighting
-	finalColor := ColorFloat32{
-		R: diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
-		G: diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
-		B: diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
-		A: intersection.Color.A,
-	}
-
-	// Calculate bounced contribution
-	bounceRay := Ray{origin: rayOriginOffset, direction: reflectDir}
-	bouncedColor := TraceRayV4(bounceRay, depth-1, light, samples, bvh)
-
-	// Final color composition with energy conservation
-	return ColorFloat32{
-		R: finalColor.R*(1.0-fresnel) + bouncedColor.R*fresnel,
-		G: finalColor.G*(1.0-fresnel) + bouncedColor.G*fresnel,
-		B: finalColor.B*(1.0-fresnel) + bouncedColor.B*fresnel,
-		A: finalColor.A,
-	}
-}
-
 func TraceRayV3Advance(ray Ray, depth int, light Light, samples int) (c ColorFloat32, distance float32, normal Vector) {
 	if depth <= 0 {
 		return ColorFloat32{}, 0, Vector{}
@@ -2626,6 +2758,124 @@ func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, text
 	}, intersection.Normal
 }
 
+func TraceRayV4AdvanceTexture(ray Ray, depth int, light Light, samples int, textureMap *[128]Texture, BVH *BVHLeanNode) (c ColorFloat32, normal Vector) {
+	if depth <= 0 {
+		return ColorFloat32{}, Vector{}
+	}
+
+	intersection, intersect := ray.IntersectBVHLean_Texture(BVH, textureMap)
+	if !intersect {
+		return ColorFloat32{}, Vector{}
+	}
+
+	viewDir := ray.origin.Sub(intersection.PointOfIntersection).Normalize()
+	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+	halfwayDir := lightDir.Add(viewDir).Normalize()
+
+	// Calculate important dot products
+	NdotL := math32.Max(0.0, intersection.Normal.Dot(lightDir))
+	NdotV := math32.Max(0.0, intersection.Normal.Dot(viewDir))
+	NdotH := math32.Max(0.0, intersection.Normal.Dot(halfwayDir))
+
+	// Calculate Fresnel term
+	F0 := intersection.Metallic // Base reflectivity for non-metals
+	fresnel := FresnelSchlick(NdotV, F0)
+
+	// Calculate roughness-based distribution
+	distribution := GGXDistribution(NdotH, intersection.Roughness)
+
+	// Scatter calculation using hemisphere sampling
+	var scatteredColor ColorFloat32
+	rayOriginOffset := intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.01))
+
+	for i := 0; i < samples; i++ {
+		scatterDirection := SampleHemisphere(intersection.Normal)
+		scatterDirection = scatterDirection.Perturb(intersection.Normal, intersection.Roughness)
+
+		scatterRay := Ray{
+			origin:    rayOriginOffset,
+			direction: scatterDirection.Normalize(),
+		}
+
+		if bvhIntersection, scatterIntersect := scatterRay.IntersectBVHLean_Texture(BVH, textureMap); scatterIntersect && bvhIntersection.Distance != math32.MaxFloat32 {
+			scatteredColor.R += bvhIntersection.Color.R
+			scatteredColor.G += bvhIntersection.Color.G
+			scatteredColor.B += bvhIntersection.Color.B
+		}
+	}
+
+	if samples > 0 {
+		s := float32(samples)
+		scatteredColor = ColorFloat32{
+			R: scatteredColor.R / s,
+			G: scatteredColor.G / s,
+			B: scatteredColor.B / s,
+		}
+	}
+
+	// Calculate reflection direction using Fresnel
+	reflectDir := lightDir.Mul(-1).Reflect(intersection.Normal)
+	reflectRay := Ray{origin: rayOriginOffset, direction: reflectDir}
+	tempIntersection, _ := reflectRay.IntersectBVHLean_Texture(BVH, textureMap)
+
+	// Apply Fresnel to reflection color
+	directReflectionColor := ColorFloat32{
+		R: tempIntersection.Color.R * fresnel,
+		G: tempIntersection.Color.G * fresnel,
+		B: tempIntersection.Color.B * fresnel,
+		A: intersection.Color.A,
+	}
+
+	// Shadow calculation
+	shadowRay := Ray{
+		origin:    rayOriginOffset,
+		direction: lightDir,
+	}
+	_, inShadow := shadowRay.IntersectBVHLean_Texture(BVH, textureMap)
+
+	// Calculate specular using GGX distribution
+	var lightIntensity float32 = 0.005
+	if !inShadow {
+		lightIntensity = light.intensity * NdotL
+	}
+
+	specularIntensity := distribution * fresnel * lightIntensity
+
+	specularColor := ColorFloat32{
+		R: specularIntensity * light.Color[0],
+		G: specularIntensity * light.Color[1],
+		B: specularIntensity * light.Color[2],
+	}
+
+	// Calculate diffuse contribution
+	diffuseFactor := (1.0 - fresnel) * (1.0 / math32.Pi)
+	diffuseColor := ColorFloat32{
+		R: intersection.Color.R * diffuseFactor * NdotL * lightIntensity,
+		G: intersection.Color.G * diffuseFactor * NdotL * lightIntensity,
+		B: intersection.Color.B * diffuseFactor * NdotL * lightIntensity,
+	}
+
+	// Combine direct and indirect lighting
+	finalColor := ColorFloat32{
+		R: diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
+		G: diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
+		B: diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
+		A: intersection.Color.A,
+	}
+
+	// Calculate bounced contribution
+	bounceRay := Ray{origin: rayOriginOffset, direction: reflectDir}
+	bouncedColor, _ := TraceRayV4AdvanceTexture(bounceRay, depth-1, light, samples, textureMap, BVH)
+
+	// Final color composition with energy conservation
+	return ColorFloat32{
+		R: finalColor.R*(1.0-fresnel) + bouncedColor.R*fresnel,
+		G: finalColor.G*(1.0-fresnel) + bouncedColor.G*fresnel,
+		B: finalColor.B*(1.0-fresnel) + bouncedColor.B*fresnel,
+		A: finalColor.A,
+	}, intersection.Normal
+}
+
 func (v Vector) LengthSquared() float32 {
 	return v.x*v.x + v.y*v.y + v.z*v.z
 }
@@ -2797,6 +3047,63 @@ type BVHNode struct {
 	BoundingBox [2]Vector
 	Triangles   TriangleSimple
 	active      bool
+}
+
+type BVHLeanNode struct {
+	Left, Right  *BVHLeanNode
+	TriangleBBOX TriangleBBOX
+	active       bool
+}
+
+// ConvertToLeanBVH converts a standard BVH to a lean BVH structure recursively
+func (node *BVHNode) ConvertToLeanBVH() *BVHLeanNode {
+	// Base case: nil node
+	if node == nil {
+		return nil
+	}
+
+	// Create new lean node
+	leanNode := &BVHLeanNode{
+		active: node.active,
+	}
+
+	// Handle leaf nodes (triangles)
+	if node.active {
+		leanNode.TriangleBBOX = TriangleBBOX{
+			V1orBBoxMin: node.Triangles.v1,
+			V2orBBoxMax: node.Triangles.v2,
+			V3:          node.Triangles.v3,
+			normal:      node.Triangles.Normal,
+			id:          int32(1),
+		}
+	} else {
+		// Handle internal nodes (bounding boxes)
+		leanNode.TriangleBBOX = TriangleBBOX{
+			V1orBBoxMin: node.BoundingBox[0],
+			V2orBBoxMax: node.BoundingBox[1],
+			V3:          Vector{},
+			normal:      Vector{},
+			id:          -1, // Use -1 to indicate internal node
+		}
+
+		if node.Left != nil {
+			leanNode.Left = node.Left.ConvertToLeanBVH()
+		}
+		if node.Right != nil {
+			leanNode.Right = node.Right.ConvertToLeanBVH()
+		}
+
+	}
+
+	return leanNode
+}
+
+// Usage example:
+func ConvertBVHToLean(rootNode *BVHNode) *BVHLeanNode {
+	if rootNode == nil {
+		return nil
+	}
+	return rootNode.ConvertToLeanBVH()
 }
 
 func (object *object) BuildBVH(maxDepth int) *BVHNode {
@@ -3462,13 +3769,21 @@ func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, sample
 
 	// Apply color grading and write pixels
 	for _, block := range blocks {
-		if renderVersion.Selected == logMode {
-			block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
-		} else {
-			block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
-		}
-		// block.distanceImage.WritePixels(block.distanceBufferProcessed)
-		block.normalImage.WritePixels(block.normalsBuffer)
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			wg.Done()
+			if renderVersion.Selected == logMode {
+				block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+			} else {
+				block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+			}
+			// block.distanceImage.WritePixels(block.distanceBufferProcessed)
+			block.normalImage.WritePixels(block.normalsBuffer)
+		}(block)
+
+	}
+	if !performance {
+		wg.Wait()
 	}
 }
 
@@ -3506,38 +3821,76 @@ func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth
 	}
 }
 
-func DrawRaysBlockV4(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage, performance bool, bvh *BVHArray) {
+func DrawRaysBlockAdvanceV4(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool, bvh *BVHLeanNode, textureMap *[128]Texture) {
 	var wg sync.WaitGroup
+
+	// Process each block
 	for _, block := range blocks {
 		wg.Add(1)
-		go func(block BlocksImage) {
+		go func(block BlocksImageAdvance) {
 			defer wg.Done()
-			for y := block.startY; y < block.endY; y += 1 {
+			for y := block.startY; y < block.endY; y++ {
 				if y*scaling >= screenHeight {
 					continue
 				}
-				for x := block.startX; x < block.endX; x += 1 {
+				for x := block.startX; x < block.endX; x++ {
 					if x*scaling >= screenWidth {
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c := TraceRayV4(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, bvh)
+					c, normal := TraceRayV4AdvanceTexture(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap, bvh)
 
-					// Write the pixel color to the pixel buffer
+					// Write the pixel color to the float buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
-					block.pixelBuffer[index] = clampUint8(c.R)
-					block.pixelBuffer[index+1] = clampUint8(c.G)
-					block.pixelBuffer[index+2] = clampUint8(c.B)
-					block.pixelBuffer[index+3] = clampUint8(c.A)
+					block.colorRGB_Float32[index] = c.R
+					block.colorRGB_Float32[index+1] = c.G
+					block.colorRGB_Float32[index+2] = c.B
+					block.colorRGB_Float32[index+3] = c.A
+
+					// Normalize the normal vector
+					normal = normal.Normalize()
+
+					// Convert the normal to the range [0 - 255]
+					block.normalsBuffer[index] = uint8((normal.x + 1) * 64)
+					block.normalsBuffer[index+1] = uint8((normal.y + 1) * 64)
+					block.normalsBuffer[index+2] = uint8((normal.z + 1) * 64)
+					block.normalsBuffer[index+3] = 255
+
+					// Track the maximum values
+					block.maxColor.R = math32.Max(block.maxColor.R, c.R)
+					block.maxColor.G = math32.Max(block.maxColor.G, c.G)
+					block.maxColor.B = math32.Max(block.maxColor.B, c.B)
 				}
 			}
-			block.image.WritePixels(block.pixelBuffer)
 		}(block)
 	}
 
 	if !performance {
 		wg.Wait()
 	}
+
+	maxColor := ColorFloat32{0, 0, 0, 0}
+	for _, block := range blocks {
+		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
+		maxColor.G = math32.Max(maxColor.G, block.maxColor.G)
+		maxColor.B = math32.Max(maxColor.B, block.maxColor.B)
+	}
+
+	// Apply color grading and write pixels
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			defer wg.Done()
+			if renderVersion.Selected == logMode {
+				block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+			} else {
+				block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+			}
+			// block.distanceImage.WritePixels(block.distanceBufferProcessed)
+			block.normalImage.WritePixels(block.normalsBuffer)
+		}(block)
+	}
+	wg.Wait()
 }
 
 func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool) {
@@ -3598,56 +3951,28 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 		wg.Wait()
 	}
 
-	// Compute global maximum color values
 	maxColor := ColorFloat32{0, 0, 0, 0}
-	// maxDistance := float32(0)
-	// minDistance := float32(math32.MaxFloat32)
 	for _, block := range blocks {
 		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
 		maxColor.G = math32.Max(maxColor.G, block.maxColor.G)
 		maxColor.B = math32.Max(maxColor.B, block.maxColor.B)
-		// maxDistance = math32.Max(maxDistance, block.maxDistance)
-		// minDistance = math32.Min(minDistance, block.minDistance)
 	}
-
-	// normalize the distance buffer
-	// for _, block := range blocks {
-	// 	wg.Add(1)
-	// 	go func(block BlocksImageAdvance) {
-	// 		defer wg.Done()
-
-	// 		// Handle edge case when all distances are equal
-	// 		normalizer := maxDistance - minDistance
-	// 		if normalizer == 0 {
-	// 			normalizer = 1
-	// 		}
-
-	// 		for i := 0; i < len(block.distanceBuffer); i += 4 {
-	// 			normalizedValue := (block.distanceBuffer[i] - minDistance) / normalizer
-	// 			value := clampToUint8(normalizedValue)
-
-	// 			// Set RGBA values
-	// 			baseIndex := (i / 4) * 4
-	// 			block.distanceBufferProcessed[baseIndex] = value
-	// 			block.distanceBufferProcessed[baseIndex+1] = value
-	// 			block.distanceBufferProcessed[baseIndex+2] = value
-	// 			block.distanceBufferProcessed[baseIndex+3] = 255
-	// 		}
-	// 	}(block)
-	// }
-
-	// wg.Wait()
 
 	// Apply color grading and write pixels
 	for _, block := range blocks {
-		if renderVersion.Selected == logMode {
-			block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
-		} else {
-			block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
-		}
-		// block.distanceImage.WritePixels(block.distanceBufferProcessed)
-		block.normalImage.WritePixels(block.normalsBuffer)
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			defer wg.Done()
+			if renderVersion.Selected == logMode {
+				block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+			} else {
+				block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+			}
+			// block.distanceImage.WritePixels(block.distanceBufferProcessed)
+			block.normalImage.WritePixels(block.normalsBuffer)
+		}(block)
 	}
+	wg.Wait()
 }
 
 // Time taken for V2:  8.789734794642856e+06
@@ -4627,11 +4952,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
 	case V2LinearTexture2:
 		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
-		// case V4:
-		// 	DrawRaysBlockV4(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions, g.bvhArray)
+	case V4:
+		DrawRaysBlockAdvanceV4(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
 	}
 
-	if g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
+	if g.version == V4 || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
 		switch g.mode {
 		case Classic:
 			for _, block := range g.BlocksImageAdvance {
@@ -4825,6 +5150,7 @@ type Game struct {
 	previousFrame *ebiten.Image
 	renderedFrame *ebiten.Image
 	VoxelGrid     *VoxelGrid
+	bvhLean       *BVHLeanNode
 	// bvhArray       *BVHArray
 	VolumeMaterial VolumeMaterial
 
@@ -4913,9 +5239,8 @@ type BlocksImageAdvance struct {
 	startX, startY, endX, endY int
 	image                      *ebiten.Image
 	// distanceImage              *ebiten.Image
-	normalImage    *ebiten.Image
-	pixelBuffer    []uint8
-	distanceBuffer []float32
+	normalImage *ebiten.Image
+	pixelBuffer []uint8
 	// distanceBufferProcessed    []uint8
 	normalsBuffer    []uint8
 	colorRGB_Float32 []float32
@@ -4950,7 +5275,6 @@ func MakeNewBlocksAdvance(scaling int) []BlocksImageAdvance {
 					image:            ebiten.NewImage(blockSize, blockSize),
 					pixelBuffer:      make([]uint8, blockSize*blockSize*4),
 					colorRGB_Float32: make([]float32, blockSize*blockSize*4),
-					distanceBuffer:   make([]float32, blockSize*blockSize*4),
 					// distanceBufferProcessed: make([]uint8, blockSize*blockSize*4),
 					normalsBuffer: make([]uint8, blockSize*blockSize*4),
 					// distanceImage:           ebiten.NewImage(blockSize, blockSize),
@@ -5085,7 +5409,6 @@ func (g *Game) SubmitShader(c echo.Context) error {
 		fmt.Println("Shader Parameters:", shader.Parameters)
 	}
 
-
 	shaders := []Shader{}
 
 	fmt.Println("Contrast Shader:", contrastShader)
@@ -5112,11 +5435,10 @@ func (g *Game) SubmitShader(c echo.Context) error {
 				float32(tintColorInterface[1].(float64)),
 				float32(tintColorInterface[2].(float64)),
 			}
-		
-			
+
 			// Update parameters with converted TintColor
 			shader.Parameters["TintColor"] = tintColor
-			
+
 			shaders = append(shaders, Shader{
 				shader:    tintShader,
 				options:   shader.Parameters,
@@ -5134,7 +5456,7 @@ func (g *Game) SubmitShader(c echo.Context) error {
 			shaders = append(shaders, Shader{
 				shader:    sharpnessShader,
 				options:   shader.Parameters,
-				amount:   float32( shader.Parameters["amount"].(float64)),
+				amount:    float32(shader.Parameters["amount"].(float64)),
 				multipass: int(shader.Parameters["multipass"].(float64)),
 			})
 		case "colorMapping":
@@ -5159,19 +5481,19 @@ func (g *Game) SubmitShader(c echo.Context) error {
 
 func (g *Game) submitTextures(c echo.Context) error {
 	type TextureRequest struct {
-		Textures        map[string]interface{} `json:"textures"`
-		Normals         map[string]interface{} `json:"normals"`
+		Textures map[string]interface{} `json:"textures"`
+		Normals  map[string]interface{} `json:"normals"`
 		// Normal          map[string]interface{} `json:"normal"`
-		DirectToScatter float64                `json:"directToScatter"`
-		Reflection      float64                `json:"reflection"`
-		Roughness       float64                `json:"roughness"`
-		Metallic        float64                `json:"metallic"`
-		Index           int                    `json:"index"`
-		Specular        float64                `json:"specular"`
-		ColorR 		float64                `json:"colorR"`
-		ColorG 		float64                `json:"colorG"`
-		ColorB 		float64                `json:"colorB"`
-		ColorA 		float64                `json:"colorA"`
+		DirectToScatter float64 `json:"directToScatter"`
+		Reflection      float64 `json:"reflection"`
+		Roughness       float64 `json:"roughness"`
+		Metallic        float64 `json:"metallic"`
+		Index           int     `json:"index"`
+		Specular        float64 `json:"specular"`
+		ColorR          float64 `json:"colorR"`
+		ColorG          float64 `json:"colorG"`
+		ColorB          float64 `json:"colorB"`
+		ColorA          float64 `json:"colorA"`
 	}
 
 	request := new(TextureRequest)
@@ -5234,7 +5556,7 @@ func (g *Game) submitTextures(c echo.Context) error {
 	*(*float32)(unsafe.Pointer(&g.specular)) = float32(request.Specular)
 	*(*uint8)(unsafe.Pointer(&g.index)) = uint8(request.Index)
 
-	BVH.SetPropertiesWithID(uint8(1), float32(request.Reflection), float32(request.Specular), float32(request.DirectToScatter), float32(request.Roughness), float32(request.Metallic))
+	// BVH.SetPropertiesWithID(uint8(1), float32(request.Reflection), float32(request.Specular), float32(request.DirectToScatter), float32(request.Roughness), float32(request.Metallic))
 
 	// Convert and update color texture
 	texture := Texture{}
@@ -5344,6 +5666,9 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	case "V2-Log-Texture":
 		fmt.Println("V2-Log-Texture")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V2LinearTexture2
+	case "V4":
+		fmt.Println("V4")
+		*(*uint8)(unsafe.Pointer(&g.version)) = V4
 	}
 
 	switch renderOptions.Resolution {
@@ -5567,6 +5892,10 @@ func main() {
 	// objects = append(objects, cubes...)
 
 	BVH = ConvertObjectsToBVH(objects, maxDepth)
+	bvhLean := BVH.ConvertToLeanBVH()
+	fmt.Println("BVH Lean:", *bvhLean)
+	fmt.Println("BVH Lean left:", *bvhLean.Left)
+	fmt.Println("BVH Lean right:", *bvhLean.Right)
 
 	// BVHArray := BVHArray{}
 
@@ -5589,13 +5918,22 @@ func main() {
 
 	// test speed of BVH
 
-	// start := time.Now()
-	// for i := 0; i < 1_000_000; i++ {
-	// 	// generate random ray
-	// 	ray := Ray{origin: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}, direction: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}}
-	// 	_, _ = ray.IntersectBVH(BVH)
-	// }
-	// fmt.Println("Calssic Bvh:", time.Since(start))
+	start := time.Now()
+	for i := 0; i < 1_000_000; i++ {
+		// generate random ray
+		ray := Ray{origin: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}, direction: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}}
+		_, _ = ray.IntersectBVH(BVH)
+	}
+	fmt.Println("Calssic Bvh:", time.Since(start))
+
+	texture := &[128]Texture{}
+	start = time.Now()
+	for i := 0; i < 1_000_000; i++ {
+		// generate random ray
+		ray := Ray{origin: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}, direction: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}}
+		_, _ = ray.IntersectBVHLean_Texture(bvhLean, texture)
+	}
+	fmt.Println("Lean Bvh:", time.Since(start))
 
 	// start = time.Now()
 	// for i := 0; i < 1_000_000; i++ {
@@ -5664,8 +6002,21 @@ func main() {
 
 	sphereBVH = *BuildBvhForSpheres(obj.ConvertToSquare(256), 6)
 
+	// for _, t := range texture {
+	// 	t.directToScatter = 0.5
+	// 	t.reflection = 0.5
+	// 	t.specular = 0.5
+	// 	t.Metallic = 0.5
+	// 	t.Roughness = 0.5
+	// 	for i, row := range t.texture {
+	// 		for j := range row {
+	// 			t.texture[i][j] = ColorFloat32{rand.Float32() * 512, rand.Float32() * 512, rand.Float32() * 512, 255}
+	// 		}
+	// 	}
+	// }
+
 	game := &Game{
-		version:              V2,
+		version:              V2LinearTexture2,
 		xyzLock:              true,
 		cursorX:              screenHeight / 2,
 		cursorY:              screenWidth / 2,
@@ -5673,6 +6024,7 @@ func main() {
 		camera:               camera,
 		light:                light,
 		scaleFactor:          scale,
+		bvhLean:              bvhLean,
 		// ditherColor:     ditherShaderColor,
 		// ditherGrayScale: ditherGrayShader,
 		// bloomShader:     bloomShader,
@@ -5683,7 +6035,7 @@ func main() {
 		BlocksImageAdvance:   MakeNewBlocksAdvance(scale),
 		VoxelGridBlocksImage: MakeNewBlocks(scale),
 		VoxelGrid:            VoxelGrid,
-		TextureMap:           &[128]Texture{},
+		TextureMap:           texture,
 		// bvhArray:             &BVHArray,
 		// RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
