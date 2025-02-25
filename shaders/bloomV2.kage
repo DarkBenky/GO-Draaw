@@ -1,0 +1,65 @@
+package main
+
+var BloomThreshold float
+var BloomIntensity float
+var BloomSpread float  // New uniform to control bloom spread
+var Alpha float
+
+// Gaussian weight calculation
+func GaussianWeight(x float, y float, sigma float) float {
+    return exp(-(x*x + y*y) / (2.0 * sigma * sigma)) / (2.0 * 3.14 * sigma * sigma)
+}
+
+func GaussianBlurPass(texCoord vec2, sigma float) vec4 {
+    color := vec4(0)
+    weight := 0.0
+    // Calculate an effective sigma that scales with the bloom spread
+    effectiveSigma := sigma * BloomSpread
+
+    // Adjust loop offsets by BloomSpread to widen the sample region
+    for x := -2; x <= 2; x += 1 {
+        for y := -2; y <= 2; y += 1 {
+            offset := vec2(float(x), float(y)) * BloomSpread / imageSrcTextureSize()
+            sampleColor := imageSrc0At(texCoord + offset)
+            // Calculate Gaussian weight using effective sigma
+            w := GaussianWeight(float(x), float(y), effectiveSigma)
+            color += sampleColor * w
+            weight += w
+        }
+    }
+    return color / weight
+}
+
+func MultiPassBlur(texCoord vec2) vec4 {
+    // Multiple blur passes with increasing radius, each pass is affected by BloomSpread
+    blur1 := GaussianBlurPass(texCoord, 1.0)
+    blur2 := GaussianBlurPass(texCoord, 2.0)
+    blur3 := GaussianBlurPass(texCoord, 4.0)
+    // Combine blur passes with chosen weights
+    finalBlur := (blur1 * 0.5) + (blur2 * 0.3) + (blur3 * 0.3)
+    return finalBlur
+}
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    originalColor := imageSrc0At(texCoord)
+    luminance := originalColor.r * 0.2126 + originalColor.g * 0.7152 + originalColor.b * 0.0722
+    if luminance < BloomThreshold {
+        return vec4(0.0, 0.0, 0.0, 0.0)
+    }
+    bloomColor := MultiPassBlur(texCoord)
+    // Combine original with bloom and apply intensity
+    resultColor := (originalColor + bloomColor) * BloomIntensity
+
+    // Clamp the color channels to ensure they don't exceed 1.0
+    if resultColor.r > 1.0 { resultColor.r = 1.0 }
+    if resultColor.g > 1.0 { resultColor.g = 1.0 }
+    if resultColor.b > 1.0 { resultColor.b = 1.0 }
+
+    // Apply overall alpha
+    resultColor.r *= Alpha
+    resultColor.g *= Alpha
+    resultColor.b *= Alpha
+    resultColor.a = Alpha
+
+    return resultColor
+}
