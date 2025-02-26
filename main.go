@@ -5570,6 +5570,7 @@ func (g *Game) SubmitShader(c echo.Context) error {
 	fmt.Println("Bloom Shader:", bloomShader)
 	fmt.Println("Sharpness Shader:", sharpnessShader)
 	fmt.Println("Color Mapping Shader:", colorMappingShader)
+	fmt.Println("Chromatic Aberration Shader:", chromaticAberrationShader)
 
 	// Process each shader
 	for _, shader := range shaderMenu {
@@ -5625,9 +5626,39 @@ func (g *Game) SubmitShader(c echo.Context) error {
 				shader:    colorMappingShader,
 				options:   shader.Parameters,
 				amount:    float32(shader.Parameters["amount"].(float64)),
-				multipass: 1,
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
+		case "chromaticAberration":
+			fmt.Println("Chromatic Aberration Shader:", shader)
+			shaders = append(shaders, Shader{
+				shader:    chromaticAberrationShader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
+		case "edgeDetection":
+			shaders = append(shaders, Shader{
+				shader:    edgeDetectionShader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
+		case "colorMappingV2":
+			shaders = append(shaders, Shader{
+				shader:    colorMappingV2Shader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
+		case "Lighten":
+			shaders = append(shaders, Shader{
+				shader:    LightenDarkenShader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
 			})
 		}
+
 	}
 
 	fmt.Println("Shaders:", shaders)
@@ -5896,12 +5927,16 @@ func startServer(game *Game) {
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
 var (
-	bloomShader        *ebiten.Shader
-	contrastShader     *ebiten.Shader
-	tintShader         *ebiten.Shader
-	sharpnessShader    *ebiten.Shader
-	colorMappingShader *ebiten.Shader
-	bloomV2Shader      *ebiten.Shader
+	bloomShader               *ebiten.Shader
+	contrastShader            *ebiten.Shader
+	tintShader                *ebiten.Shader
+	sharpnessShader           *ebiten.Shader
+	colorMappingShader        *ebiten.Shader
+	bloomV2Shader             *ebiten.Shader
+	chromaticAberrationShader *ebiten.Shader
+	edgeDetectionShader       *ebiten.Shader
+	colorMappingV2Shader      *ebiten.Shader
+	LightenDarkenShader       *ebiten.Shader
 )
 
 func main() {
@@ -5916,6 +5951,42 @@ func main() {
 		panic(err)
 	}
 	ditherShaderColor, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	// src, err = LoadShader("shaders/ColorMappingV2.kage")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// colorMappingV2Shader, err = ebiten.NewShader(src)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	src, err = LoadShader("shaders/Lighten.kage")
+	if err != nil {
+		panic(err)
+	}
+	LightenDarkenShader, err = ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	src, err = LoadShader("shaders/chromatic.kage")
+	if err != nil {
+		panic(err)
+	}
+	chromaticAberrationShader, err = ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	src, err = LoadShader("shaders/edge.kage")
+	if err != nil {
+		panic(err)
+	}
+	edgeDetectionShader, err = ebiten.NewShader(src)
 	if err != nil {
 		panic(err)
 	}

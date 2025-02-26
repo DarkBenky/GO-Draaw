@@ -1,0 +1,51 @@
+package main
+
+// Edge detection strength
+var Strength float
+var AlphaR float
+var AlphaG float
+var AlphaB float
+var Alpha float
+
+// Convert RGB to grayscale intensity
+func luminance(c vec3) float {
+    return (c.r + c.g + c.b) / 3.0
+}
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Define pixel offset based on texture size
+    offset := vec2(Strength, Strength)
+
+    // Sample neighboring pixels
+    topLeft := imageSrc0At(texCoord + vec2(-offset.x, -offset.y)).rgb
+    top := imageSrc0At(texCoord + vec2(0.0, -offset.y)).rgb
+    topRight := imageSrc0At(texCoord + vec2(offset.x, -offset.y)).rgb
+    left := imageSrc0At(texCoord + vec2(-offset.x, 0.0)).rgb
+    right := imageSrc0At(texCoord + vec2(offset.x, 0.0)).rgb
+    bottomLeft := imageSrc0At(texCoord + vec2(-offset.x, offset.y)).rgb
+    bottom := imageSrc0At(texCoord + vec2(0.0, offset.y)).rgb
+    bottomRight := imageSrc0At(texCoord + vec2(offset.x, offset.y)).rgb
+
+    middle := imageSrc0At(texCoord) * Alpha
+
+    
+
+    tl := luminance(topLeft)
+    t := luminance(top)
+    tr := luminance(topRight)
+    l := luminance(left)
+    r := luminance(right)
+    bl := luminance(bottomLeft)
+    b := luminance(bottom)
+    br := luminance(bottomRight)
+
+    // Sobel kernel
+    gx := (-1.0 * tl) + (-2.0 * l) + (-1.0 * bl) + (1.0 * tr) + (2.0 * r) + (1.0 * br)
+    gy := (-1.0 * tl) + (-2.0 * t) + (-1.0 * tr) + (1.0 * bl) + (2.0 * b) + (1.0 * br)
+
+    // Compute gradient magnitude
+    edge := sqrt((gx * gx) + (gy * gy)) * Alpha
+
+    // Output edge as grayscale
+    return vec4(middle.r + edge*AlphaR, middle.g +edge*AlphaB, middle.b +edge*AlphaB, middle.a * Alpha)
+}

@@ -1,0 +1,47 @@
+package main
+
+// Uniform variable defining the number of colors per channel and fixed alpha
+var ColorR float
+var ColorG float
+var ColorB float
+var Alpha float
+
+
+// Function to generate a simple dithering pattern
+func DitherPattern(coord vec2) float {
+    // 4x4 Bayer matrix values normalized to [0, 1]
+    bayer4x4 := [16]float{
+        0.0 / 16.0,  8.0 / 16.0,  2.0 / 16.0, 10.0 / 16.0,
+        12.0 / 16.0, 4.0 / 16.0, 14.0 / 16.0,  6.0 / 16.0,
+        3.0 / 16.0, 11.0 / 16.0,  1.0 / 16.0,  9.0 / 16.0,
+        15.0 / 16.0, 7.0 / 16.0, 13.0 / 16.0,  5.0 / 16.0,
+    }
+    // Calculate the position in the 4x4 matrix
+    x := int(mod(coord.x * 4.0, 4.0))
+    y := int(mod(coord.y * 4.0, 4.0))
+    // Compute the single index for the flat array
+    index := y * 4 + x
+    return bayer4x4[index]
+}
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Sample the original color from the source image
+    originalColor := imageSrc0At(texCoord)
+    
+    // Calculate the inverse of color levels
+    invLevelsR := 1.0 / ColorR
+    invLevelsG := 1.0 / ColorG
+    invLevelsB := 1.0 / ColorB
+    
+    invLevels := vec3(invLevelsR, invLevelsG, invLevelsB)
+    
+    // Apply dithering
+    ditherValue := DitherPattern(texCoord)
+    colorLevels := vec3(ColorR, ColorG, ColorB)
+    
+    // Quantize the color channels with dithering
+    quantizedColor := floor(originalColor.rgb * colorLevels + vec3(ditherValue)) * invLevels
+    
+    // Return the quantized color with the specified alpha
+    return vec4(quantizedColor * Alpha, originalColor.a*Alpha)
+}

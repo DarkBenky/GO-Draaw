@@ -1,0 +1,13 @@
+package main
+
+var Lighten float
+var Alpha float
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    originalColor := imageSrc0At(texCoord)
+   
+    // Lighten the color
+    lightenedColor := originalColor.rgb * Lighten
+    Alpha := originalColor.a * Alpha
+    return vec4(lightenedColor, Alpha)
+}

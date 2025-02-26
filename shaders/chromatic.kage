@@ -1,0 +1,19 @@
+package main
+
+// Uniform variables
+var Strength float
+var Alpha float
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Define the horizontal offset based on the Strength uniform
+    offset := vec2(Strength, 0.0)
+
+    // Sample the texture for each color channel with the defined offsets
+    redSample := imageSrc0At(texCoord - offset).r
+    greenSample := imageSrc0At(texCoord).g
+    blueSample := imageSrc0At(texCoord + offset).b
+    alphaSample := imageSrc0At(texCoord).a
+
+    // Combine the samples into the final color with adjusted alpha
+    return vec4(redSample* Alpha, greenSample* Alpha, blueSample* Alpha, alphaSample * Alpha,)
+}
