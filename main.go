@@ -1747,7 +1747,7 @@ func (ray Ray) IntersectBVHLean_Texture(nodeBVH *BVHLeanNode, textureMap *[128]T
 
 		// If the node contains triangles, check for intersections
 		if currentNode.active {
-			intersection, intersects := ray.IntersectTriangleTextureGeneral(currentNode.TriangleBBOX.V1orBBoxMin, currentNode.TriangleBBOX.V2orBBoxMax, currentNode.TriangleBBOX.V3, currentNode.TriangleBBOX.normal, textureMap, uint8(currentNode.TriangleBBOX.id))
+			intersection, intersects := ray.IntersectTriangleTextureGeneral(currentNode.TriangleBBOX.V1orBBoxMin, currentNode.TriangleBBOX.V2orBBoxMax, currentNode.TriangleBBOX.V3, currentNode.TriangleBBOX.normal, textureMap, currentNode.TriangleBBOX.id)
 			if intersects {
 				if !hit || intersection.Distance < closestIntersection.Distance {
 					closestIntersection = intersection
@@ -1806,6 +1806,83 @@ func (ray Ray) IntersectBVHLean_Texture(nodeBVH *BVHLeanNode, textureMap *[128]T
 		}
 	}
 	return closestIntersection, hit
+}
+
+func (ray Ray) IntersectBVHLean_TextureWithNode(nodeBVH *BVHLeanNode, textureMap *[128]Texture) (Intersection, bool, *BVHLeanNode) {
+	// Preallocate a stack large enough for the BVH depth
+	stack := make([]*BVHLeanNode, maxDepth)
+	stackIndex := 0
+	stack[stackIndex] = nodeBVH
+	var closestIntersection Intersection
+	var HitTrianglePtr *BVHLeanNode
+	hit := false
+
+	for stackIndex >= 0 {
+		currentNode := stack[stackIndex]
+		stackIndex--
+
+		// If the node contains triangles, check for intersections
+		if currentNode.active {
+			intersection, intersects := ray.IntersectTriangleTextureGeneral(currentNode.TriangleBBOX.V1orBBoxMin, currentNode.TriangleBBOX.V2orBBoxMax, currentNode.TriangleBBOX.V3, currentNode.TriangleBBOX.normal, textureMap, currentNode.TriangleBBOX.id)
+			if intersects {
+				if !hit || intersection.Distance < closestIntersection.Distance {
+					closestIntersection = intersection
+					HitTrianglePtr = currentNode
+					hit = true
+				}
+			}
+			continue
+		} else {
+			// Check for bounding box intersections for left and right children
+			var leftHit, rightHit bool
+			var leftDist, rightDist float32
+
+			if currentNode.Left != nil {
+				// Check if the left child is Bounding Box
+				if currentNode.Left.active == false {
+					leftHit, leftDist = BoundingBoxCollisionVector(currentNode.Left.TriangleBBOX.V1orBBoxMin, currentNode.Left.TriangleBBOX.V2orBBoxMax, ray)
+				} else {
+					leftHit = true
+					leftDist = math32.MaxFloat32
+				}
+			}
+			if currentNode.Right != nil {
+				// Check if the right child is Bounding Box
+				if currentNode.Right.active == false {
+					rightHit, rightDist = BoundingBoxCollisionVector(currentNode.Right.TriangleBBOX.V1orBBoxMin, currentNode.Right.TriangleBBOX.V2orBBoxMax, ray)
+				} else {
+					rightHit = true
+					rightDist = math32.MaxFloat32
+				}
+			}
+
+			// Prioritize traversal based on hit distance (closer node first)
+			if leftHit && rightHit {
+				if leftDist < rightDist {
+					// Left is closer, traverse left first
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+				} else {
+					// Right is closer, traverse right first
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+				}
+			} else if leftHit {
+				// Only left child is hit
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+			} else if rightHit {
+				// Only right child is hit
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+			}
+		}
+	}
+	return closestIntersection, hit, HitTrianglePtr
 }
 
 // func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
@@ -2109,7 +2186,7 @@ func (ray Ray) IntersectTriangleTexture(triangle TriangleSimple, textureMap *[12
 	}, true
 }
 
-func (ray Ray) IntersectTriangleTextureGeneral(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id uint8) (Intersection, bool) {
+func (ray Ray) IntersectTriangleTextureGeneral(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id int32) (Intersection, bool) {
 	// Möller–Trumbore intersection algorithm
 	edge1 := v2.Sub(v1)
 	edge2 := v3.Sub(v1)
@@ -2151,11 +2228,11 @@ func (ray Ray) IntersectTriangleTextureGeneral(v1 Vector, v2 Vector, v3 Vector, 
 		texV = 127
 	}
 
-	index := uint8(1)
+	// index := uint8(1)
 
 	// Blend the normals using a proper normal blending technique
 	// This uses a hemisphere-based blending approach that preserves detail
-	perturbedNormal := textureMap[index].normals[texU][texV]
+	perturbedNormal := textureMap[id].normals[texU][texV]
 
 	// Ensure the perturbed normal is in the same hemisphere as the base normal
 	if baseNormal.Dot(perturbedNormal) < 0 {
@@ -2171,15 +2248,15 @@ func (ray Ray) IntersectTriangleTextureGeneral(v1 Vector, v2 Vector, v3 Vector, 
 
 	return Intersection{
 		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)).Add(normal.Mul(0.01)),
-		Color:               textureMap[index].texture[texU][texV],
+		Color:               textureMap[id].texture[texU][texV],
 		Normal:              normal,
 		Direction:           ray.direction,
 		Distance:            t,
-		reflection:          textureMap[index].reflection,
-		specular:            textureMap[index].specular,
-		Roughness:           textureMap[index].Roughness,
-		directToScatter:     textureMap[index].directToScatter,
-		Metallic:            textureMap[index].Metallic,
+		reflection:          textureMap[id].reflection,
+		specular:            textureMap[id].specular,
+		Roughness:           textureMap[id].Roughness,
+		directToScatter:     textureMap[id].directToScatter,
+		Metallic:            textureMap[id].Metallic,
 	}, true
 }
 
@@ -3146,6 +3223,18 @@ type BVHLeanNode struct {
 	Left, Right  *BVHLeanNode
 	TriangleBBOX TriangleBBOX
 	active       bool
+}
+
+func (node *BVHLeanNode) FindIntersectionAndSetIt(id int32, ray Ray, textureMap *[128]Texture) {
+	_, hit, n := ray.IntersectBVHLean_TextureWithNode(node, textureMap)
+	if hit {
+		// set Triangle id the id parameter using unsafe pointer
+		idPtr := (*int32)(unsafe.Pointer(&n.TriangleBBOX.id))
+		fmt.Println("Before:", n.TriangleBBOX.id)
+		*idPtr = id
+		fmt.Println("After:", n.TriangleBBOX.id)
+	}
+	return
 }
 
 // ConvertToLeanBVH converts a standard BVH to a lean BVH structure recursively
@@ -4793,6 +4882,7 @@ func (g *Game) Update() error {
 		} else {
 			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mouseX >= 0 && mouseY >= 0 && mouseX < screenWidth/2 && mouseY < screenHeight/2 {
 				findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier, g.roughness, g.metallic)
+				g.bvhLean.FindIntersectionAndSetIt(int32(g.index), Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, g.TextureMap)
 			}
 		}
 
@@ -5777,13 +5867,13 @@ func (g *Game) submitTextures(c echo.Context) error {
 	}
 
 	// Unsafe update both textures
-	*(*Texture)(unsafe.Pointer(&g.TextureMap[uint8(1)].texture)) = texture
-	*(*[128][128]Vector)(unsafe.Pointer(&g.TextureMap[uint8(1)].normals)) = normalTexture
-	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].reflection)) = float32(request.Reflection)
-	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].specular)) = float32(request.Specular)
-	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].directToScatter)) = float32(request.DirectToScatter)
-	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].Roughness)) = float32(request.Roughness)
-	*(*float32)(unsafe.Pointer(&g.TextureMap[uint8(1)].Metallic)) = float32(request.Metallic)
+	*(*Texture)(unsafe.Pointer(&g.TextureMap[g.index].texture)) = texture
+	*(*[128][128]Vector)(unsafe.Pointer(&g.TextureMap[g.index].normals)) = normalTexture
+	*(*float32)(unsafe.Pointer(&g.TextureMap[g.index].reflection)) = float32(request.Reflection)
+	*(*float32)(unsafe.Pointer(&g.TextureMap[g.index].specular)) = float32(request.Specular)
+	*(*float32)(unsafe.Pointer(&g.TextureMap[g.index].directToScatter)) = float32(request.DirectToScatter)
+	*(*float32)(unsafe.Pointer(&g.TextureMap[g.index].Roughness)) = float32(request.Roughness)
+	*(*float32)(unsafe.Pointer(&g.TextureMap[g.index].Metallic)) = float32(request.Metallic)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"status":      "success",
@@ -6157,8 +6247,8 @@ func main() {
 	// 	}
 	// }
 
-	BVHArray := BVHArray{}
-	BVH.ConvertToArray(1, &BVHArray)
+	// BVHArray := BVHArray{}
+	// BVH.ConvertToArray(1, &BVHArray)
 
 	// fmt.Println("BVHArray:", BVHArray.triangles[1])
 	// fmt.Println("BVH:", BVH)
