@@ -8,6 +8,7 @@
         "ebitenimgui",
         "imgui",
         "loadu",
+        "Optim",
         "pvec",
         "tmax",
         "tmin",
