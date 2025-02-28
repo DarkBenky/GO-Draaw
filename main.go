@@ -54,7 +54,8 @@ import (
 const screenWidth = 800
 const screenHeight = 608
 const rowSize = screenHeight / numCPU
-const FOV = 45
+
+var FOV = float32(45)
 
 var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 
@@ -2699,8 +2700,8 @@ func TraceRay(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 
 	finalColor := ColorFloat32{
 		R: ((directReflectionColor.R + scatteredColor.R) * (1 - intersection.directToScatter)) + ((intersection.Color.R) * intersection.directToScatter) + (specularIntensity*(light.Color[0]))*lightIntensity*light.Color[0],
-		G: ((directReflectionColor.G + scatteredColor.G) * (1 - intersection.directToScatter)) + ((intersection.Color.G) * intersection.directToScatter) + (specularIntensity*(light.Color[0]))*lightIntensity*light.Color[0],
-		B: ((directReflectionColor.B + scatteredColor.B) * (1 - intersection.directToScatter)) + ((intersection.Color.B) * intersection.directToScatter) + (specularIntensity*(light.Color[0]))*lightIntensity*light.Color[0],
+		G: ((directReflectionColor.G + scatteredColor.G) * (1 - intersection.directToScatter)) + ((intersection.Color.G) * intersection.directToScatter) + (specularIntensity*(light.Color[1]))*lightIntensity*light.Color[1],
+		B: ((directReflectionColor.B + scatteredColor.B) * (1 - intersection.directToScatter)) + ((intersection.Color.B) * intersection.directToScatter) + (specularIntensity*(light.Color[2]))*lightIntensity*light.Color[2],
 		A: float32(intersection.Color.A),
 	}
 
@@ -2847,9 +2848,9 @@ func TraceRayV3(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 
 	// Final color composition with energy conservation
 	return ColorFloat32{
-		R: finalColor.R*(1.0-fresnel) + bouncedColor.R*fresnel,
-		G: finalColor.G*(1.0-fresnel) + bouncedColor.G*fresnel,
-		B: finalColor.B*(1.0-fresnel) + bouncedColor.B*fresnel,
+		R: light.Color[0] * (finalColor.R*(1.0-fresnel) + bouncedColor.R*fresnel),
+		G: light.Color[1] * (finalColor.G*(1.0-fresnel) + bouncedColor.G*fresnel),
+		B: light.Color[2] * (finalColor.B*(1.0-fresnel) + bouncedColor.B*fresnel),
 		A: finalColor.A,
 	}
 }
@@ -2953,9 +2954,9 @@ func TraceRayV3Advance(ray Ray, depth int, light Light, samples int) (c ColorFlo
 
 	// Combine direct and indirect lighting
 	finalColor := ColorFloat32{
-		R: diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
-		G: diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
-		B: diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
+		R: light.Color[0] * (diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter))),
+		G: light.Color[1] * (diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter))),
+		B: light.Color[2] * (diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter))),
 		A: intersection.Color.A,
 	}
 
@@ -3071,9 +3072,9 @@ func TraceRayV3AdvanceTexture(ray Ray, depth int, light Light, samples int, text
 
 	// Combine direct and indirect lighting
 	finalColor := ColorFloat32{
-		R: diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
-		G: diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
-		B: diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
+		R: light.Color[0] * (diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter))),
+		G: light.Color[1] * (diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter))),
+		B: light.Color[2] * (diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter))),
 		A: intersection.Color.A,
 	}
 
@@ -3189,9 +3190,9 @@ func TraceRayV4AdvanceTexture(ray Ray, depth int, light Light, samples int, text
 
 	// Combine direct and indirect lighting
 	finalColor := ColorFloat32{
-		R: diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
-		G: diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
-		B: diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
+		R: light.Color[0] * (diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter))),
+		G: light.Color[1] * (diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter))),
+		B: light.Color[2] * (diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter))),
 		A: intersection.Color.A,
 	}
 
@@ -3308,9 +3309,9 @@ func TraceRayV4AdvanceTextureLean(ray Ray, depth int, light Light, samples int, 
 
 	// Combine direct and indirect lighting
 	finalColor := ColorFloat32{
-		R: diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter)),
-		G: diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter)),
-		B: diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter)),
+		R: light.Color[0] * (diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter))),
+		G: light.Color[1] * (diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter))),
+		B: light.Color[2] * (diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter))),
 		A: intersection.Color.A,
 	}
 
@@ -3935,7 +3936,7 @@ func PositionOnSphere(theta, phi float32) Vector {
 	return Vector{x: x, y: y, z: z}
 }
 
-const FOVRadians = FOV * math32.Pi / 180
+var FOVRadians = FOV * math32.Pi / 180
 
 func PrecomputeScreenSpaceCoordinatesSphere(camera Camera) {
 	// Calculate corners
@@ -5516,7 +5517,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
+			// SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&rayMarching, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&performanceOptions, GUI, mouseX, mouseY, mousePressed)
 			SelectOption(&renderFrame, GUI, mouseX, mouseY, mousePressed)
@@ -5524,12 +5525,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			processSlider(GUI, gamaSlider, "Gama", &gamaSlider.sliderValue, true, 0, mouseX-400, mouseY, mousePressed)
 
 			guiNeedsUpdate = false
-			if screenResolution.Selected == 0 {
-				g.scaleFactor = 1
-			}
-			g.scaleFactor = screenResolution.Selected * 2
+			// if screenResolution.Selected == 0 {
+			// 	g.scaleFactor = 1
+			// }
+			// g.scaleFactor = screenResolution.Selected * 2
 
-			g.BlocksImage = MakeNewBlocks(g.scaleFactor)
+			// g.BlocksImage = MakeNewBlocks(g.scaleFactor)
 		}
 		lastMousePressed = mousePressed
 
@@ -5547,8 +5548,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	if !fullScreen {
 		mainOp.GeoM.Scale(
-			float64(screenResolution.Selected),
-			float64(screenResolution.Selected),
+			float64(g.scaleFactor/2),
+			float64(g.scaleFactor/2),
 		)
 	} else {
 		mainOp.GeoM.Scale(
@@ -5668,7 +5669,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 	if g.RenderVoxels {
-		DrawRaysBlockVoxels(g.camera, g.scaleFactor, 64, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial)
+		DrawRaysBlockVoxels(g.camera, g.scaleFactor, 32, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial)
 		for _, block := range g.VoxelGridBlocksImage {
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(block.startX), float64(block.startY))
@@ -5813,8 +5814,8 @@ type Game struct {
 	roughness       float32
 	metallic        float32
 	gamma           float32
-	FOV             float32
-	light           Light
+	// FOV             float32
+	light Light
 
 	// 24-bit pointers (3 bytes each) grouped together
 	subImagesRayMarching []*ebiten.Image
@@ -5831,11 +5832,11 @@ type Game struct {
 	scaleFactor      int
 
 	// Uint8 values (1 byte each) grouped together
-	mode       uint8
-	resolution uint8
-	version    uint8
-	depth      uint8
-	index      uint8
+	mode uint8
+	// resolution uint8
+	version uint8
+	depth   uint8
+	index   uint8
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume bool
@@ -5946,7 +5947,7 @@ func (g *Game) submitColor(c echo.Context) error {
 		A               float64 `json:"a"`
 		Reflection      float64 `json:"reflection"`
 		Roughness       float64 `json:"roughness"`
-		directToScatter float64 `json:"directToScatter"`
+		DirectToScatter float64 `json:"directToScatter"`
 		Metallic        float64 `json:"metalic"`
 		RenderVolume    bool    `json:"renderVolume"`
 		RenderVoxels    bool    `json:"renderVoxels"`
@@ -5968,7 +5969,7 @@ func (g *Game) submitColor(c echo.Context) error {
 	*(*float64)(unsafe.Pointer(&g.a)) = color.A
 	*(*float32)(unsafe.Pointer(&g.reflection)) = float32(color.Reflection)
 	*(*float32)(unsafe.Pointer(&g.roughness)) = float32(color.Roughness)
-	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(color.directToScatter)
+	*(*float32)(unsafe.Pointer(&g.directToScatter)) = float32(color.DirectToScatter)
 	*(*float32)(unsafe.Pointer(&g.metallic)) = float32(color.Metallic)
 
 	return c.JSON(http.StatusOK, color)
@@ -5990,6 +5991,7 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 		RandomnessVoxel float64 `json:"randomnessVoxel"`
 		RenderVolume    bool    `json:"renderVolume"`
 		RenderVoxel     bool    `json:"renderVoxel"`
+		OverWriteVoxel  bool    `json:"overWriteVoxel"`
 	}
 
 	volume := new(Volume)
@@ -6007,13 +6009,24 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 		g.VoxelGrid.SetBlockSmokeColorUnsafe(ColorFloat32{float32(volume.SmokeColorR), float32(volume.SmokeColorG), float32(volume.SmokeColorB), float32(volume.SmokeColorA)})
 	}
 
-	if volume.RandomnessVoxel > 0 {
-		g.VoxelGrid.SetBlockLightColorWithRandomnesUnsafe(
-			ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)},
-			float32(volume.RandomnessVoxel))
+	if volume.OverWriteVoxel {
+		fmt.Println("Overwrite Voxel", volume.OverWriteVoxel)
+		if volume.RandomnessVoxel > 0 {
+			g.VoxelGrid.SetBlockLightColorWithRandomnesUnsafe(
+				ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)},
+				float32(volume.RandomnessVoxel))
+		} else {
+			g.VoxelGrid.SetBlockLightColorUnsafe(
+				ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)})
+		}
 	} else {
-		g.VoxelGrid.SetBlockLightColorUnsafe(
-			ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)})
+		fmt.Println("Overwrite Voxel", volume.OverWriteVoxel)
+		c := ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)}
+		if volume.RandomnessVoxel > 0 {
+			g.VoxelGrid.SetBlockLightColorWhereColorExistsWithRandomnesUnsafe(c, float32(volume.RandomnessVoxel))
+		} else {
+			g.VoxelGrid.SetBlockLightColorWhereColorExistsUnsafe(c)
+		}
 	}
 
 	// write old and new color to the console
@@ -6287,16 +6300,20 @@ func (g *Game) submitTextures(c echo.Context) error {
 
 func (g *Game) submitRenderOptions(c echo.Context) error {
 	type RenderOptions struct {
-		Depth       int     `json:"depth"`
-		Scatter     int     `json:"scatter"`
-		Gamma       float64 `json:"gamma"`
-		SnapLight   string  `json:"snapLight"`
-		RayMarching string  `json:"rayMarching"`
-		Performance string  `json:"performance"`
-		Mode        string  `json:"mode"`
-		Resolution  string  `json:"resolution"`
-		Version     string  `json:"version"`
-		FOV         float64 `json:"fov"`
+		Depth          int     `json:"depth"`
+		Scatter        int     `json:"scatter"`
+		Gamma          float64 `json:"gamma"`
+		SnapLight      string  `json:"snapLight"`
+		RayMarching    string  `json:"rayMarching"`
+		Performance    string  `json:"performance"`
+		Mode           string  `json:"mode"`
+		Resolution     string  `json:"resolution"`
+		Version        string  `json:"version"`
+		FOV            float64 `json:"fov"`
+		LightIntensity float64 `json:"lightIntensity"`
+		R              float64 `json:"r"`
+		G              float64 `json:"g"`
+		B              float64 `json:"b"`
 	}
 
 	renderOptions := new(RenderOptions)
@@ -6329,7 +6346,21 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 		*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = false
 	}
 
-	*(*float32)(unsafe.Pointer(&g.FOV)) = float32(renderOptions.FOV)
+	*(*float32)(unsafe.Pointer(&g.light.intensity)) = float32(renderOptions.LightIntensity)
+	*(*float32)(unsafe.Pointer(&g.light.Color[0])) = float32(renderOptions.R)
+	*(*float32)(unsafe.Pointer(&g.light.Color[1])) = float32(renderOptions.G)
+	*(*float32)(unsafe.Pointer(&g.light.Color[2])) = float32(renderOptions.B)
+
+	fmt.Println("Light Color", g.light.Color)
+	fmt.Println("Light Intensity", g.light.intensity)
+
+	*(*float32)(unsafe.Pointer(&FOV)) = float32(renderOptions.FOV)
+	fmt.Println("FOV", FOV)
+
+	fmt.Println("FOV Rad", FOVRadians)
+	FOVRad := FOV * math.Pi / 180.0
+	*(*float32)(unsafe.Pointer(&FOVRadians)) = float32(FOVRad)
+	fmt.Println("FOV Rad", FOVRadians)
 
 	switch renderOptions.Version {
 	case "V1":
@@ -6366,14 +6397,25 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 
 	switch renderOptions.Resolution {
 	case "Native":
-		*(*uint8)(unsafe.Pointer(&g.resolution)) = Native
+		fmt.Println("Native")
+		// *(*uint8)(unsafe.Pointer(&g.resolution)) = Native
+		*(*int)(unsafe.Pointer(&g.scaleFactor)) = 1
 	case "2X":
-		*(*uint8)(unsafe.Pointer(&g.resolution)) = TwoX
+		fmt.Println("2X")
+		// *(*uint8)(unsafe.Pointer(&g.resolution)) = TwoX
+		*(*int)(unsafe.Pointer(&g.scaleFactor)) = 2
 	case "4X":
-		*(*uint8)(unsafe.Pointer(&g.resolution)) = FourX
+		fmt.Println("4X")
+		// *(*uint8)(unsafe.Pointer(&g.resolution)) = FourX
+		*(*int)(unsafe.Pointer(&g.scaleFactor)) = 4
 	case "8X":
-		*(*uint8)(unsafe.Pointer(&g.resolution)) = EightX
+		fmt.Println("8X")
+		// *(*uint8)(unsafe.Pointer(&g.resolution)) = EightX
+		*(*int)(unsafe.Pointer(&g.scaleFactor)) = 8
 	}
+
+	*(*[]BlocksImage)(unsafe.Pointer(&g.VoxelGridBlocksImage)) = MakeNewBlocks(g.scaleFactor)
+	*(*[]BlocksImageAdvance)(unsafe.Pointer(&g.BlocksImageAdvance)) = MakeNewBlocksAdvance(g.scaleFactor)
 
 	switch renderOptions.Mode {
 	case "Classic":
@@ -6710,10 +6752,13 @@ func main() {
 
 	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
-	VoxelGrid := NewVoxelGrid(32, obj.BoundingBox[0], obj.BoundingBox[1], ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
+	VoxelGrid := NewVoxelGrid(128, obj.BoundingBox[0].Mul(0.75), obj.BoundingBox[1].Mul(0.75), ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 
-	VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
-	VoxelGrid.SetRandomLightColor()
+	// VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
+	// VoxelGrid.SetRandomLightColor()
+	for triangle := range obj.triangles {
+		VoxelGrid.ConvertTriangleToVoxels(obj.triangles[triangle])
+	}
 	// fmt.Println("BVH:", BVH)
 	// VoxelGrid.ConvertBVHtoVoxelGrid(BVH)
 
@@ -6994,6 +7039,30 @@ func (v *VoxelGrid) SetBlockLightColorWithRandomnesUnsafe(color ColorFloat32, ra
 	}
 }
 
+func (v *VoxelGrid) SetBlockLightColorWhereColorExistsWithRandomnesUnsafe(c ColorFloat32, r float32) {
+	for i := range v.Blocks {
+		if (v.Blocks[i].LightColor.R > 25 || v.Blocks[i].LightColor.G > 25 || v.Blocks[i].LightColor.B > 25) && v.Blocks[i].LightColor.A > 128 {
+			rRandom := (rand.Float32() - 0.5) * r
+			gRandom := (rand.Float32() - 0.5) * r
+			bRandom := (rand.Float32() - 0.5) * r
+
+			// Unsafe assignment
+			lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&v.Blocks[i].LightColor))
+			*lightColorPtr = ColorFloat32{c.R + rRandom, c.G + gRandom, c.B + bRandom, c.A}
+		}
+	}
+}
+
+func (v *VoxelGrid) SetBlockLightColorWhereColorExistsUnsafe(c ColorFloat32) {
+	for i := range v.Blocks {
+		if (v.Blocks[i].LightColor.R > 25 || v.Blocks[i].LightColor.G > 25 || v.Blocks[i].LightColor.B > 25) && v.Blocks[i].LightColor.A > 128 {
+			// Unsafe assignment
+			lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&v.Blocks[i].LightColor))
+			*lightColorPtr = ColorFloat32{c.R, c.G, c.B, c.A}
+		}
+	}
+}
+
 func (v *VoxelGrid) SetRandomSmokeColor() {
 	for i := range v.Blocks {
 		v.Blocks[i].SmokeColor = ColorFloat32{rand.Float32() * 255, rand.Float32() * 255, rand.Float32() * 255, 255}
@@ -7008,6 +7077,126 @@ func (v *VoxelGrid) SetRandomLightColor() {
 			v.Blocks[i].LightColor = ColorFloat32{0, 0, 0, 0}
 		}
 	}
+}
+
+func (v *VoxelGrid) ConvertTriangleToVoxels(triangle TriangleSimple) {
+	V1 := triangle.v1
+	V2 := triangle.v2
+	V3 := triangle.v3
+
+	if v.BBMin.x > v.BBMax.x {
+		v.BBMin.x, v.BBMax.x = v.BBMax.x, v.BBMin.x
+	}
+	if v.BBMin.y > v.BBMax.y {
+		v.BBMin.y, v.BBMax.y = v.BBMax.y, v.BBMin.y
+	}
+	if v.BBMin.z > v.BBMax.z {
+		v.BBMin.z, v.BBMax.z = v.BBMax.z, v.BBMin.z
+	}
+
+	// normalize the triangle position to the voxel grid position
+	V1 = V1.Sub(v.BBMin)
+	V2 = V2.Sub(v.BBMin)
+	V3 = V3.Sub(v.BBMin)
+
+	xStep := (v.BBMax.x - v.BBMin.x) / float32(v.Resolution)
+	yStep := (v.BBMax.y - v.BBMin.y) / float32(v.Resolution)
+	zStep := (v.BBMax.z - v.BBMin.z) / float32(v.Resolution)
+
+	// Calculate axis-aligned bounding box of the triangle
+	minX := math32.Min(V1.x, math32.Min(V2.x, V3.x))
+	minY := math32.Min(V1.y, math32.Min(V2.y, V3.y))
+	minZ := math32.Min(V1.z, math32.Min(V2.z, V3.z))
+
+	maxX := math32.Max(V1.x, math32.Max(V2.x, V3.x))
+	maxY := math32.Max(V1.y, math32.Max(V2.y, V3.y))
+	maxZ := math32.Max(V1.z, math32.Max(V2.z, V3.z))
+
+	// Convert to voxel indices
+	startX := int(minX / xStep)
+	startY := int(minY / yStep)
+	startZ := int(minZ / zStep)
+
+	endX := int(maxX/xStep) + 1
+	endY := int(maxY/yStep) + 1
+	endZ := int(maxZ/zStep) + 1
+
+	// Clamp to grid boundaries
+	startX = max(0, min(startX, v.Resolution-1))
+	startY = max(0, min(startY, v.Resolution-1))
+	startZ = max(0, min(startZ, v.Resolution-1))
+
+	endX = max(0, min(endX, v.Resolution))
+	endY = max(0, min(endY, v.Resolution))
+	endZ = max(0, min(endZ, v.Resolution))
+
+	// Create triangle planes for intersection test
+	edge1 := V2.Sub(V1)
+	edge2 := V3.Sub(V1)
+	triangleNormal := edge1.Cross(edge2).Normalize()
+
+	// Loop through each potential voxel
+	for x := startX; x < endX; x++ {
+		for y := startY; y < endY; y++ {
+			for z := startZ; z < endZ; z++ {
+				// Get voxel center in normalized space
+				voxelCenter := Vector{
+					x: (float32(x) + 0.5) * xStep,
+					y: (float32(y) + 0.5) * yStep,
+					z: (float32(z) + 0.5) * zStep,
+				}
+
+				// Triangle-box overlap test
+				// Using a simplified approach: check if the voxel center is close enough to the triangle plane
+				distToPlane := triangleNormal.Dot(voxelCenter.Sub(V1))
+
+				// If the voxel is close to the triangle plane
+				if math32.Abs(distToPlane) <= math32.Max(xStep, math32.Max(yStep, zStep))*0.5 {
+					// Use more accurate test: point in triangle projection
+					// Project point onto triangle plane
+					projectedPoint := voxelCenter.Sub(triangleNormal.Mul(distToPlane))
+
+					// Check if the projected point is inside the triangle
+					if pointInTriangle(projectedPoint, V1, V2, V3) {
+						// Calculate index in the 1D grid
+						index := x + y*v.Resolution + z*v.Resolution*v.Resolution
+
+						// Check bounds
+						if index >= 0 && index < len(v.Blocks) {
+							// Set voxel properties (make it visible)
+							randomR := rand.Float32() * 255
+							randomG := rand.Float32() * 255
+							randomB := rand.Float32() * 255
+							v.Blocks[index].LightColor = ColorFloat32{randomR, randomG, randomB, 255}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// Helper function to check if a point is inside a triangle (using barycentric coordinates)
+func pointInTriangle(p, a, b, c Vector) bool {
+	// Compute vectors
+	v0 := c.Sub(a)
+	v1 := b.Sub(a)
+	v2 := p.Sub(a)
+
+	// Compute dot products
+	dot00 := v0.Dot(v0)
+	dot01 := v0.Dot(v1)
+	dot02 := v0.Dot(v2)
+	dot11 := v1.Dot(v1)
+	dot12 := v1.Dot(v2)
+
+	// Compute barycentric coordinates
+	invDenom := 1.0 / (dot00*dot11 - dot01*dot01)
+	u := (dot11*dot02 - dot01*dot12) * invDenom
+	v := (dot00*dot12 - dot01*dot02) * invDenom
+
+	// Check if point is inside triangle
+	return (u >= 0) && (v >= 0) && (u+v <= 1)
 }
 
 func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light) {
@@ -7169,7 +7358,11 @@ type VolumeMaterial struct {
 
 func ExpDecay(x float32) float32 {
 	const k = 1.0 / (math.MaxFloat32 / 64) // Adjusting k so that f(MaxFloat32) ≈ 0
-	return float32(math.Exp(-float64(k) * float64(x)))
+	z := float32(math.Exp(-float64(k) * float64(x)))
+	if z > 1 {
+		return 1
+	}
+	return z
 }
 
 func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat32, bool) {
@@ -7190,7 +7383,7 @@ func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat3
 			for j := 0; j < steps; j++ {
 				_, exists := v.GetVoxelUnsafe(lightPos)
 				if exists {
-					return block.LightColor.MulScalar(0.10), true
+					return block.LightColor.MulScalar(0.05), true
 				}
 				lightPos = lightPos.Add(lightStep)
 			}
@@ -7206,6 +7399,57 @@ func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat3
 	}
 	return ColorFloat32{}, false
 }
+
+// func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat32, bool) {
+// 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+// 	if !hit {
+// 		return ColorFloat32{}, false
+// 	}
+
+// 	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
+
+// 	currentPos := entry
+// 	for i := 0; i < steps; i++ {
+// 		block, exists := v.GetVoxelUnsafe(currentPos)
+// 		if exists {
+// 			// Calculate basic lighting components
+// 			// lightDir := light.Position.Sub(currentPos).Normalize()
+// 			lightDistance := light.Position.Sub(currentPos).Length()
+
+// 			// Inverse square falloff for more physically accurate lighting
+// 			attenuationFactor := light.intensity / (1.0 + 0.01*lightDistance*lightDistance)
+
+// 			// Add ambient component to prevent completely dark shadows
+// 			const ambientFactor = float32(0.2)
+
+// 			// Shadow calculation
+// 			shadowIntensity := float32(1.0)
+// 			lightStep := light.Position.Sub(currentPos).Mul(1.0 / float32(steps*2))
+// 			lightPos := currentPos.Add(lightStep)
+// 			for j := 0; j < steps; j++ {
+// 				_, exists := v.GetVoxelUnsafe(lightPos)
+// 				if exists {
+// 					// Reduce light intensity but don't eliminate it completely
+// 					shadowIntensity = 0.25
+// 					break
+// 				}
+// 				lightPos = lightPos.Add(lightStep)
+// 			}
+
+// 			// Apply light color to voxel color for more realistic colored lighting
+// 			finalColor := ColorFloat32{
+// 				R: block.LightColor.R * (ambientFactor + (1.0-ambientFactor)*attenuationFactor*shadowIntensity),
+// 				G: block.LightColor.G * (ambientFactor + (1.0-ambientFactor)*attenuationFactor*shadowIntensity),
+// 				B: block.LightColor.B * (ambientFactor + (1.0-ambientFactor)*attenuationFactor*shadowIntensity),
+// 				A: block.LightColor.A,
+// 			}
+
+// 			return finalColor, true
+// 		}
+// 		currentPos = currentPos.Add(stepSize)
+// 	}
+// 	return ColorFloat32{}, false
+// }
 
 // Original intersection method with fixes for color and transparency
 func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterail VolumeMaterial) ColorFloat32 {
