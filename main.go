@@ -3513,9 +3513,9 @@ func (node *BVHLeanNode) FindIntersectionAndSetIt(id int32, ray Ray, textureMap 
 	if hit {
 		// set Triangle id the id parameter using unsafe pointer
 		idPtr := (*int32)(unsafe.Pointer(&n.TriangleBBOX.id))
-		fmt.Println("Before:", n.TriangleBBOX.id)
+		// fmt.Println("Before:", n.TriangleBBOX.id)
 		*idPtr = id
-		fmt.Println("After:", n.TriangleBBOX.id)
+		// fmt.Println("After:", n.TriangleBBOX.id)
 	}
 	return
 }
@@ -5276,8 +5276,27 @@ func (g *Game) Update() error {
 			PrecomputeScreenSpaceCoordinatesSphere(g.camera)
 		} else {
 			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mouseX >= 0 && mouseY >= 0 && mouseX < screenWidth/2 && mouseY < screenHeight/2 {
-				findIntersectionAndSetColor(BVH, Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier, g.roughness, g.metallic)
-				g.bvhLean.FindIntersectionAndSetIt(int32(g.index), Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}, g.TextureMap)
+				ray := Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}
+				c := ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}
+				findIntersectionAndSetColor(BVH, ray, c, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier, g.roughness, g.metallic)
+				g.bvhLean.FindIntersectionAndSetIt(int32(g.index), ray, g.TextureMap)
+				if g.RenderVoxels {
+
+					if g.UseRandomnessForPaint {
+						m := float32(g.RandomnessVoxel)
+						cRandom := ColorFloat32{(rand.Float32() - 1) * m, (rand.Float32() - 1) * m, (rand.Float32() - 1) * m, rand.Float32() * m}
+						c = c.Add(cRandom)
+					}
+
+					switch g.VoxelMode {
+					case DrawVoxel:
+						g.VoxelGrid.SetVoxelColor(c, ray, 64)
+					case RemoveVoxel:
+						g.VoxelGrid.RemoveVoxel(ray, 64)
+					case AddVoxel:
+						g.VoxelGrid.AddVoxel(ray, 64, c)
+					}
+				}
 			}
 		}
 
@@ -5789,6 +5808,10 @@ const (
 	V4Lin            = uint8(iota)
 	V4LogOptim       = uint8(iota)
 	V4LinOptim       = uint8(iota)
+	DrawVoxel        = uint8(iota)
+	RemoveVoxel      = uint8(iota)
+	AddVoxel         = uint8(iota)
+	None             = uint8(iota)
 )
 
 type Game struct {
@@ -5834,9 +5857,11 @@ type Game struct {
 	// Uint8 values (1 byte each) grouped together
 	mode uint8
 	// resolution uint8
-	version uint8
-	depth   uint8
-	index   uint8
+	version         uint8
+	depth           uint8
+	index           uint8
+	VoxelMode       uint8
+	RandomnessVoxel uint8
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume bool
@@ -5844,9 +5869,10 @@ type Game struct {
 	xyzLock      bool
 
 	// Render options (1 byte each)
-	SnapLightToCamera  bool
-	RayMarching        bool
-	PerformanceOptions bool
+	SnapLightToCamera     bool
+	RayMarching           bool
+	PerformanceOptions    bool
+	UseRandomnessForPaint bool
 }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
@@ -5977,21 +6003,24 @@ func (g *Game) submitColor(c echo.Context) error {
 
 func (g *Game) submitVoxelData(c echo.Context) error {
 	type Volume struct {
-		Density         float64 `json:"density"`
-		Transmittance   float64 `json:"transmittance"`
-		Randomnes       float64 `json:"randomness"`
-		SmokeColorR     float64 `json:"smokeColorR"`
-		SmokeColorG     float64 `json:"smokeColorG"`
-		SmokeColorB     float64 `json:"smokeColorB"`
-		SmokeColorA     float64 `json:"smokeColorA"`
-		VoxelColorR     float64 `json:"voxelColorR"`
-		VoxelColorG     float64 `json:"voxelColorG"`
-		VoxelColorB     float64 `json:"voxelColorB"`
-		VoxelColorA     float64 `json:"voxelColorA"`
-		RandomnessVoxel float64 `json:"randomnessVoxel"`
-		RenderVolume    bool    `json:"renderVolume"`
-		RenderVoxel     bool    `json:"renderVoxel"`
-		OverWriteVoxel  bool    `json:"overWriteVoxel"`
+		Density               float64 `json:"density"`
+		Transmittance         float64 `json:"transmittance"`
+		Randomnes             float64 `json:"randomness"`
+		SmokeColorR           float64 `json:"smokeColorR"`
+		SmokeColorG           float64 `json:"smokeColorG"`
+		SmokeColorB           float64 `json:"smokeColorB"`
+		SmokeColorA           float64 `json:"smokeColorA"`
+		VoxelColorR           float64 `json:"voxelColorR"`
+		VoxelColorG           float64 `json:"voxelColorG"`
+		VoxelColorB           float64 `json:"voxelColorB"`
+		VoxelColorA           float64 `json:"voxelColorA"`
+		RandomnessVoxel       float64 `json:"randomnessVoxel"`
+		RenderVolume          bool    `json:"renderVolume"`
+		RenderVoxel           bool    `json:"renderVoxel"`
+		OverWriteVoxel        bool    `json:"overWriteVoxel"`
+		VoxelModification     string  `json:"voxelModification"`
+		UseRandomnessForPaint bool    `json:"useRandomnessForPaint"`
+		ConvertVoxelsToSmoke  bool    `json:"convertVoxelsToSmoke"`
 	}
 
 	volume := new(Volume)
@@ -5999,17 +6028,38 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 		return err
 	}
 
-	fmt.Println("Volume", volume)
-
-	if volume.Density > 0 {
-		g.VoxelGrid.SetBlockSmokeColorWithRandomnesUnsafe(
-			ColorFloat32{float32(volume.SmokeColorR), float32(volume.SmokeColorG), float32(volume.SmokeColorB), float32(volume.SmokeColorA)},
-			float32(volume.Randomnes))
-	} else {
-		g.VoxelGrid.SetBlockSmokeColorUnsafe(ColorFloat32{float32(volume.SmokeColorR), float32(volume.SmokeColorG), float32(volume.SmokeColorB), float32(volume.SmokeColorA)})
+	switch volume.VoxelModification {
+	case "draw":
+		*(*uint8)(unsafe.Pointer(&g.VoxelMode)) = DrawVoxel
+	case "erase":
+		*(*uint8)(unsafe.Pointer(&g.VoxelMode)) = RemoveVoxel
+	case "add":
+		*(*uint8)(unsafe.Pointer(&g.VoxelMode)) = AddVoxel
+	case "none":
+		*(*uint8)(unsafe.Pointer(&g.VoxelMode)) = None
 	}
 
-	if volume.OverWriteVoxel {
+	fmt.Println("Volume", volume)
+
+	*(*bool)(unsafe.Pointer(&g.UseRandomnessForPaint)) = volume.UseRandomnessForPaint
+	*(*uint8)(unsafe.Pointer(&g.RandomnessVoxel)) = uint8(volume.RandomnessVoxel)
+
+	fmt.Println("Use Randomness For Paint", g.UseRandomnessForPaint)
+	fmt.Println("Randomness Voxel", g.RandomnessVoxel)
+
+	if volume.ConvertVoxelsToSmoke {
+		g.VoxelGrid.ConvertVoxelsToSmoke()
+	} else {
+		if volume.Density > 0 {
+			g.VoxelGrid.SetBlockSmokeColorWithRandomnesUnsafe(
+				ColorFloat32{float32(volume.SmokeColorR), float32(volume.SmokeColorG), float32(volume.SmokeColorB), float32(volume.SmokeColorA)},
+				float32(volume.Randomnes))
+		} else {
+			g.VoxelGrid.SetBlockSmokeColorUnsafe(ColorFloat32{float32(volume.SmokeColorR), float32(volume.SmokeColorG), float32(volume.SmokeColorB), float32(volume.SmokeColorA)})
+		}
+	}
+
+	if volume.OverWriteVoxel && volume.VoxelModification == "none" {
 		fmt.Println("Overwrite Voxel", volume.OverWriteVoxel)
 		if volume.RandomnessVoxel > 0 {
 			g.VoxelGrid.SetBlockLightColorWithRandomnesUnsafe(
@@ -6019,7 +6069,7 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 			g.VoxelGrid.SetBlockLightColorUnsafe(
 				ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)})
 		}
-	} else {
+	} else if volume.VoxelModification == "none" {
 		fmt.Println("Overwrite Voxel", volume.OverWriteVoxel)
 		c := ColorFloat32{float32(volume.VoxelColorR), float32(volume.VoxelColorG), float32(volume.VoxelColorB), float32(volume.VoxelColorA)}
 		if volume.RandomnessVoxel > 0 {
@@ -6685,6 +6735,10 @@ func main() {
 	fmt.Println("BVH Lean left:", *bvhLean.Left)
 	fmt.Println("BVH Lean right:", *bvhLean.Right)
 
+	// remove obj and objects from memory
+	// obj = object{}
+	// objects = []object{}
+
 	// BVHArray.textures[0].directToScatter = 0.5
 	// BVHArray.textures[0].reflection = 0.5
 	// BVHArray.textures[0].specular = 0.5
@@ -6752,7 +6806,7 @@ func main() {
 
 	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
-	VoxelGrid := NewVoxelGrid(128, obj.BoundingBox[0].Mul(0.75), obj.BoundingBox[1].Mul(0.75), ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
+	VoxelGrid := NewVoxelGrid(32, obj.BoundingBox[0].Mul(0.75), obj.BoundingBox[1].Mul(0.75), ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 
 	// VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	// VoxelGrid.SetRandomLightColor()
@@ -6972,6 +7026,15 @@ func NewVoxelGrid(resolution int, minBB Vector, maxBB Vector, SmokeColor ColorFl
 func (v *VoxelGrid) SetBlockSmokeColor(color ColorFloat32) {
 	for i := range v.Blocks {
 		v.Blocks[i].SmokeColor = color
+	}
+}
+
+func (v *VoxelGrid) ConvertVoxelsToSmoke() {
+	for i := range v.Blocks {
+		if v.Blocks[i].LightColor.A > 10 {
+			ptrBlock := (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(i)*unsafe.Sizeof(Block{})))
+			ptrBlock.SmokeColor = v.Blocks[i].LightColor
+		}
 	}
 }
 
@@ -7399,6 +7462,249 @@ func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat3
 	}
 	return ColorFloat32{}, false
 }
+
+func (v *VoxelGrid) SetVoxelColor(color ColorFloat32, ray Ray, steps int) {
+	_, hit, blockPtr := v.IntersectVoxelGetRefrence(ray, steps, Light{})
+	if hit {
+		// fmt.Println("Hit Color Before:", c)
+		// blockPtr.LightColor = color
+		// Assign the color to the block unsafely
+		lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&blockPtr.LightColor))
+		*lightColorPtr = color
+		// fmt.Println("Hit Color After:", *lightColorPtr)
+	}
+}
+
+func (v *VoxelGrid) RemoveVoxel(ray Ray, steps int) {
+	_, hit, blockPtr := v.IntersectVoxelGetRefrence(ray, steps, Light{})
+	if hit {
+		// blockPtr.LightColor = ColorFloat32{0, 0, 0, 0}
+		// Assign the color to the block unsafely
+		lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&blockPtr.LightColor))
+		*lightColorPtr = ColorFloat32{0, 0, 0, 0}
+	}
+}
+
+func (v *VoxelGrid) AddVoxel(ray Ray, steps int, color ColorFloat32) {
+	_, _, _ = v.IntersectVoxelAdd(ray, steps, Light{}, color)
+}
+
+func (v *VoxelGrid) IntersectVoxelAdd(ray Ray, steps int, light Light, col ColorFloat32) (ColorFloat32, bool, *Block) {
+	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+	if !hit {
+		return ColorFloat32{}, false, nil
+	}
+
+	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
+
+	currentPos := entry
+	for i := 0; i < steps; i++ {
+		blockPtr, exists := v.GetVoxelUnsafeAdd(currentPos, col)
+		if exists {
+			// calculate shadows
+			lightStep := light.Position.Sub(currentPos).Mul(1.0 / float32(steps*2))
+			lightPos := currentPos.Add(lightStep)
+			for j := 0; j < steps; j++ {
+				_, exists := v.GetVoxelUnsafeRefrence(lightPos)
+				if exists {
+					return blockPtr.LightColor.MulScalar(0.05), true, blockPtr
+				}
+				lightPos = lightPos.Add(lightStep)
+			}
+			lightDistamce := light.Position.Sub(currentPos).Length()
+			k := ExpDecay(lightDistamce)
+			blockColor := blockPtr.LightColor.MulScalar(k)
+			// blockColor.R *= light.Color[0]
+			// blockColor.G *= light.Color[1]
+			// blockColor.B *= light.Color[2]
+			return blockColor, true, blockPtr
+		}
+		currentPos = currentPos.Add(stepSize)
+	}
+	return ColorFloat32{}, false, nil
+}
+
+func (v *VoxelGrid) IntersectVoxelGetRefrence(ray Ray, steps int, light Light) (ColorFloat32, bool, *Block) {
+	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+	if !hit {
+		return ColorFloat32{}, false, nil
+	}
+
+	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
+
+	currentPos := entry
+	for i := 0; i < steps; i++ {
+		blockPtr, exists := v.GetVoxelUnsafeRefrence(currentPos)
+		if exists {
+			// calculate shadows
+			lightStep := light.Position.Sub(currentPos).Mul(1.0 / float32(steps*2))
+			lightPos := currentPos.Add(lightStep)
+			for j := 0; j < steps; j++ {
+				_, exists := v.GetVoxelUnsafeRefrence(lightPos)
+				if exists {
+					return blockPtr.LightColor.MulScalar(0.05), true, blockPtr
+				}
+				lightPos = lightPos.Add(lightStep)
+			}
+			lightDistamce := light.Position.Sub(currentPos).Length()
+			k := ExpDecay(lightDistamce)
+			blockColor := blockPtr.LightColor.MulScalar(k)
+			// blockColor.R *= light.Color[0]
+			// blockColor.G *= light.Color[1]
+			// blockColor.B *= light.Color[2]
+			return blockColor, true, blockPtr
+		}
+		currentPos = currentPos.Add(stepSize)
+	}
+	return ColorFloat32{}, false, nil
+}
+
+func (v *VoxelGrid) GetVoxelUnsafeRefrence(pos Vector) (*Block, bool) {
+	xStep := (v.BBMax.x - v.BBMin.x) / float32(v.Resolution)
+	yStep := (v.BBMax.y - v.BBMin.y) / float32(v.Resolution)
+	zStep := (v.BBMax.z - v.BBMin.z) / float32(v.Resolution)
+
+	x := int((pos.x - v.BBMin.x) / xStep)
+	y := int((pos.y - v.BBMin.y) / yStep)
+	z := int((pos.z - v.BBMin.z) / zStep)
+
+	// Ensure indices are within bounds
+	if x < 0 || x >= v.Resolution || y < 0 || y >= v.Resolution || z < 0 || z >= v.Resolution {
+		return nil, false
+	}
+
+	// Calculate the 1D index for the 3D grid
+	index := x + y*v.Resolution + z*v.Resolution*v.Resolution
+
+	// Get a direct pointer to the block in the underlying array
+	blockPtr := (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(index*44)))
+	if blockPtr.LightColor.A == 0 {
+		return nil, false
+	}
+
+	// Return the pointer directly, not the address of a local copy
+	return blockPtr, true
+}
+
+func (v *VoxelGrid) GetVoxelUnsafeAdd(pos Vector, col ColorFloat32) (*Block, bool) {
+	xStep := (v.BBMax.x - v.BBMin.x) / float32(v.Resolution)
+	yStep := (v.BBMax.y - v.BBMin.y) / float32(v.Resolution)
+	zStep := (v.BBMax.z - v.BBMin.z) / float32(v.Resolution)
+
+	x := int((pos.x - v.BBMin.x) / xStep)
+	y := int((pos.y - v.BBMin.y) / yStep)
+	z := int((pos.z - v.BBMin.z) / zStep)
+
+	// Ensure indices are within bounds
+	if x < 0 || x >= v.Resolution || y < 0 || y >= v.Resolution || z < 0 || z >= v.Resolution {
+		return nil, false
+	}
+
+	// Calculate the 1D index for the 3D grid
+	index := x + y*v.Resolution + z*v.Resolution*v.Resolution
+
+	// Get a direct pointer to the block in the underlying array
+	blockPtr := (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(index*44)))
+	if blockPtr.LightColor.A == 0 {
+		return nil, false
+	}
+
+	for i := -1; i < 2; i++ {
+		for j := -1; j < 2; j++ {
+			for k := -1; k < 2; k++ {
+				index := (x + i) + (y+j)*v.Resolution + (z+k)*v.Resolution*v.Resolution
+				if index >= 0 && index < len(v.Blocks) {
+					blockPtr := (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(index*44)))
+					lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&blockPtr.LightColor))
+					*lightColorPtr = col
+				}
+			}
+		}
+	}
+
+	// Return the pointer directly, not the address of a local copy
+	return blockPtr, true
+}
+
+func (v *VoxelGrid) GetVoxelUnsafeRefrenceNoCheck(pos Vector) *Block {
+	xStep := (v.BBMax.x - v.BBMin.x) / float32(v.Resolution)
+	yStep := (v.BBMax.y - v.BBMin.y) / float32(v.Resolution)
+	zStep := (v.BBMax.z - v.BBMin.z) / float32(v.Resolution)
+
+	x := int((pos.x - v.BBMin.x) / xStep)
+	y := int((pos.y - v.BBMin.y) / yStep)
+	z := int((pos.z - v.BBMin.z) / zStep)
+
+	// Ensure indices are within bounds
+	if x < 0 || x >= v.Resolution || y < 0 || y >= v.Resolution || z < 0 || z >= v.Resolution {
+		return nil
+	}
+
+	// Calculate the 1D index for the 3D grid
+	index := x + y*v.Resolution + z*v.Resolution*v.Resolution
+
+	// Get a direct pointer to the block in the underlying array
+	blockPtr := (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(index*44)))
+
+	// Return the pointer directly, not the address of a local copy
+	return blockPtr
+}
+
+// func (v *VoxelGrid) GetVoxelUnsafeRefrenceNeighbors(pos Vector) (Top *Block, Bottom *Block, Left *Block, Right *Block, Front *Block, Back *Block) {
+// 	// Calculate base grid indices for the position
+// 	xStep := (v.BBMax.x - v.BBMin.x) / float32(v.Resolution)
+// 	yStep := (v.BBMax.y - v.BBMin.y) / float32(v.Resolution)
+// 	zStep := (v.BBMax.z - v.BBMin.z) / float32(v.Resolution)
+
+// 	x := int((pos.y - v.BBMin.y) / yStep)
+// 	y := int((pos.z - v.BBMin.z) / zStep)
+// 	z := int((pos.x - v.BBMin.x) / xStep)
+
+// 	// Calculate neighbor indices directly from the base indices
+// 	x1 := x - 1 // left
+// 	x2 := x + 1 // right
+// 	y1 := y - 1 // front
+// 	y2 := y + 1 // back
+// 	z1 := z - 1 // bottom
+// 	z2 := z + 1 // top
+
+// 	// Create variables for each neighbor
+// 	var topBlock, bottomBlock, leftBlock, rightBlock, frontBlock, backBlock *Block
+
+// 	// Check each neighbor individually and assign if it's in bounds
+// 	if z2 >= 0 && z2 < v.Resolution {
+// 		topIndex := x + y*v.Resolution + z2*v.Resolution*v.Resolution
+// 		topBlock = (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(topIndex*44)))
+// 	}
+
+// 	if z1 >= 0 && z1 < v.Resolution {
+// 		bottomIndex := x + y*v.Resolution + z1*v.Resolution*v.Resolution
+// 		bottomBlock = (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(bottomIndex*44)))
+// 	}
+
+// 	if x1 >= 0 && x1 < v.Resolution {
+// 		leftIndex := x1 + y*v.Resolution + z*v.Resolution*v.Resolution
+// 		leftBlock = (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(leftIndex*44)))
+// 	}
+
+// 	if x2 >= 0 && x2 < v.Resolution {
+// 		rightIndex := x2 + y*v.Resolution + z*v.Resolution*v.Resolution
+// 		rightBlock = (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(rightIndex*44)))
+// 	}
+
+// 	if y1 >= 0 && y1 < v.Resolution {
+// 		frontIndex := x + y1*v.Resolution + z*v.Resolution*v.Resolution
+// 		frontBlock = (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(frontIndex*44)))
+// 	}
+
+// 	if y2 >= 0 && y2 < v.Resolution {
+// 		backIndex := x + y2*v.Resolution + z*v.Resolution*v.Resolution
+// 		backBlock = (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(backIndex*44)))
+// 	}
+
+// 	// Return all neighbors
+// 	return topBlock, bottomBlock, leftBlock, rightBlock, frontBlock, backBlock
+// }
 
 // func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat32, bool) {
 // 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
