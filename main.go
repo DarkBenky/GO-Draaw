@@ -21,6 +21,7 @@ package main
 import (
 	"bufio"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,10 +29,13 @@ import (
 	"image/color"
 	"image/png"
 	"io/ioutil"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
 	"os"
+	"runtime/debug"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
@@ -61,9 +65,9 @@ var ScreenSpaceCoordinates [screenWidth][screenHeight]Vector
 
 const maxDepth = 16
 const NumNodes = (1 << (maxDepth + 1)) - 1
-const numCPU = 8
+const numCPU = 16
 
-const Benchmark = false
+const Benchmark = true
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -3376,7 +3380,9 @@ func SampleHemisphere(normal Vector) Vector {
 	theta := 2 * math32.Pi * v
 
 	// test fast approximation of cos(theta) and sin(theta)
+	// x := r * math32.Cos(theta)
 	x := r * math32.Cos(theta)
+	// y := r * math32.Sin(theta)
 	y := r * math32.Sin(theta)
 	z := u
 
@@ -3967,6 +3973,54 @@ func PrecomputeScreenSpaceCoordinatesSphere(camera Camera) {
 		}
 	}
 }
+
+// func PrecomputeScreenSpaceCoordinatesSphereOptimalized(camera Camera) {
+// 	// Calculate corners
+// 	topLeft := PositionOnSphere(camera.xAxis, camera.yAxis)
+// 	topRight := PositionOnSphere(camera.xAxis+FOVRadians, camera.yAxis)
+// 	bottomLeft := PositionOnSphere(camera.xAxis, camera.yAxis+FOVRadians)
+
+// 	// Calculate steps
+// 	xStep := Vector{
+// 		x: (topRight.x - topLeft.x) / float32(screenWidth-1),
+// 		y: (topRight.y - topLeft.y) / float32(screenWidth-1),
+// 		z: (topRight.z - topLeft.z) / float32(screenWidth-1),
+// 	}
+// 	yStep := Vector{
+// 		x: (bottomLeft.x - topLeft.x) / float32(screenHeight-1),
+// 		y: (bottomLeft.y - topLeft.y) / float32(screenHeight-1),
+// 		z: (bottomLeft.z - topLeft.z) / float32(screenHeight-1),
+// 	}
+
+// 	// Interpolate
+// 	for width := 0; width < screenWidth; width++ {
+// 		for height := 0; height < screenHeight; height += 4 {
+// 			x := topLeft.x + float32(width)*xStep.x
+// 			y := topLeft.y + float32(width)*xStep.y
+// 			z := topLeft.z + float32(width)*xStep.z
+// 			ScreenSpaceCoordinates[width][height] = Vector{
+// 				x: x + float32(height)*yStep.x,
+// 				y: y + float32(height)*yStep.y,
+// 				z: z + float32(height)*yStep.z,
+// 			}
+// 			ScreenSpaceCoordinates[width][height+1] = Vector{
+// 				x: x + float32(height+1)*yStep.x,
+// 				y: y + float32(height+1)*yStep.y,
+// 				z: z + float32(height+1)*yStep.z,
+// 			}
+// 			ScreenSpaceCoordinates[width][height+2] = Vector{
+// 				x: x + float32(height+2)*yStep.x,
+// 				y: y + float32(height+2)*yStep.y,
+// 				z: z + float32(height+2)*yStep.z,
+// 			}
+// 			ScreenSpaceCoordinates[width][height+3] = Vector{
+// 				x: x + float32(height+3)*yStep.x,
+// 				y: y + float32(height+3)*yStep.y,
+// 				z: z + float32(height+3)*yStep.z,
+// 			}
+// 		}
+// 	}
+// }
 
 func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, subImages []*ebiten.Image) {
 	var wg sync.WaitGroup
@@ -5202,111 +5256,110 @@ func dumpBenchmarkData(rendererVersion int) error {
 
 func (g *Game) Update() error {
 
-	if Benchmark {
-		// rotate the camera around the y-axis
-		g.camera.yAxis += 0.005
+	// if Benchmark {
+	// 	// rotate the camera around the y-axis
+	// 	g.camera.yAxis += 0.005
+	// 	PrecomputeScreenSpaceCoordinatesSphere(g.camera)
+
+	// 	// Move the light source
+	// 	g.light.Position.x += 0.005
+
+	// 	// Move Camera
+	// 	g.camera.Position.x += 0.01
+	// 	g.camera.Position.y += 0.01
+
+	// 	if time.Since(startTime) > time.Second*40 {
+	// 		// Dump code and FPS to CSV
+	// 		if err := dumpBenchmarkData(int(g.version)); err != nil {
+	// 			fmt.Println("Error dumping benchmark data:", err)
+	// 		}
+	// 		os.Exit(0)
+	// 	}
+	// } else {
+
+	if g.SnapLightToCamera {
+		g.light.Position = g.camera.Position
+	}
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	if fullScreen {
+		// Get the current mouse position
+		dx := float32(mouseX-g.cursorX) * sensitivityX
+		g.camera.xAxis += float32(dx)
+		g.cursorX = mouseX
+
+		dy := float32(mouseY-g.cursorY) * sensitivityY
+		g.camera.yAxis += dy
+		g.cursorY = mouseY
+
+		forward := Vector{1, 0, 0}
+		right := Vector{0, 1, 0}
+		up := Vector{0, 0, 1}
+
+		if ebiten.IsKeyPressed(ebiten.KeyShiftLeft) {
+			g.xyzLock = !g.xyzLock
+		}
+
+		if g.xyzLock {
+			forward = ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]
+			forward = Vector{forward.x, forward.y, 0}.Normalize()
+			right = forward.Cross(Vector{0, 1, 0})
+			up = right.Cross(forward)
+		}
+		speed := float32(5)
+
+		if ebiten.IsKeyPressed(ebiten.KeyW) {
+			g.camera.Position = g.camera.Position.Add(forward.Mul(speed)) // Move forward
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyS) {
+			g.camera.Position = g.camera.Position.Sub(forward.Mul(speed)) // Move backward
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyD) {
+			g.camera.Position = g.camera.Position.Add(right.Mul(speed)) // Move right
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyA) {
+			g.camera.Position = g.camera.Position.Sub(right.Mul(speed)) // Move left
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyE) {
+			g.camera.Position = g.camera.Position.Add(up.Mul(speed)) // Move up
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyQ) {
+			g.camera.Position = g.camera.Position.Sub(up.Mul(speed)) // Move down
+		}
+
 		PrecomputeScreenSpaceCoordinatesSphere(g.camera)
-
-		// Move the light source
-		g.light.Position.x += 0.005
-
-		// Move Camera
-		g.camera.Position.x += 0.01
-		g.camera.Position.y += 0.01
-
-		if time.Since(startTime) > time.Second*40 {
-			// Dump code and FPS to CSV
-			if err := dumpBenchmarkData(int(g.version)); err != nil {
-				fmt.Println("Error dumping benchmark data:", err)
-			}
-			os.Exit(0)
-		}
 	} else {
+		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mouseX >= 0 && mouseY >= 0 && mouseX < screenWidth/2 && mouseY < screenHeight/2 {
+			ray := Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}
+			c := ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}
+			findIntersectionAndSetColor(BVH, ray, c, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier, g.roughness, g.metallic)
+			g.bvhLean.FindIntersectionAndSetIt(int32(g.index), ray, g.TextureMap)
+			if g.RenderVoxels {
 
-		if g.SnapLightToCamera {
-			g.light.Position = g.camera.Position
-		}
+				if g.UseRandomnessForPaint {
+					m := float32(g.RandomnessVoxel)
+					cRandom := ColorFloat32{(rand.Float32() - 1) * m, (rand.Float32() - 1) * m, (rand.Float32() - 1) * m, rand.Float32() * m}
+					c = c.Add(cRandom)
+				}
 
-		mouseX, mouseY := ebiten.CursorPosition()
-		if fullScreen {
-			// Get the current mouse position
-			dx := float32(mouseX-g.cursorX) * sensitivityX
-			g.camera.xAxis += float32(dx)
-			g.cursorX = mouseX
-
-			dy := float32(mouseY-g.cursorY) * sensitivityY
-			g.camera.yAxis += dy
-			g.cursorY = mouseY
-
-			forward := Vector{1, 0, 0}
-			right := Vector{0, 1, 0}
-			up := Vector{0, 0, 1}
-
-			if ebiten.IsKeyPressed(ebiten.KeyShiftLeft) {
-				g.xyzLock = !g.xyzLock
-			}
-
-			if g.xyzLock {
-				forward = ScreenSpaceCoordinates[screenHeight/2][screenWidth/2]
-				forward = Vector{forward.x, forward.y, 0}.Normalize()
-				right = forward.Cross(Vector{0, 1, 0})
-				up = right.Cross(forward)
-			}
-			speed := float32(5)
-
-			if ebiten.IsKeyPressed(ebiten.KeyW) {
-				g.camera.Position = g.camera.Position.Add(forward.Mul(speed)) // Move forward
-			}
-			if ebiten.IsKeyPressed(ebiten.KeyS) {
-				g.camera.Position = g.camera.Position.Sub(forward.Mul(speed)) // Move backward
-			}
-			if ebiten.IsKeyPressed(ebiten.KeyD) {
-				g.camera.Position = g.camera.Position.Add(right.Mul(speed)) // Move right
-			}
-			if ebiten.IsKeyPressed(ebiten.KeyA) {
-				g.camera.Position = g.camera.Position.Sub(right.Mul(speed)) // Move left
-			}
-			if ebiten.IsKeyPressed(ebiten.KeyE) {
-				g.camera.Position = g.camera.Position.Add(up.Mul(speed)) // Move up
-			}
-			if ebiten.IsKeyPressed(ebiten.KeyQ) {
-				g.camera.Position = g.camera.Position.Sub(up.Mul(speed)) // Move down
-			}
-
-			PrecomputeScreenSpaceCoordinatesSphere(g.camera)
-		} else {
-			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mouseX >= 0 && mouseY >= 0 && mouseX < screenWidth/2 && mouseY < screenHeight/2 {
-				ray := Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}
-				c := ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}
-				findIntersectionAndSetColor(BVH, ray, c, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier, g.roughness, g.metallic)
-				g.bvhLean.FindIntersectionAndSetIt(int32(g.index), ray, g.TextureMap)
-				if g.RenderVoxels {
-
-					if g.UseRandomnessForPaint {
-						m := float32(g.RandomnessVoxel)
-						cRandom := ColorFloat32{(rand.Float32() - 1) * m, (rand.Float32() - 1) * m, (rand.Float32() - 1) * m, rand.Float32() * m}
-						c = c.Add(cRandom)
-					}
-
-					switch g.VoxelMode {
-					case DrawVoxel:
-						g.VoxelGrid.SetVoxelColor(c, ray, 64)
-					case RemoveVoxel:
-						g.VoxelGrid.RemoveVoxel(ray, 64)
-					case AddVoxel:
-						g.VoxelGrid.AddVoxel(ray, 64, c)
-					}
+				switch g.VoxelMode {
+				case DrawVoxel:
+					g.VoxelGrid.SetVoxelColor(c, ray, 64)
+				case RemoveVoxel:
+					g.VoxelGrid.RemoveVoxel(ray, 64)
+				case AddVoxel:
+					g.VoxelGrid.AddVoxel(ray, 64, c)
 				}
 			}
 		}
-
-		// check if mouse button is pressed
-
-		if ebiten.IsKeyPressed(ebiten.KeyTab) {
-			fullScreen = !fullScreen
-		}
-
 	}
+
+	// check if mouse button is pressed
+
+	if ebiten.IsKeyPressed(ebiten.KeyTab) {
+		fullScreen = !fullScreen
+	}
+
 	return nil
 }
 
@@ -5449,15 +5502,15 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 func (g *Game) Draw(screen *ebiten.Image) {
 	// Increment frame count and add current FPS to the average
 	fps := ebiten.ActualFPS()
-	if Benchmark {
-		FrameCount++
-		AverageFrameRate += fps
+	// if Benchmark {
+	// 	FrameCount++
+	// 	AverageFrameRate += fps
 
-		MinFrameRate = math.Min(MinFrameRate, fps)
-		MaxFrameRate = math.Max(MaxFrameRate, fps)
+	// 	MinFrameRate = math.Min(MinFrameRate, fps)
+	// 	MaxFrameRate = math.Max(MaxFrameRate, fps)
 
-		FPS = append(FPS, fps)
-	}
+	// 	FPS = append(FPS, fps)
+	// }
 
 	/// Clear the current frame
 	g.currentFrame.Clear()
@@ -5838,6 +5891,8 @@ type Game struct {
 	metallic        float32
 	gamma           float32
 	// FOV             float32
+
+	// 28-bit pointers (3.5 bytes each) grouped together
 	light Light
 
 	// 24-bit pointers (3 bytes each) grouped together
@@ -5855,8 +5910,7 @@ type Game struct {
 	scaleFactor      int
 
 	// Uint8 values (1 byte each) grouped together
-	mode uint8
-	// resolution uint8
+	mode            uint8
 	version         uint8
 	depth           uint8
 	index           uint8
@@ -5864,11 +5918,9 @@ type Game struct {
 	RandomnessVoxel uint8
 
 	// Boolean flags (1 byte each) at the end
-	RenderVolume bool
-	RenderVoxels bool
-	xyzLock      bool
-
-	// Render options (1 byte each)
+	RenderVolume          bool
+	RenderVoxels          bool
+	xyzLock               bool
 	SnapLightToCamera     bool
 	RayMarching           bool
 	PerformanceOptions    bool
@@ -6482,6 +6534,97 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	return c.JSON(http.StatusOK, renderOptions)
 }
 
+type Position struct {
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
+	Z       float64 `json:"z"`
+	CameraX float64 `json:"cameraX"`
+	CameraY float64 `json:"cameraY"`
+}
+
+func (g *Game) GetPositions(c echo.Context) error {
+	pos := Position{
+		X:       float64(g.camera.Position.x),
+		Y:       float64(g.camera.Position.y),
+		Z:       float64(g.camera.Position.z),
+		CameraX: float64(g.camera.xAxis),
+		CameraY: float64(g.camera.yAxis),
+	}
+
+	return c.JSON(http.StatusOK, pos)
+}
+
+func InterpolateBetweenPositions(timeSec time.Duration, Positions []Position) []Position {
+	if len(Positions) < 2 {
+		return Positions
+	}
+
+	// Calculate total frames needed based on time duration
+	fps := 60
+	totalFrames := int(timeSec.Seconds() * float64(fps))
+
+	// Create array to hold all interpolated positions
+	interpolatedPositions := make([]Position, totalFrames)
+
+	// Calculate step size between keyframes
+	framesPerSegment := totalFrames / (len(Positions) - 1)
+
+	// Interpolate between each pair of positions
+	for i := 0; i < len(Positions)-1; i++ {
+		start := Positions[i]
+		end := Positions[i+1]
+
+		// Calculate deltas
+		dx := (end.X - start.X) / float64(framesPerSegment)
+		dy := (end.Y - start.Y) / float64(framesPerSegment)
+		dz := (end.Z - start.Z) / float64(framesPerSegment)
+		dCamX := (end.CameraX - start.CameraX) / float64(framesPerSegment)
+		dCamY := (end.CameraY - start.CameraY) / float64(framesPerSegment)
+
+		// Generate interpolated frames for this segment
+		for frame := 0; frame < framesPerSegment; frame++ {
+			// Calculate interpolation factor
+			t := float64(frame) / float64(framesPerSegment)
+
+			// Use smooth step interpolation for more natural movement
+			smoothT := t * t * (3 - 2*t)
+
+			index := i*framesPerSegment + frame
+			interpolatedPositions[index] = Position{
+				X:       start.X + dx*float64(frame)*smoothT,
+				Y:       start.Y + dy*float64(frame)*smoothT,
+				Z:       start.Z + dz*float64(frame)*smoothT,
+				CameraX: start.CameraX + dCamX*float64(frame)*smoothT,
+				CameraY: start.CameraY + dCamY*float64(frame)*smoothT,
+			}
+		}
+	}
+
+	// Fill in the final position
+	interpolatedPositions[len(interpolatedPositions)-1] = Positions[len(Positions)-1]
+
+	return interpolatedPositions
+}
+
+func (g *Game) MoveToCameraPosition(c echo.Context) error {
+	pos := Position{}
+	if err := c.Bind(&pos); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Failed to parse request: " + err.Error(),
+		})
+	}
+
+	fmt.Println("Move to position", pos)
+	newCamera := Camera{
+		Position: Vector{float32(pos.X), float32(pos.Y), float32(pos.Z)},
+		xAxis:    float32(pos.CameraX),
+		yAxis:    float32(pos.CameraY),
+	}
+
+	*(*Camera)(unsafe.Pointer(&g.camera)) = newCamera
+	return c.JSON(http.StatusOK, pos)
+}
+
 func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		c.Response().Header().Set("Access-Control-Allow-Origin", "*")
@@ -6507,6 +6650,8 @@ func startServer(game *Game) {
 	e.POST("/submitRenderOptions", game.submitRenderOptions)
 	e.POST("/submitTextures", game.submitTextures)
 	e.POST("/submitShader", game.SubmitShader)
+	e.GET("/getCameraPosition", game.GetPositions)
+	e.POST("/moveToPosition", game.MoveToCameraPosition)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -6527,9 +6672,128 @@ var (
 	edgeDetectionShader       *ebiten.Shader
 	colorMappingV2Shader      *ebiten.Shader
 	LightenDarkenShader       *ebiten.Shader
+	CameraPositions           []Position
 )
 
+// func math32.Sin(x float32) float32 {
+//     // Reduce angle to [-π, π]
+//     x = float32(math.Mod(float64(x), float64(2*math32.Pi)))
+//     if x < -math32.Pi {
+//         x += 2 * math32.Pi
+//     } else if x > math32.Pi {
+//         x -= 2 * math32.Pi
+//     }
+
+//     // Fast sine approximation using Bhaskara's approximation
+//     if x < 0 {
+//         x = -x
+//         return -x*(2-x)/(1+x*(1-0.5*x))
+//     }
+//     return x*(2-x)/(1+x*(1-0.5*x))
+// }
+
+// Not accurate dont use
+func fastSin(x float32) float32 {
+	// Reduce angle to [-π, π]
+	x = float32(math.Mod(float64(x), float64(2*math32.Pi)))
+	if x < -math32.Pi {
+		x += 2 * math32.Pi
+	} else if x > math32.Pi {
+		x -= 2 * math32.Pi
+	}
+
+	// Constants for polynomial approximation
+	const (
+		B = 4 / math32.Pi
+		C = -4 / (math32.Pi * math32.Pi)
+	)
+
+	// Polynomial approximation
+	y := B*x + C*x*math32.Abs(x)
+
+	return y
+}
+
+// Not accurate dont use
+func fastCos(x float32) float32 {
+	// Reduce angle to [-π, π]
+	x = float32(math.Mod(float64(x), float64(2*math32.Pi)))
+	if x < -math32.Pi {
+		x += 2 * math32.Pi
+	} else if x > math32.Pi {
+		x -= 2 * math32.Pi
+	}
+
+	// Shift x by π/2 to convert cosine to sine
+	x += math32.Pi / 2
+	if x > math32.Pi {
+		x -= 2 * math32.Pi
+	}
+
+	// Fast cosine approximation using modified Bhaskara's approximation
+	if x < 0 {
+		x = -x
+		return -x * (2 - x) / (1 + x*(1-0.5*x))
+	}
+	return x * (2 - x) / (1 + x*(1-0.5*x))
+}
+
 func main() {
+	start := time.Now()
+	for i := 0; i < 1000_000; i++ {
+		x := rand.Float32()
+		_ = math32.Sin(x)
+	}
+	fmt.Println("Sin:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		x := rand.Float32()
+		_ = fastSin(x)
+	}
+	fmt.Println("Fast Sin:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		x := rand.Float32()
+		_ = math32.Cos(x)
+	}
+	fmt.Println("Cos:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		x := rand.Float32()
+		_ = fastCos(x)
+	}
+	fmt.Println("Fast Cos:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		_ = rand.Float32()
+	}
+	fmt.Println("Rand 32:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		_ = rand.Float64()
+	}
+	fmt.Println("Rand 64:", time.Since(start))
+
+	if Benchmark {
+		debug.SetGCPercent(-1)
+	} else {
+		debug.SetGCPercent(750)
+	}
+	// runtime.SetBlockProfileRate(0)
+
+	// Compare the performance of the PrecomputeScreenSpaceCoordinatesSphereOptimalized and PrecomputeScreenSpaceCoordinatesSphere
+	// start := time.Now()
+	// PrecomputeScreenSpaceCoordinatesSphereOptimalized(Camera{})
+	// fmt.Println("PrecomputeScreenSpaceCoordinatesSphereOptimalized:", time.Since(start))
+	// start = time.Now()
+	// PrecomputeScreenSpaceCoordinatesSphere(Camera{})
+	// fmt.Println("PrecomputeScreenSpaceCoordinatesSphere:", time.Since(start))
+
 	// set GOAMD64 to v3 to use AVX2
 	// os.Setenv("GOAMD64", "v3")
 
@@ -6705,7 +6969,7 @@ func main() {
 	obj := object{}
 	if Benchmark {
 		fullScreen = true
-		obj, err = LoadOBJ("Room.obj")
+		obj, err = LoadOBJ("monkey.obj")
 		if err != nil {
 			panic(err)
 		}
@@ -6759,7 +7023,7 @@ func main() {
 
 	// test speed of BVH
 
-	start := time.Now()
+	start = time.Now()
 	for i := 0; i < 1_000_000; i++ {
 		// generate random ray
 		ray := Ray{origin: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}, direction: Vector{rand.Float32() * 100, rand.Float32() * 100, rand.Float32() * 100}}
@@ -6802,7 +7066,6 @@ func main() {
 	// fmt.Println("V2 Bvh:", time.Since(start))
 
 	PrecomputeScreenSpaceCoordinatesSphere(camera)
-	scale := 2
 
 	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
@@ -6859,8 +7122,10 @@ func main() {
 	// 	}
 	// }
 
+	const scale = 2
+
 	game := &Game{
-		version:              V2LinearTexture2,
+		version:              V2,
 		xyzLock:              true,
 		cursorX:              screenHeight / 2,
 		cursorY:              screenWidth / 2,
@@ -6908,6 +7173,205 @@ func main() {
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Ebiten Benchmark")
+
+	if Benchmark {
+		renderVersions := []uint8{V1, V2, V2Log, V2Linear, V2LinearTexture, V2LinearTexture2, V4Log, V4Lin, V4LogOptim, V4LinOptim}
+
+		cPositions := []Position{
+			{X: -424.48, Y: 986.71, Z: 17.54, CameraX: 0.24, CameraY: -2.08},
+			{X: 54.16, Y: 784.00, Z: 17.54, CameraX: 1.19, CameraY: -1.95},
+			{X: 669.52, Y: 48.41, Z: 17.54, CameraX: -0.72, CameraY: -1.91}}
+		CameraPositions = InterpolateBetweenPositions(10*time.Second, cPositions)
+		camera = Camera{}
+
+		const depth = 3
+		const scatter = 8
+		const scaleFactor = 2
+		const gamma = 0.285
+
+		BlocksImage := MakeNewBlocks(scaleFactor)
+		BlocksImageAdvance := MakeNewBlocksAdvance(scaleFactor)
+
+		TextureMap := [128]Texture{}
+		for i := range TextureMap {
+			for j := range TextureMap[i].texture {
+				for k := range TextureMap[i].texture[j] {
+					TextureMap[i].texture[j][k] = ColorFloat32{rand.Float32() * 256, rand.Float32() * 256, rand.Float32() * 256, 255}
+				}
+			}
+
+			TextureMap[i] = Texture{
+				directToScatter: 0.5,
+				reflection:      0.5,
+				specular:        0.5,
+				Metallic:        0.5,
+				Roughness:       0.5,
+			}
+		}
+
+		// Preformance Options Off
+		versionTimes := make(map[string][]float64)
+
+		preformance := false
+
+		for _, version := range renderVersions {
+			var name string
+			switch version {
+			case V1:
+				if preformance {
+					name = "V1Preformance"
+				} else {
+					name = "V1"
+				}
+			case V2:
+				if preformance {
+					name = "V2Preformance"
+				} else {
+					name = "V2"
+				}
+			case V2Log:
+				if preformance {
+					name = "V2LogPreformance"
+				} else {
+					name = "V2Log"
+				}
+			case V2Linear:
+				if preformance {
+					name = "V2LinearPreformance"
+				} else {
+					name = "V2Linear"
+				}
+			case V2LinearTexture:
+				if preformance {
+					name = "V2LinearTexturePreformance"
+				} else {
+					name = "V2LinearTexture"
+				}
+			case V2LinearTexture2:
+				if preformance {
+					name = "V2LinearTexture2Preformance"
+				} else {
+					name = "V2LinearTexture2"
+				}
+			case V4Log:
+				if preformance {
+					name = "V4LogPreformance"
+				} else {
+					name = "V4Log"
+				}
+			case V4Lin:
+				if preformance {
+					name = "V4LinPreformance"
+				} else {
+					name = "V4Lin"
+				}
+			case V4LinOptim:
+				if preformance {
+					name = "V4LinOptimPreformance"
+				} else {
+					name = "V4LinOptim"
+				}
+			case V4LogOptim:
+				if preformance {
+					name = "V4LogOptimPreformance"
+				} else {
+					name = "V4LogOptim"
+				}
+			}
+
+			profileFilename := fmt.Sprintf("profiles/cpu_profile_v%s.prof", name)
+			f, err := os.Create(profileFilename)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Start CPU profiling
+			if err := pprof.StartCPUProfile(f); err != nil {
+				log.Fatal(err)
+			}
+
+			TimeProfile := []float64{}
+			for _, cPos := range CameraPositions {
+				camera.Position = Vector{float32(cPos.X), float32(cPos.Y), float32(cPos.Z)}
+				camera.xAxis = float32(cPos.CameraX)
+				camera.yAxis = float32(cPos.CameraY)
+
+				PrecomputeScreenSpaceCoordinatesSphere(camera)
+
+				switch version {
+				case V1:
+					startTime = time.Now()
+					DrawRaysBlock(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V2:
+					startTime = time.Now()
+					DrawRaysBlockV2(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V2Log:
+					startTime = time.Now()
+					DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V2Linear:
+					startTime = time.Now()
+					DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V2LinearTexture:
+					startTime = time.Now()
+					DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V2LinearTexture2:
+					startTime = time.Now()
+					DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V4Log:
+					startTime = time.Now()
+					DrawRaysBlockAdvanceV4Log(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V4Lin:
+					startTime = time.Now()
+					DrawRaysBlockAdvanceV4Lin(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V4LinOptim:
+					startTime = time.Now()
+					DrawRaysBlockAdvanceV4LinOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V4LogOptim:
+					startTime = time.Now()
+					DrawRaysBlockAdvanceV4LogOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				}
+
+			}
+
+			// Stop CPU profiling
+			pprof.StopCPUProfile()
+			f.Close()
+
+			
+
+			versionTimes[name] = TimeProfile
+			averageTime := float64(0)
+			for _, time := range TimeProfile {
+				averageTime += time
+			}
+			averageTime = averageTime / float64(len(TimeProfile))
+			fmt.Println("Version:", name, "AverageTime:", averageTime, "ms", "samples:", len(TimeProfile))
+
+		}
+
+		fmt.Println("Version Times:", versionTimes)
+
+		// dump times to file
+		dump, err := json.MarshalIndent(versionTimes, "", " ")
+		if err != nil {
+			panic(err)
+		}
+
+		err = ioutil.WriteFile("profiles/versionTimes.json", dump, 0644)
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	go startServer(game)
 
