@@ -6961,7 +6961,7 @@ func main() {
 	fmt.Println("Number of CPUs:", numCPU)
 
 	ebiten.SetVsyncEnabled(false)
-	ebiten.SetTPS(24)
+	ebiten.SetTPS(20)
 
 	// spheres := GenerateRandomSpheres(15)
 	// cubes := GenerateRandomCubes(30)
