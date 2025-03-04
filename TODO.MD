@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Test Bach processing of BBOX and Triangles
 - [X] Add material properties type like specular etc.
 
   ```golang

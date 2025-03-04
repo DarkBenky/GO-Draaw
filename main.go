@@ -7251,7 +7251,7 @@ func main() {
 				if preformance {
 					name = "V2LinearTexture2Preformance"
 				} else {
-					name = "V2LinearTexture2"
+					name = "V2LinearTexture"
 				}
 			case V4Log:
 				if preformance {
@@ -7757,13 +7757,6 @@ func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light) {
 				localColor = localColor.Add(TraceRayV2(ray, depth, light, samples))
 			}
 
-			// Average the accumulated color
-			// localColor = localColor.MulScalar(1.0 / float32(samples))
-
-			// Safely update the block's light color
-			// mutexes[blockIndex].Lock()
-			// v.Blocks[blockIndex].LightColor = localColor
-			// mutexes[blockIndex].Unlock()
 
 			vBlocksBlockIndex := (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(blockIndex*48)))
 			lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&vBlocksBlockIndex.LightColor))
@@ -8244,12 +8237,7 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterail Vo
 
 	currentPos := entry
 	for i := 0; i < steps; i++ {
-		// startTime := time.Now()
 		block, exists := v.GetBlockUnsafe(currentPos)
-		// averageSafe += int(time.Since(startTime).Nanoseconds())
-		// block, exists := v.GetBlockUnsafe(currentPos)
-		// averageUnsafe += int(time.Since(startTime).Nanoseconds())
-		// counter++
 		if !exists {
 			currentPos = currentPos.Add(stepSize)
 			continue
