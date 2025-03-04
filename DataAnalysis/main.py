@@ -138,3 +138,77 @@ pio.write_image(table_fig, 'performance_metrics_table.png')
 # Print the statistics table
 print("\nDetailed Statistics:")
 print(stats_df.round(4))
+
+# BVH performance comparison data
+bvh_data = {
+    'Implementation': ['Classic BVH', 'Lean BVH'],
+    'Execution Time (ms)': [407.888788, 334.069267],
+    'Percentage': [100, (334.069267/407.888788)*100]  # Calculate percentage relative to Classic BVH
+}
+
+bvh_df = pd.DataFrame(bvh_data)
+
+# Calculate improvement percentage
+improvement = ((407.888788 - 334.069267) / 407.888788) * 100
+
+# Create bar chart for BVH comparison
+bvh_fig = go.Figure([
+    go.Bar(
+        x=bvh_df['Implementation'],
+        y=bvh_df['Execution Time (ms)'],
+        text=[f"{time:.2f} ms" for time in bvh_df['Execution Time (ms)']],
+        textposition='auto',
+        marker_color=['#1f77b4', '#2ca02c'],  # Blue for Classic, Green for Lean
+        width=0.6
+    )
+])
+
+# Update layout with annotations
+bvh_fig.update_layout(
+    title='BVH Implementation Performance Comparison',
+    title_font_size=20,
+    xaxis_title='BVH Implementation',
+    yaxis_title='Execution Time Per 1 000 000 Samples (ms)',
+    height=600,
+    width=900,
+    bargap=0.2,
+    annotations=[
+        dict(
+            x=1,  # Position above the Lean BVH bar
+            y=bvh_df['Execution Time (ms)'][1] + 20,  # Slightly above the bar
+            xref="x",
+            yref="y",
+            text=f"Performance improvement: {improvement:.2f}%",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=2,
+            arrowcolor="#2ca02c",
+            ax=0,
+            ay=-40
+        )
+    ]
+)
+
+# Add a horizontal line showing the Classic BVH time for reference
+bvh_fig.add_shape(
+    type="line",
+    x0=-0.4,
+    y0=bvh_df['Execution Time (ms)'][0],
+    x1=1.4,
+    y1=bvh_df['Execution Time (ms)'][0],
+    line=dict(
+        color="red",
+        width=2,
+        dash="dash",
+    )
+)
+
+# Save the BVH comparison figure
+pio.write_image(bvh_fig, 'bvh_performance_comparison.png')
+
+# Print the BVH performance improvement
+print(f"\nBVH Performance Improvement:")
+print(f"Classic BVH: {bvh_df['Execution Time (ms)'][0]:.2f} ms")
+print(f"Lean BVH: {bvh_df['Execution Time (ms)'][1]:.2f} ms")
+print(f"Improvement: {improvement:.2f}%")

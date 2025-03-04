@@ -67,7 +67,7 @@ const maxDepth = 16
 const NumNodes = (1 << (maxDepth + 1)) - 1
 const numCPU = 16
 
-const Benchmark = true
+const Benchmark = false
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -4321,7 +4321,7 @@ func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth
 						continue
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
-					c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+					c := TraceRayV2(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
 
 					// Write the pixel color to the pixel buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -7347,8 +7347,6 @@ func main() {
 			pprof.StopCPUProfile()
 			f.Close()
 
-			
-
 			versionTimes[name] = TimeProfile
 			averageTime := float64(0)
 			for _, time := range TimeProfile {
@@ -7756,7 +7754,6 @@ func (v *VoxelGrid) CalculateLighting(samples int, depth int, light Light) {
 				// Accumulate color locally
 				localColor = localColor.Add(TraceRayV2(ray, depth, light, samples))
 			}
-
 
 			vBlocksBlockIndex := (*Block)(unsafe.Pointer(uintptr(v.BlocksPointer) + uintptr(blockIndex*48)))
 			lightColorPtr := (*ColorFloat32)(unsafe.Pointer(&vBlocksBlockIndex.LightColor))

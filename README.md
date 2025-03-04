@@ -243,12 +243,94 @@ UI
 ## Backend Implementation
 ### Endpoints
 - `POST /submitColor`: Submit color data
+type Color struct {
+		R               float64 `json:"r"`
+		G               float64 `json:"g"`
+		B               float64 `json:"b"`
+		A               float64 `json:"a"`
+		Reflection      float64 `json:"reflection"`
+		Roughness       float64 `json:"roughness"`
+		DirectToScatter float64 `json:"directToScatter"`
+		Metallic        float64 `json:"metalic"`
+		RenderVolume    bool    `json:"renderVolume"`
+		RenderVoxels    bool    `json:"renderVoxels"`
+	}
 - `POST /submitVoxel`: Submit voxel data
+type Volume struct {
+		Density               float64 `json:"density"`
+		Transmittance         float64 `json:"transmittance"`
+		Randomnes             float64 `json:"randomness"`
+		SmokeColorR           float64 `json:"smokeColorR"`
+		SmokeColorG           float64 `json:"smokeColorG"`
+		SmokeColorB           float64 `json:"smokeColorB"`
+		SmokeColorA           float64 `json:"smokeColorA"`
+		VoxelColorR           float64 `json:"voxelColorR"`
+		VoxelColorG           float64 `json:"voxelColorG"`
+		VoxelColorB           float64 `json:"voxelColorB"`
+		VoxelColorA           float64 `json:"voxelColorA"`
+		RandomnessVoxel       float64 `json:"randomnessVoxel"`
+		RenderVolume          bool    `json:"renderVolume"`
+		RenderVoxel           bool    `json:"renderVoxel"`
+		OverWriteVoxel        bool    `json:"overWriteVoxel"`
+		VoxelModification     string  `json:"voxelModification"`
+		UseRandomnessForPaint bool    `json:"useRandomnessForPaint"`
+		ConvertVoxelsToSmoke  bool    `json:"convertVoxelsToSmoke"`
+	}
+
 - `POST /submitRenderOptions`: Submit render configuration
+    type RenderOptions struct {
+		Depth          int     `json:"depth"`
+		Scatter        int     `json:"scatter"`
+		Gamma          float64 `json:"gamma"`
+		SnapLight      string  `json:"snapLight"`
+		RayMarching    string  `json:"rayMarching"`
+		Performance    string  `json:"performance"`
+		Mode           string  `json:"mode"`
+		Resolution     string  `json:"resolution"`
+		Version        string  `json:"version"`
+		FOV            float64 `json:"fov"`
+		LightIntensity float64 `json:"lightIntensity"`
+		R              float64 `json:"r"`
+		G              float64 `json:"g"`
+		B              float64 `json:"b"`
+	}
 - `POST /submitTextures`: Submit texture data
+    type TextureRequest struct {
+		Textures map[string]interface{} `json:"textures"`
+		Normals  map[string]interface{} `json:"normals"`
+		// Normal          map[string]interface{} `json:"normal"`
+		DirectToScatter float64 `json:"directToScatter"`
+		Reflection      float64 `json:"reflection"`
+		Roughness       float64 `json:"roughness"`
+		Metallic        float64 `json:"metallic"`
+		Index           int     `json:"index"`
+		Specular        float64 `json:"specular"`
+		ColorR          float64 `json:"colorR"`
+		ColorG          float64 `json:"colorG"`
+		ColorB          float64 `json:"colorB"`
+		ColorA          float64 `json:"colorA"`
+	}
 - `POST /submitShader`: Submit shader configuration
+    type ShaderParam struct {
+	Type       string                 `json:"type"`
+	Parameters map[string]interface{} `json:"params"`
+}
 - `GET /getCameraPosition`: Retrieve current camera position
+type Position struct {
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
+	Z       float64 `json:"z"`
+	CameraX float64 `json:"cameraX"`
+	CameraY float64 `json:"cameraY"`
+}
 - `POST /moveToPosition`: Move camera to specified position
+type Position struct {
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
+	Z       float64 `json:"z"`
+	CameraX float64 `json:"cameraX"`
+	CameraY float64 `json:"cameraY"`
+}
 
 ### Backend Architecture
 The backend is asynchronous and runs in a separate Go routine. It leverages Go's unsafe functionality to avoid state management complexities and mutex overhead, resulting in improved performance.
@@ -414,7 +496,7 @@ Projekt je rozdelený na dve hlavné časti:
   - **Ray-tracing engine**: Jadro výpočtového systému pre renderovanie
   - **Webový server**: Zabezpečuje komunikáciu s frontendovou časťou
 
-Backend beží asynchrónne vo vlastných go-rutinách, čo minimalizuje potrebu zložitého manažmentu stavu a používania mutexov, čím sa dosahuje vyšší výkon a lepšia odozva systému.
+Backend beží asynchrónne vo vlastných go-rutinách, čo minimalizuje potrebu zložitého manažmentu stavu a používania mutexov s pozitim usefe, čím sa dosahuje vyšší výkon a lepšia odozva systému.
 
 Táto architektúra umožňuje efektívne oddelenie prezentačnej vrstvy od výpočtovej, pričom zachováva vysokú mieru interaktivity pre používateľa a zároveň poskytuje výkonný rendering komplexných 3D scén.
 
