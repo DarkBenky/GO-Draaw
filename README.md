@@ -1,494 +1,17 @@
-Obsah
+## 1.1 Úvod
+V súčasnej dobe počítačová grafika zohráva kľúčovú úlohu v mnohých oblastiach, od herného priemyslu až po vedecké vizualizácie. Jednou z najvýznamnejších technológií v tejto oblasti je Ray-Tracing, ktorý umožňuje vytvárať fotorealistické zobrazenia 3D scén simuláciou fyzikálnych vlastností svetla. Táto maturitná práca sa zameriava na implementáciu vlastného 3D engine-u, ktorý využíva práve túto pokročilú technológiu renderovania.
 
-1.0 Úvod
-2.1 Architektúra Aplikácie
-    - RayTracingEngine
-    - UI 
-2.1.1 Princíp fungovania BVH
-    - Rozdiel Medzi BVH Node a BVHLean
-2.1.2 Surface Area Heuristic (SAH)
-2.1.3 Implementačné prístupy
-2.2 Reprezentácia Trojuholníkov a Materiálové Vlastnosti
-    - Rozdiel Medzi Lean verziu a Standar verziou
-2.2.1 Geometrická Reprezentácia
-2.2.2 Materiálové Vlastnosti
-2.3 Podpora Načítavania 3D Geometrie
-2.3.1 Načítavanie .OBJ Súborov
-2.3.2 Ukladanie a Načítavanie BVH Štruktúr
-2.4 Podpora Post-Processing Shaderov
-    - Rozpis shadrov
-2.4.1 Charakteristika Kage Shader Language
-2.4.2 Implementované Post-Processing Efekty
-2.4.3 Architektúra Podpory Shaderov 
-2.5 Systém Benchmarkovania a Výkonnostnej Analýzy
-2.6 Volume Rendering
-2.7 Voxel Redering
-    - Methody pre Upravu Voxelov 
-    - Converzia Voxelov Na Volume
-Záver
-Zdroje
+Hlavným cieľom práce je vytvoriť flexibilný a výkonný 3D engine, ktorý bude schopný nielen základného renderovania 3D scén pomocou Ray-Tracingu, ale poskytne aj možnosť využívať rôzne shadre pre pokročilé vizuálne efekty. Významnou súčasťou projektu je implementácia podpory pre renderovanie volumetrických materiálov prostredníctvom technológie Voxel, čo ďalej rozširuje možnosti vizualizácie komplexných objektov a efektov.
 
-UI
-    Technicke Parametre 
-        Vue js a Golang backend v Echo frameworku
-    Backend Implementacia
-        endpointy 
-        e.POST("/submitColor", game.submitColor)
-	    e.POST("/submitVoxel", game.submitVoxelData)
-	    e.POST("/submitRenderOptions", game.submitRenderOptions)
-	    e.POST("/submitTextures", game.submitTextures)
-	    e.POST("/submitShader", game.SubmitShader)
-	    e.GET("/getCameraPosition", game.GetPositions)
-	    e.POST("/moveToPosition", game.MoveToCameraPosition)
-        
-        backend je asynchroni a bezi v rozdielnej go rutine a vyziva usefe funkcionalitu v golagu aby sa vyhlo state mangmentu a mutexom taktiez to ma za dosledok lepsi vykon
-    Casti vo Frontende 
-        Color Picker
-            R 0-256 * multiplayer
-            G 0-256 * multiplayer
-            B 0-256 * multiplayer
-            A 0-256 * multiplayer
-            
-            Preview 
-            Ukazka akuratnej farby ktora je selctnuta
+Pre implementáciu bol zvolený programovací jazyk Golang, ktorý sa vyznačuje niekoľkými kľúčovými výhodami. Prvou je jeho efektívna podpora multiprocesingu prostredníctvom Go rutín, čo je esenciálne pre optimalizáciu výkonu pri ray-tracingu. Druhou výhodou je jeho výkonnosť, ktorá sa približuje tradičným systémovým jazykom ako C a C++. Pre implementáciu shaderových programov bude využitý jazyk Kage, ktorý bol vyvinutý pre Ebiten 2D engine. Kage poskytuje intuitívnu syntax inšpirovanú jazykom Go, čo umožňuje efektívny vývoj shaderov.
 
-            v tejto casti je mozne zadat farbu ktora bude uplatnena pre trojuholnik na ktory je kliknuty 
+Aplikácia poskytne užívateľom možnosť interaktívne upravovať vlastnosti 3D geometrie, vrátane farieb a rôznych aspektov materiálov. Dôraz je kladený na optimalizáciu výkonu, aby bolo možné renderovať scény v realistickom čase. Architektúra systému je navrhnutá s ohľadom na budúcu adaptabilitu, najmä v oblasti podpory rôznych grafických API a efektívneho využívania GPU akcelerácie.
 
-        Texture Color Picker
-            Texture Selector
-                obsahuje selector medzi 1 128 v ktorej je mozne vybrat jednu z textur
-            Texture Preview 
-                Textura je v rozliseni 128 * 128 * 4 float
 
-                Submit Textures Button pre Nahratie textury
-
-                v danej casti je mozne zobrazit texturu a nasledne ju editovan na zaklade vybranj farby z Color Pickeru 
-            Normal Preview 
-                Normal map je v rozliseni v 128 *128 * 3 
-                normal map je noramlizovan v rozasuj -1 - 1 
-                noraml map je nasledne na backend konvetovany na vector
-
-                Upload Normal Button sluzi na nahranie normal map
-
-                No noraml Button otvori stranku https://cpetry.github.io/NormalMap-Online/ kde je mozne vytvorit normal map z obrazku
-
-                V pravej casti su vypisane aktualne hodnoty pre pre material texturu Reflection Direct to Scatter Roughness Metallic Specular
-
-            Submit Textures
-                nahraje oznacenu texturu na backend
-
-            Addition Setting
-                slider pre Direct to Scatter Roughness Metallic Specular v rozsahu 0-1
-
-                Red/ Green / Blue / Alpa chanel multiplayer upravy texturu a vynasoby ju danou hondnotou
-
-        Shader Menu 
-            sluzi na vytvoreniooe postprocesing shadrow ktore mozu byt postupne za sebou ako napr original image => contrast => tint => final image
-
-            selector 
-                v danej casty je mozne vybrat jeden z post procesing shadrow
-            
-            add shader Button
-                prida novy shader na zaklade vybraneho selectora
-
-            submit shder menu button 
-                sluzi pre nahranie shadrow na backend
-
-            shadre a parametre
-
-                ammout hovor aky pomer upraveneho ubrazku sa ma pridat do rendra
-
-                multipass hovor kolko razy za sebou sa ma uplatnit dany post procesing shader za sebou napr multipass 2 
-                    image => shader modiefied image => shader modiefied image => new image
-
-
-                Contrast
-
-                    definia ...
-
-                    ammount
-                    multipass
-                    Contrast - sila filtra
-                Tint
-
-                    definia ...
-
-                    ammount
-                    multipass
-                    tint color
-                    tint strengt hovori ako silno ma byt uplatneni tint shader
-                Bloom
-
-                    definia ...
-
-                    ammount
-                    multipass
-                    treshold hovori hranicu po ktorej je uplatneny bloom shader
-                    Intensity sila bloom shadra
-                BloomV2
-
-                    definia ...
-
-                    ammount
-                    multipass
-                    treshold hovori hranicu po ktorej je uplatneny bloom shader
-                    Intensity sila bloom shadra
-                sharpnes
-
-                    definia ...
-
-                    ammount
-                    multipass
-                    sharpnes - sila filtra
-                ColorMapping
-
-                    definicia  Definuje kolko farieb je pre dany kanal ak je napr 2 tak but je to 0% alebo 100%
-
-                    ammount
-                    multipass
-                    ColorR
-                    ColorG
-                    ColorB
-                Chromatic Aboration
-
-                    definicia uplatnuje posunutie farebneho kanalu red (lavo) blue (pravo)
-
-                    ammount
-                    multipass
-                    strenght - sila filtra
-
-                Edge Detection 
-
-                    definicia poziva sobel filter na zvyracnenie egov a akej farby amju byt tieto edge zviraznene
-
-                    ammount
-                    multipass
-                    strenght - sila filtra
-
-                    Color R
-                    Color G
-                    Color B
-                
-                Lighten 
-
-                    definicia upratnuje multiplayer ktory zosvetli dany obrazok
-
-                     ammount
-                    multipass
-                    strenght - sila filtra
-
-        Render Otions 
-            Submit Render Options
-                sluzi na nahratie nastaveny
-            
-            Get Camera position Button
-                 dostane poziciu kamery a jej rotaciu
-
-            Hide / Show Camera Position 
-                dane menu umoznuje zobrazenie pozicii kamery a umoznuje presunut kameru na danu poziciu
-
-            
-            Main Parameters
-                Depht - kolko odrazov ma renderer zobrazit
-                Scatter - kolko lucov ma byt odrazenych roznimiu smermi z povrchu pre lepsi detail je vyhodne zvisit hodnotu
-                
-                Lighting Paramters
-                    definicia sila a farba svetla
-
-                    Light Intensity sila svetla
-                    R farba svetla
-                    G farba svetla 
-                    B farba svetla
-                
-                Field of view rozsah viditeľnej scény\
-                Gama kontrast a jas medzi tmavými a svetlými tónmi.
-
-            
-            Render Setting
-                Snap Light To Camera da svetlo na pozicu cameri
-                Raymarching Aktualne neimplementovany 
-                Preformance Mode zrusi wg.Wait v dosledku je obrazok trhanejsi ale vyuziva sa cely vykon hardveru
-                Mode 
-                    Clasic - noramlne rendrovanie
-                    Normal - rendrovanie normalu pre obrazok len pre V2Log V2Lin V2LogTexture V2LinTexture V4Log V4Lin
-                    Distance - aktualne nieje implementovane korektne
-
-        Volume Picker 
-            Submit Volume colors nahratie na backend
-            Color randomnes uplatnuje nahodnu zlozku na vybratu farbu
-            Render Voxels Definuje ci sa maju rendrovat voxeli
-            OverWrite Voxels ak je vybrata tatoi moznost vsetky voxeli zmenia svoju farbu
-            Add Randomnes to painting ak je tato moznots vybrata je pridana nahodna zlozka do farby ktora je pozivana pri uprave voxelov
-            Convert Voxels to smoke prepise hodnoti z voxelov vo voxelov pre Volume (smoke glass etc)
-
-            Voxel color 
-                Slector na vybratie farby voxelov s Preview
-            Color randomnes Pre Volume
-            Render Volume definuje ci ma byt dany element rendrovany
-            Smoke Color 
-                sluzy na vybratie farby pre volume a obasahuje preview danej farby
-            Volume Properties
-                Density hustota
-                Transmitance definuje priehladnot volumu
-                    
-
-
-
-
-
-## Technical Parameters
-- Frontend: Vue.js
-- Backend: Golang with Echo Framework
-
-## Backend Implementation
-### Endpoints
-- `POST /submitColor`: Submit color data
-type Color struct {
-		R               float64 `json:"r"`
-		G               float64 `json:"g"`
-		B               float64 `json:"b"`
-		A               float64 `json:"a"`
-		Reflection      float64 `json:"reflection"`
-		Roughness       float64 `json:"roughness"`
-		DirectToScatter float64 `json:"directToScatter"`
-		Metallic        float64 `json:"metalic"`
-		RenderVolume    bool    `json:"renderVolume"`
-		RenderVoxels    bool    `json:"renderVoxels"`
-	}
-- `POST /submitVoxel`: Submit voxel data
-type Volume struct {
-		Density               float64 `json:"density"`
-		Transmittance         float64 `json:"transmittance"`
-		Randomnes             float64 `json:"randomness"`
-		SmokeColorR           float64 `json:"smokeColorR"`
-		SmokeColorG           float64 `json:"smokeColorG"`
-		SmokeColorB           float64 `json:"smokeColorB"`
-		SmokeColorA           float64 `json:"smokeColorA"`
-		VoxelColorR           float64 `json:"voxelColorR"`
-		VoxelColorG           float64 `json:"voxelColorG"`
-		VoxelColorB           float64 `json:"voxelColorB"`
-		VoxelColorA           float64 `json:"voxelColorA"`
-		RandomnessVoxel       float64 `json:"randomnessVoxel"`
-		RenderVolume          bool    `json:"renderVolume"`
-		RenderVoxel           bool    `json:"renderVoxel"`
-		OverWriteVoxel        bool    `json:"overWriteVoxel"`
-		VoxelModification     string  `json:"voxelModification"`
-		UseRandomnessForPaint bool    `json:"useRandomnessForPaint"`
-		ConvertVoxelsToSmoke  bool    `json:"convertVoxelsToSmoke"`
-	}
-
-- `POST /submitRenderOptions`: Submit render configuration
-    type RenderOptions struct {
-		Depth          int     `json:"depth"`
-		Scatter        int     `json:"scatter"`
-		Gamma          float64 `json:"gamma"`
-		SnapLight      string  `json:"snapLight"`
-		RayMarching    string  `json:"rayMarching"`
-		Performance    string  `json:"performance"`
-		Mode           string  `json:"mode"`
-		Resolution     string  `json:"resolution"`
-		Version        string  `json:"version"`
-		FOV            float64 `json:"fov"`
-		LightIntensity float64 `json:"lightIntensity"`
-		R              float64 `json:"r"`
-		G              float64 `json:"g"`
-		B              float64 `json:"b"`
-	}
-- `POST /submitTextures`: Submit texture data
-    type TextureRequest struct {
-		Textures map[string]interface{} `json:"textures"`
-		Normals  map[string]interface{} `json:"normals"`
-		// Normal          map[string]interface{} `json:"normal"`
-		DirectToScatter float64 `json:"directToScatter"`
-		Reflection      float64 `json:"reflection"`
-		Roughness       float64 `json:"roughness"`
-		Metallic        float64 `json:"metallic"`
-		Index           int     `json:"index"`
-		Specular        float64 `json:"specular"`
-		ColorR          float64 `json:"colorR"`
-		ColorG          float64 `json:"colorG"`
-		ColorB          float64 `json:"colorB"`
-		ColorA          float64 `json:"colorA"`
-	}
-- `POST /submitShader`: Submit shader configuration
-    type ShaderParam struct {
-	Type       string                 `json:"type"`
-	Parameters map[string]interface{} `json:"params"`
-}
-- `GET /getCameraPosition`: Retrieve current camera position
-type Position struct {
-	X       float64 `json:"x"`
-	Y       float64 `json:"y"`
-	Z       float64 `json:"z"`
-	CameraX float64 `json:"cameraX"`
-	CameraY float64 `json:"cameraY"`
-}
-- `POST /moveToPosition`: Move camera to specified position
-type Position struct {
-	X       float64 `json:"x"`
-	Y       float64 `json:"y"`
-	Z       float64 `json:"z"`
-	CameraX float64 `json:"cameraX"`
-	CameraY float64 `json:"cameraY"`
-}
-
-### Backend Architecture
-The backend is asynchronous and runs in a separate Go routine. It leverages Go's unsafe functionality to avoid state management complexities and mutex overhead, resulting in improved performance.
-
-## Frontend Components
-
-### Color Picker
-- Color Channels (Multiplayer Enabled)
-  - Red (R): 0-256
-  - Green (G): 0-256
-  - Blue (B): 0-256
-  - Alpha (A): 0-256
-
-#### Features
-- Color Preview: Displays the currently selected color
-- Triangle Color Application: Allows setting color for a selected triangle
-
-### Texture Color Picker
-#### Texture Selector
-- Texture Range: 1-128
-- Texture Preview: 128 × 128 × 4 float resolution
-
-#### Normal Map
-- Resolution: 128 × 128 × 3
-- Normalization Range: -1 to 1
-- Backend Conversion: Normalized to vector
-
-##### Additional Features
-- Upload Normal Map Button
-- "No Normal" Button: Opens online normal map generator (https://cpetry.github.io/NormalMap-Online/)
-
-#### Material Properties
-- Reflection
-- Direct to Scatter
-- Roughness
-- Metallic
-- Specular
-
-#### Texture Adjustment
-- Sliders for material properties (0-1 range)
-- Channel Multipliers (Red/Green/Blue/Alpha)
-
-### Shader Menu
-Purpose: Create post-processing shader chains (e.g., original image → contrast → tint → final image)
-
-#### Shader Selection
-- Shader Selector
-- Add Shader Button
-- Submit Shader Menu Button
-
-#### Shader Parameters
-Common Parameters:
-- `amount`: Proportion of modified image to add to render
-- `multipass`: Number of consecutive shader applications
-
-Supported Shaders:
-1. **Contrast**
-   - Amount
-   - Multipass
-   - Contrast strength
-
-2. **Tint**
-   - Amount
-   - Multipass
-   - Tint color
-   - Tint strength
-
-3. **Bloom**
-   - Amount
-   - Multipass
-   - Threshold
-   - Intensity
-
-4. **BloomV2**
-   - Similar to Bloom with slight variations
-
-5. **Sharpness**
-   - Amount
-   - Multipass
-   - Filter strength
-
-6. **Color Mapping**
-   - Amount
-   - Multipass
-   - Color channels (R/G/B)
-
-7. **Chromatic Aberration**
-   - Amount
-   - Multipass
-   - Filter strength
-
-8. **Edge Detection**
-   - Uses Sobel filter
-   - Amount
-   - Multipass
-   - Edge enhancement strength
-   - Edge color (R/G/B)
-
-9. **Lighten**
-   - Amount
-   - Multipass
-   - Filter strength
-
-### Render Options
-#### Camera Management
-- Submit Render Options
-- Get Camera Position
-- Hide/Show Camera Position
-- Move Camera to Specific Position
-
-#### Main Rendering Parameters
-- **Depth**: Number of reflections to render
-- **Scatter**: Number of rays scattered from surface (increases detail)
-
-#### Lighting Parameters
-- Light Intensity
-- Light Color (R/G/B)
-- Field of View
-- Gamma (Contrast and brightness between dark and light tones)
-
-#### Render Settings
-- Snap Light to Camera
-- Raymarching (Currently not implemented)
-- Performance Mode
-  - Removes `wg.Wait`
-  - Potentially less smooth rendering
-  - Maximizes hardware utilization
-
-#### Render Modes
-- Classic: Standard rendering
-- Normal: Renders surface normals
-- Distance: Currently not correctly implemented
-
-### Volume Picker
-#### Volume Color Management
-- Submit Volume Colors
-- Color Randomness
-- Render Voxels Toggle
-- Overwrite Voxels
-- Add Randomness to Painting
-- Convert Voxels to Smoke
-
-#### Volume Properties
-- Voxel Color Selector
-- Smoke Color
-- Density
-- Transmittance (Volume transparency)
-
-
-# Architektúra Projektu GO-Draaw
-
+## 2.1 Architektúra Projektu GO-Draaw
 Projekt je rozdelený na dve hlavné časti:
-
-## 1. Frontend
-- Implementovaný v **Vue.js**
-- Slúži ako používateľské rozhranie pre vizualizáciu a interakciu
-- Poskytuje nástroje pre úpravu farieb, textúr, shaderov a renderovacích nastavení
-- Zabezpečuje okamžitú spätnú väzbu na zmeny parametrov
+* Frontend: Vue.js
+* Backend: Golang with Echo Framework a RayTracer
 
 ## 2. Backend
 - Vyvinutý v **Go (Golang)** s použitím **Echo frameworku**
@@ -496,57 +19,292 @@ Projekt je rozdelený na dve hlavné časti:
   - **Ray-tracing engine**: Jadro výpočtového systému pre renderovanie
   - **Webový server**: Zabezpečuje komunikáciu s frontendovou časťou
 
-Backend beží asynchrónne vo vlastných go-rutinách, čo minimalizuje potrebu zložitého manažmentu stavu a používania mutexov s pozitim usefe, čím sa dosahuje vyšší výkon a lepšia odozva systému.
+- Backend beží asynchrónne vo vlastných go-rutinách, čo minimalizuje potrebu zložitého manažmentu  stavu a používania mutexov s pozitim usefe, čím sa dosahuje vyšší výkon a lepšia odozva systému.
 
-Táto architektúra umožňuje efektívne oddelenie prezentačnej vrstvy od výpočtovej, pričom zachováva vysokú mieru interaktivity pre používateľa a zároveň poskytuje výkonný rendering komplexných 3D scén.
+- Táto architektúra umožňuje efektívne oddelenie prezentačnej vrstvy od výpočtovej, pričom zachováva vysokú mieru interaktivity pre používateľa a zároveň poskytuje výkonný rendering komplexných 3D scén.
 
-BVH a jej implementacia
-    zo zaciatku som porovanaval ray itersection s trojuholnikom pre kazdy trojuholnik co je velmi neefektivny postup pri rastucom pocte trojuholnikov v dosledku toho som mal problemy s vykonom vramci riesenia tohto problemu som implementoval BoudingBoxi pre trojuuhoniky kedze porovanavanies zasahu s Boxom je jednuchsie no ani toto riesenie nedospelo k pozadovanim vysledkom vramci riesenia tochto problemu som implemetoval BVH ktora deli priesotor na mensie casti tento krok zvysil vykonost 
+## 2.2 Backend Implementácia Web Servera
+### 2.2.1 Koncové body
+* `POST /submitColor`: Odoslať farebné údaje
+```go
+Color struct {
+    R               float64 `json:"r"`
+    G               float64 `json:"g"`
+    B               float64 `json:"b"`
+    A               float64 `json:"a"`
+    Reflection      float64 `json:"reflection"`
+    Roughness       float64 `json:"roughness"`
+    DirectToScatter float64 `json:"directToScatter"`
+    Metallic        float64 `json:"metalic"`
+    RenderVolume    bool    `json:"renderVolume"`
+    RenderVoxels    bool    `json:"renderVoxels"`
+}
+```
 
-    BVHNode 
-        type BVHNode struct { // size=136 (0x88)
-            Left, Right *BVHNode
-            BoundingBox [2]Vector
-            Triangles   TriangleSimple
-            active      bool
-        }
+* `POST /submitVoxel`: Odoslať voxel údaje
+```go
+type Volume struct {
+    Density               float64 `json:"density"`
+    Transmittance         float64 `json:"transmittance"`
+    Randomnes             float64 `json:"randomness"`
+    SmokeColorR           float64 `json:"smokeColorR"`
+    SmokeColorG           float64 `json:"smokeColorG"`
+    SmokeColorB           float64 `json:"smokeColorB"`
+    SmokeColorA           float64 `json:"smokeColorA"`
+    VoxelColorR           float64 `json:"voxelColorR"`
+    VoxelColorG           float64 `json:"voxelColorG"`
+    VoxelColorB           float64 `json:"voxelColorB"`
+    VoxelColorA           float64 `json:"voxelColorA"`
+    RandomnessVoxel       float64 `json:"randomnessVoxel"`
+    RenderVolume          bool    `json:"renderVolume"`
+    RenderVoxel           bool    `json:"renderVoxel"`
+    OverWriteVoxel        bool    `json:"overWriteVoxel"`
+    VoxelModification     string  `json:"voxelModification"`
+    UseRandomnessForPaint bool    `json:"useRandomnessForPaint"`
+    ConvertVoxelsToSmoke  bool    `json:"convertVoxelsToSmoke"`
+}
+```
 
-        v pribehu developmentu sa BVH node neustale zvecsoval v dosledku pridavani novich parametrov ako su Normal Vector pre trojuholnik ci materialovych vlasnosti preto pre verziu V4 bola vytvorena nova BVHLean
+* `POST /submitTextures`: Odoslať textúrové údaje
+```go
+type TextureRequest struct {
+    Textures          map[string]interface{} `json:"textures"`
+    Normals           map[string]interface{} `json:"normals"`
+    DirectToScatter   float64                `json:"directToScatter"`
+    Reflection        float64                `json:"reflection"`
+    Roughness         float64                `json:"roughness"`
+    Metallic          float64                `json:"metallic"`
+    Index             int                    `json:"index"`
+    Specular          float64                `json:"specular"`
+    ColorR            float64                `json:"colorR"`
+    ColorG            float64                `json:"colorG"`
+    ColorB            float64                `json:"colorB"`
+    ColorA            float64                `json:"colorA"`
+}
+```
 
-        type BVHLeanNode struct { // size=72 (0x48)
-            Left, Right  *BVHLeanNode
-            TriangleBBOX TriangleBBOX
-            active       bool
-        }
-        
-        pre tuto verziu bolo upravene ze Trojuholnik aj Bounding Box je zluceny do jedneho structu 
+* `POST /submitRenderOptions`: Odoslať konfiguráciu renderingu
+```go
+type RenderOptions struct {
+    Depth            int     `json:"depth"`
+    Scatter          int     `json:"scatter"`
+    Gamma            float64 `json:"gamma"`
+    SnapLight        string  `json:"snapLight"`
+    RayMarching      string  `json:"rayMarching"`
+    Performance      string  `json:"performance"`
+    Mode             string  `json:"mode"`
+    Resolution       string  `json:"resolution"`
+    Version          string  `json:"version"`
+    FOV              float64 `json:"fov"`
+    LightIntensity   float64 `json:"lightIntensity"`
+    R                float64 `json:"r"`
+    G                float64 `json:"g"`
+    B                float64 `json:"b"`
+}
+```
 
-        type TriangleBBOX struct { // size=52 (0x34)
-            V1orBBoxMin, V2orBBoxMax, V3 Vector
-            normal                       Vector
-            id                           int32
-        }
+* `POST /submitShader`: Odoslať konfiguráciu shadera
+```go
+type ShaderParam struct {
+    Type       string                 `json:"type"`
+    Parameters map[string]interface{} `json:"params"`
+}
+```
 
-        taktiez pre trojuhonik boli odstranene materialove vlasnosti a boli presunute do texturi ktora a dana textura sa ziskava na zaklade ID
+* `GET /getCameraPosition`: Získať aktuálnu pozíciu kamery
+```go
+type Position struct {
+    X       float64 `json:"x"`
+    Y       float64 `json:"y"`
+    Z       float64 `json:"z"`
+    CameraX float64 `json:"cameraX"`
+    CameraY float64 `json:"cameraY"`
+}
+```
 
-        taktiez vramci optimalizacie bolo experimentovane s array reprezentaciu kede plati ze lava node je n*2 a prava n*2+1
-        type BVHArray struct { // size=65538508 (0x3e809cc)
-            triangles [NumNodes]TriangleBBOX
-            textures  [128]Texture
-        }
+* `POST /moveToPosition`: Presunúť kameru na určenú pozíciu
+```go
+type Position struct {
+    X       float64 `json:"x"`
+    Y       float64 `json:"y"`
+    Z       float64 `json:"z"`
+    CameraX float64 `json:"cameraX"`
+    CameraY float64 `json:"cameraY"`
+}
+```
 
-        k danej verzi bolo implementovane aj testy a preukazalo sa ze dana verzie je klasickej implementacii moze byt vylepsena na zaklade mojich testov https://github.com/DarkBenky/testBinaryTree kde klasicka implementacia 278,146 ns/op a fix array reprezentacia 218,831 ns/op tento dosledok v dosledku lepsieho cashovania hodnot ked su hned za sebou zial k danej implementaciu som nestihol dokoncit vramci limitoveneho casu 
+## 2.3 Dokumentácia Frontend Komponentov Ray Tracingu
+
+![GUI](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/GUI.png?raw=true)
+
+## 2.3.1 Color Picker
+### Farebné Kanály (Multiplayer Aktivovaný)
+- Červená (R): 0-256
+- Zelená (G): 0-256
+- Modrá (B): 0-256
+- Alfa (A): 0-256
+
+#### Funkcie
+- Náhľad Farby: Zobrazuje presne vybranú farbu
+- Aplikácia Farby na Trojuholník: Umožňuje nastaviť farbu pre kliknutý trojuholník
+
+## 2.3.2 Texture Color Picker
+### Výber Textúry
+- Rozsah: 1-128 textúr
+- Náhľad Textúry: Rozlíšenie 128 × 128 × 4 float
+
+#### Interakcia s Textúrou
+- Tlačidlo Nahraj Textúru: Nahratie textúry
+- Schopnosť zobraziť a upravovať textúru na základe vybranej farby z Color Pickeru
+
+### Normal Mapa
+- Rozlíšenie: 128 × 128 × 3
+- Rozsah Normalizácie: -1 až 1
+- Konverzia na Backende: Normalizovaná na vektor
+
+#### Funkcie Normal Mapy
+- Tlačidlo Nahraj Normal Mapu: Umožňuje nahrať normal mapy
+- Tlačidlo "Žiadna Normal Mapa": Otvára online generátor normal máp (https://cpetry.github.io/NormalMap-Online/)
+
+### Zobrazenie Materiálových Vlastností
+- Odraz
+- Priamy na Rozptyl
+- Drsnosť
+- Kovový Lesk
+- Špecular
+
+### Úprava Textúry
+- Posuvníky pre materiálové vlastnosti (rozsah 0-1)
+- Násobiteľe Kanálov:
+  - Červený Kanál
+  - Zelený Kanál
+  - Modrý Kanál
+  - Alfa Kanál
+ 
+![GUI](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/ColorPicker.png?raw=true)
+
+## 2.3.3 Shader Menu
+### Účel
+Vytváranie reťazcov post-processingových shaderov (napr. pôvodný obrázok → kontrast → tint → finálny obrázok)
+
+### Správa Shaderov
+- Výber Shaderu
+- Tlačidlo Pridať Shader
+- Tlačidlo Odoslať Shader Menu
+
+### Parametre Shaderov
+#### Spoločné Parametre
+- `amount`: Podiel upraveného obrázku, ktorý sa pridá do renderingu
+- `multipass`: Počet po sebe nasledujúcich aplikácií shaderu
+
+#### Podporované Shadery
+1. **Kontrast**
+   - Množstvo
+   - Multipass
+   - Sila kontrastu
+
+2. **Tint**
+   - Množstvo
+   - Multipass
+   - Tint farba
+   - Sila tint shaderu
+
+3. **Bloom**
+   - Množstvo
+   - Multipass
+   - Prahová hodnota
+   - Intenzita
+
+4. **BloomV2**
+   - Podobné Bloomu s miernym variantom
+
+5. **Ostrosť**
+   - Množstvo
+   - Multipass
+   - Sila filtra
+
+6. **Mapovanie Farieb**
+   - Množstvo
+   - Multipass
+   - Farebné kanály (R/G/B)
+   - Definuje distribúciu farieb (napr. 2 úrovne: 0% alebo 100%)
+
+7. **Chromatická Aberácia**
+   - Množstvo
+   - Multipass
+   - Sila filtra
+   - Posun farebného kanála (Červená vľavo, Modrá vpravo)
+
+8. **Detekcia Hrán**
+   - Používa Sobelov filter
+   - Množstvo
+   - Multipass
+   - Sila zvýraznenia hrán
+   - Nastaviteľná farba hrán (R/G/B)
+
+9. **Zosvetlenie**
+   - Množstvo
+   - Multipass
+   - Sila filtra
+  
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/ShaderMenu.png?raw=true)
+
+## 2.3.4 Render Options
+### Správa Kamery
+- Odoslať Render Možnosti
+- Tlačidlo Získať Pozíciu Kamery
+- Skryť/Zobraziť Pozíciu Kamery
+- Presunúť Kameru na Špecifickú Pozíciu
+
+### Hlavné Parametre Renderingu
+- **Hĺbka**: Počet odrazov na renderovanie
+- **Rozptyl**: Počet lúčov rozptýlených z povrchu (zvyšuje detail)
+
+### Parametre Osvetlenia
+- Intenzita Svetla
+- Farba Svetla (R/G/B)
+- Zorné Pole
+- Gama: Kontrast a jas medzi tmavými a svetlými tónmi
+
+### Nastavenia Renderingu
+- Pripnúť Svetlo ku Kamere
+- Raymarching (momentálne neimplementované)
+- Performance Mód
+  - Odobratie `wg.Wait`
+  - Potenciálne menej plynulý rendering
+  - Maximalizácia využitia hardvéru
+
+### Módy Renderingu
+- Klasický: Štandardné renderovanie
+- Normál: Renderovanie normálových povrchov (V2Log, V2Lin, V2LogTexture, V2LinTexture, V4Log, V4Lin)
+- Vzdialenosť: Momentálne nesprávne implementované
+
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/Render%20Options.png?raw=true)
+
+## 2.3.5 Volume Picker
+### Správa Farby Objemu
+- Odoslať Farby Objemu
+- Náhodnosť Farby
+- Prepínač Renderingu Voxelov
+- Prepísať Voxely
+- Pridať Náhodnosť do Maľovania
+- Konvertovať Voxely na Dym (rendering objemu ako dym, sklo)
+
+### Vlastnosti Objemu
+- Výber Farby Voxelov s Náhľadom
+- Výber Farby Dymu
+- Hustota
+- Priehľadnosť (priehľadnosť objemu)
+
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/Volume%20Picker.png?raw=true)
 
 
-
-
-
-
-# BVH a jej implementácia
+## 3.3 BVH a jej implementácia
 
 V procese optimalizácie ray-tracingu bola implementácia efektívnej akceleračnej štruktúry kľúčovým faktorom pre zlepšenie výkonu. Evolúcia riešenia prešla niekoľkými fázami:
 
 ## Vývojová cesta
+
 1. **Naivný prístup** - Pôvodná implementácia testovala prienik lúča s každým trojuholníkom v scéne, čo viedlo k lineárnej časovej zložitosti O(n) a výrazne limitovalo výkon pri rastúcom počte trojuholníkov.
 
 2. **Bounding Box optimalizácia** - Ako prvý krok optimalizácie boli implementované ohraničujúce boxy (Bounding Boxes) pre skupiny trojuholníkov, čo umožnilo rýchlejšie vylúčenie objektov mimo lúča. Toto zlepšenie však stále nebolo dostatočné pre komplexné scény.
@@ -556,6 +314,7 @@ V procese optimalizácie ray-tracingu bola implementácia efektívnej akcelerač
 ## Evolúcia BVH štruktúry
 
 ### Pôvodná BVH implementácia
+
 ```go
 type BVHNode struct { // veľkosť=136 (0x88) bajtov
     Left, Right *BVHNode
@@ -568,13 +327,13 @@ type BVHNode struct { // veľkosť=136 (0x88) bajtov
 Prvá verzia BVH používala štandardnú stromovú štruktúru s ukazovateľmi na ľavý a pravý podstrom. Táto implementácia však trpela rastúcou veľkosťou uzlov kvôli pridávaniu materiálových vlastností a normálových vektorov pre trojuholníky.
 
 ### Optimalizovaná BVHLean
+
 ```go
 type BVHLeanNode struct { // veľkosť=72 (0x48) bajtov
     Left, Right  *BVHLeanNode
     TriangleBBOX TriangleBBOX
     active       bool
 }
-
 type TriangleBBOX struct { // veľkosť=52 (0x34) bajtov
     V1orBBoxMin, V2orBBoxMax, V3 Vector
     normal                       Vector
@@ -582,12 +341,18 @@ type TriangleBBOX struct { // veľkosť=52 (0x34) bajtov
 }
 ```
 
+- Classic BVHNode : 407.888788ms
+- BVHLean : 341.148485ms
+
+![BVH Comparison](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/bvh_performance_comparison.png?raw=true)
+
 Pre verziu V4 bola vytvorená optimalizovaná implementácia BVHLean, ktorá:
 - Zmenšila veľkosť uzla takmer na polovicu (zo 136 bajtov na 72 bajtov)
 - Zlúčila ohraničujúci box a trojuholník do jednej štruktúry pre lepšiu lokalitu dát
 - Odstránila priame ukladanie materiálových vlastností v uzle a nahradila ich systémom ID odkazov na textúry
 
 ### Experimentálna array-based implementácia
+
 ```go
 type BVHArray struct { // veľkosť=65538508 (0x3e809cc) bajtov
     triangles [NumNodes]TriangleBBOX
@@ -603,6 +368,7 @@ V rámci ďalšej optimalizácie bola experimentálne vytvorená array-based rep
 Testovanie preukázalo 21% zlepšenie výkonu oproti klasickej implementácii (218,831 ns/op vs. 278,146 ns/op) vďaka lepšiemu cache využitiu pri sekvenčnom prístupe k dátam.
 
 ## Výkonnostné výsledky
+
 Implementácia Array-based BVH poskytla merateľné zlepšenie výkonu:
 - Klasická implementácia: 278,146 ns/op
 - Array-based implementácia: 218,831 ns/op
@@ -612,136 +378,431 @@ Testovanie dostupné na: https://github.com/DarkBenky/testBinaryTree
 
 Array-based implementácia zostala v experimentálnej fáze z dôvodu časových obmedzení projektu, ale predstavuje sľubný smer pre ďalší vývoj.
 
+## 4.0 RayTracing Vývoj Funkcionality 
+
+Pôvodná funkcia, ktorá poskytuje základnú ray tracing funkcionalitu:
+
+### TraceRay
+
+#### Web Name : V1
+
+- Používa BVH štruktúru pre testy priesečníkov
+- Vykonáva základný výpočet rozptýleného svetla pomocou cosine-weighted hemisphere sampling
+- Počíta priame odrazy a zrkadlové body pomocou jednoduchého svetelného modelu
+- Používa rekurzívny prístup pre hĺbkové odrazy
+- Vykonáva výpočet tieňov pomocou shadow rays
+- Kombinuje priame svetlo, rozptýlené svetlo a odrazy lineárne
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V1.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V1-Table.png?raw=true)
+
+- [V1 Profile](https://flamegraph.com/share/ac2b59ab-f8ea-11ef-8d53-2a7e77e4af82)
 
 
-## TraceRay
+### TraceRayV2
 
-The original function that provides basic ray tracing functionality:
+#### Web Name : V2
 
-- Uses BVH structure for intersection tests
-- Performs basic scattered light calculation with a cosine-weighted hemisphere sampling
-- Calculates direct reflections and specular highlights using a simple lighting model
-- Uses a recursive approach for depth-based bounces
-- Performs shadow calculation by casting shadow rays
-- Combines direct lighting, scattered lighting, and reflections linearly
+- Logickejšie organizuje kód, oddeľuje priame osvetlenie, nepriame osvetlenie a odrazy
+- Pridáva perturbáciu smerov odrazov založenú na drsnosti
+- Implementuje fyzikálnejšiu energetickú konzerváciu
+- Používa hemisphere sampling so zlepšenou logikou rozptylu
+- Kombinuje komponenty pomocou fyzikálnejšieho prístupu
+- Lepšie spracováva energetickú rovnováhu medzi difúznym a zrkadlovým svetlom
 
-Mean Frame Time  Std Frame Time  Min Frame Time  Bottom Frame Time 10%  Top Frame Time 10%  Max Frame Time  Median Frame Time
-45535.5483      82965.2246           626.0                  802.4             86894.6       1084617.0            40969.0
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2-Table.png?raw=true)
 
-
-An improved version that:
-
-- Organizes the code more logically, separating direct illumination, indirect illumination, and reflection
-- Adds roughness-based perturbation to reflection directions
-- Implements more physically-based energy conservation
-- Uses hemisphere sampling with improved scattering logic
-- Combines components using a more physically accurate approach
-- Better handles the energy balance between diffuse and specular
-
-## TraceRayV3
-
-A PBR (Physically Based Rendering) approach that:
-
-- Implements Fresnel-Schlick approximation for reflection calculation
-- Uses GGX distribution for microfacet-based specular highlights
-- Calculates important dot products (NdotL, NdotV, NdotH) for PBR calculations
-- Better simulates material properties like metalness and roughness
-- Employs more accurate energy conservation for combining components
-- Returns a single color value
-
-Mean Frame Time  Std Frame Time  Min Frame Time  Bottom Frame Time 10%  Top Frame Time 10%  Max Frame Time  Median Frame Time
-51327.2233      98163.7160           627.0                  782.0             94945.9       1108286.0            44979.0
-
-## TraceRayV3Advance
-
-An extension of TraceRayV3 that:
-- Returns additional data: color, distance, and normal vector
-- Allows for more advanced post-processing techniques
-- Otherwise uses the same PBR approach as TraceRayV3
-- Supports storing data for deferred shading techniques
-
-Mean Frame Time  Std Frame Time  Min Frame Time  Bottom Frame Time 10%  Top Frame Time 10%  Max Frame Time  Median Frame Time
- 54768.3617     104101.6718          1925.0                 2221.7             99104.7       1109015.0            47394.5
-
-## TraceRayV3AdvanceTexture
-
-A texture-enabled version that:
-- Integrates material properties from textures
-- Takes a textureMap parameter to access texture data
-- Returns color and normal information for post-processing
-- Uses specialized BVH traversal (`IntersectBVH_Texture`) for texture support
-- Applies texture data to material parameters like roughness and metallic
-
-Mean Frame Time  Std Frame Time  Min Frame Time  Bottom Frame Time 10%  Top Frame Time 10%  Max Frame Time  Median Frame Time
-55282.6100     105146.7734          1194.0                 1324.9             99664.7       1113191.0            47701.0
-
-## TraceRayV4AdvanceTexture
-
-An optimized texture-enabled version that:
-- Uses the lightweight `BVHLeanNode` structure instead of the standard BVH
-- Employs an optimized intersection function (`IntersectBVHLean_Texture`)
-- Otherwise similar to TraceRayV3AdvanceTexture in functionality
-- Returns color and normal information
-
-Mean Frame Time  Std Frame Time  Min Frame Time  Bottom Frame Time 10%  Top Frame Time 10%  Max Frame Time  Median Frame Time
-49291.8733      96904.0536          1772.0                 2085.8             86554.2       1101608.0            40759.0
-
-## TraceRayV4AdvanceTextureLean
-
-The most optimized version that:
-- Only returns color information (no normal vectors or distance)
-- Uses the minimal `IntersectBVHLean_TextureLean` intersection
-- Reduces memory usage and minimizes data structure overhead
-- Maintains all PBR calculations but simplifies the return structure
-- Specifically designed for pure color rendering without other data
-
-Mean Frame Time  Std Frame Time  Min Frame Time  Bottom Frame Time 10%  Top Frame Time 10%  Max Frame Time  Median Frame Time
-46876.2583      95782.8693          1570.0                 2005.9             84855.7       1095377.0            40367.5
-
-## Key Evolution Points:
-
-1. **Rendering Model**: From a basic model (TraceRay) to a full PBR model (V3 and beyond)
-2. **Data Return**: From just color to color+distance+normal to just color again for optimization
-3. **BVH Usage**: From standard BVH to optimized lean BVH structures
-4. **Material Simulation**: From basic reflection to full PBR with metalness, roughness, and Fresnel
-5. **Texture Support**: Added in V3AdvanceTexture and maintained in V4 variations
-6. **Memory Usage**: Progressively optimized, especially in the V4Lean variant
-7. **Performance**: Each version making trade-offs between features and speed
-
-These functions represent a typical evolution path in ray tracer development, moving from correctness to performance optimization while maintaining physically based rendering principles.
+- [V2 Profile](https://flamegraph.com/share/d20735a0-f944-11ef-8d53-2a7e77e4af82)
 
 
-# Understanding FresnelSchlick and GGXDistribution Functions
+### TraceRayV3
 
-These two functions are key components of physically-based rendering (PBR), which aims to simulate how light interacts with surfaces in a realistic way.
+#### Web Name : Not Implemented
 
-## FresnelSchlick Function
+PBR (Physically Based Rendering) prístup, ktorý:
 
+- Implementuje Fresnel-Schlick aproximáciu pre výpočet odrazov
+- Používa GGX distribúciu pre microfacet-based zrkadlové body
+- Počíta dôležité dot produkty (NdotL, NdotV, NdotH) pre PBR výpočty
+- Lepšie simuluje materiálové vlastnosti ako kovový lesk a drsnosť
+- Používa presnejšiu energetickú konzerváciu pre kombinovanie komponentov
+- Vracia jednu farebnú hodnotu
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Lin.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Lin-Table.png?raw=true)
+
+- [V2Lin Profile](https://flamegraph.com/share/de162a6c-f8ee-11ef-8d53-2a7e77e4af82)
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Log.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Log-Table.png?raw=true)
+
+- [V2Log Profile](https://flamegraph.com/share/e8dbdb86-f8ef-11ef-8d53-2a7e77e4af82)
+
+
+### TraceRayV3Advance
+
+#### Web Name : V2Liner / V2Log
+
+Rozšírenie TraceRayV3, ktoré:
+- Vracia dodatočné dáta: farbu, vzdialenosť a normálový vektor
+- Umožňuje pokročilejšie post-processing techniky
+- Inak používa rovnaký PBR prístup ako TraceRayV3
+- Podporuje ukladanie dát pre deferred shading techniky
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LinTexture.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LinTexture-Table.png?raw=true)
+
+- [V2LinTexture Profile](https://flamegraph.com/share/348d13a7-f8ef-11ef-8d53-2a7e77e4af82)
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LogTexture.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LogTexture-Table.png?raw=true)
+
+- [V2LinTexture Profile](https://flamegraph.com/share/e8dbdb86-f8ef-11ef-8d53-2a7e77e4af82)
+
+### TraceRayV3AdvanceTexture
+
+#### Web Name : V2LinearTexture / V2LogTexture
+
+Verzia s podporou textúr, ktorá:
+- Integruje materiálové vlastnosti z textúr
+- Používa textureMap parameter pre prístup k dátam textúr
+- Vracia informácie o farbe a normále pre post-processing
+- Používa špecializovaný BVH traversal (`IntersectBVH_Texture`) pre podporu textúr
+- Aplikuje dáta textúr na materiálové parametre ako drsnosť a kovový lesk
+
+
+### TraceRayV4AdvanceTexture
+
+#### Web Name : V4Linear / V4Log
+
+Optimalizovaná verzia s podporou textúr, ktorá:
+- Používa lightweight `BVHLeanNode` štruktúru namiesto štandardného BVH
+- Využíva optimalizovanú intersekčnú funkciu (`IntersectBVHLean_Texture`)
+- Inak podobná TraceRayV3AdvanceTexture vo funkcionalite
+- Vracia informácie o farbe a normále
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Lin.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Lin-Table.png?raw=true)
+
+- [V4Lin Profile](https://flamegraph.com/share/04263b3f-f8f1-11ef-8d53-2a7e77e4af82)
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Log.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Log-Table.png?raw=true)
+
+- [V4Log Profile](https://flamegraph.com/share/60e31daf-f8f0-11ef-8d53-2a7e77e4af822)
+
+
+### TraceRayV4AdvanceTextureLean
+
+#### Web Name : V4LinOptim / V4LogOptim
+
+Optimalizovanejšia verzia, ktorá:
+- Vracia len farebnú informáciu (bez normálových vektorov a vzdialenosti)
+- Používa minimálny `IntersectBVHLean_TextureLean` intersekčný postup
+- Znižuje pamäťovú spotrebu a minimalizuje štruktúrnu réžiu
+- Zachováva všetky PBR výpočty, ale zjednodušuje návratovú štruktúru
+- Špecificky navrhnutá pre čistý farebný rendering bez ďalších dát
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LinOptim.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LinOptim-Table.png?raw=true)
+
+- [V4LinOptim Profile](https://flamegraph.com/share/5c771661-f8f1-11ef-8d53-2a7e77e4af82)
+
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LogOptim.png?raw=true)
+---
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LogOptim-Table.png?raw=true)
+
+- [V4LogOptim Profile](https://flamegraph.com/share/4959148d-f8f2-11ef-8d53-2a7e77e4af82)
+
+
+## 4.1 Kľúčové body evolúcie:
+
+1. **Renderovací Model**: Od základného modelu (TraceRay) po plný PBR model (V3 a novšie)
+2. **Návratové Dáta**: Od len farby po farbu+vzdialenosť+normálu späť len na farbu pre optimalizáciu
+3. **BVH Použitie**: Od štandardného BVH po optimalizované lean BVH štruktúry
+4. **Simulácia Materiálu**: Od základného odrazu po plný PBR s kovovým leskom, drsnosťou a Fresnelom
+5. **Podpora Textúr**: Pridaná vo V3AdvanceTexture a zachovaná vo V4 variantoch
+6. **Využitie Pamäte**: Postupne optimalizované, najmä vo variante V4Lean
+7. **Výkon**: Každá verzia robí kompromisy medzi funkciami a rýchlosťou
+
+
+Tieto funkcie reprezentujú typickú vývojovú cestu ray tracera, ktorá sa pohybuje od správnosti cez optimalizáciu výkonu so zachovaním princípov fyzikálne založeného renderingu.
+
+## 4.1.1 Systém Benchmarkovania a Výkonnostnej Analýzy
+Nižšie je podrobná analýza výsledkov s ohľadom na vykonávanie a evolúciu jednotlivých verzií ray tracingu:
+
+---
+
+### Zhrnutie Štatistík
+
+![Teble](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/performance_metrics_table.png?raw=true)
+
+- **V1 (TraceRay):**  
+  - **Priemerný čas snímku:** ~35 688  
+  - **Medián:** ~38 362  
+  - **Poznámka:** Najnižšie časy zo všetkých verzií, čo odráža jednoduchú implementáciu so základným BVH a cosine-weighted hemisphere sampling.  
+ 
+- **V2 (TraceRayV2):**  
+  - **Priemerný čas snímku:** ~40 489  
+  - **Medián:** ~43 920  
+  - **Poznámka:** Zvýšená cena výpočtov kvôli logickejšej organizácii kódu, separácii komponentov osvetlenia a implementácii fyzikálnej konzervácie energie.
+
+- **V2 rozšírené verzie (V2Linear, V2LinearTexture, V2Log):**  
+  - **Priemerné časy:** Sa pohybujú od ~44 572 do ~48 300  
+  - **Medián:** Približne od ~46 791 do ~47 459  
+  - **Poznámka:** Zavedené pokročilejšie PBR prístupy, ktoré zahŕňajú simuláciu materiálových vlastností, Fresnel-Schlick aproximáciu a podporu textúr. Viditeľný je nárast variability výkonu, pričom horných 10% hodnôt sa časť operácií značne predlžuje (napr. až okolo 1 miliónu v niektorých prípadoch).
+
+- **V4 verzie (V4Lin, V4LinOptim, V4Log, V4LogOptim):**  
+  - **Priemerné časy:** Približne medzi ~43 815 a ~45 318  
+  - **Medián:** Okolo ~40 508 až ~41 179  
+  - **Poznámka:** Tieto verzie využívajú optimalizovaný lean BVH, čo znižuje pamäťovú náročnosť a štrukturálnu réžiu. Optimalizované varianty (V4LinOptim a V4LogOptim) vracajú len farebné informácie, čo prináša mierne zlepšenie mediánových hodnôt, hoci špičkové hodnoty (horných 10%) zostávajú vysoké.
+
+---
+
+### Technologické Rozdiely a Vývojová Trajektória
+
+1. **Výkon vs. Kvalita:**
+   - **V1:** Najrýchlejšia verzia, no s obmedzenou presnosťou osvetlenia.
+   - **V2:** Zavedením lepšieho manažmentu svetelných zložiek a energetickej konzervácie dochádza k miernemu nárastu času snímku.
+   - **V2 rozšírenia:** Prechod na PBR prístup a podpora textúr výrazne zvyšujú kvalitu renderovania, ale zároveň zvyšujú výpočtové nároky a variabilitu času.
+   - **V4:** Optimalizované verzie sa snažia znížiť režijné náklady pomocou lean BVH, pričom sa zachováva podpora textúr a pokročilé PBR výpočty. Optimalizované varianty vracajú len farbu, čo znižuje mediánové časy, ale stále sa vyskytujú výrazné výkyvy v najnáročnejších prípadoch.
+
+2. **Pamäť a Štruktúra:**
+   - S prechodom od klasického BVH (V1, V2) k lean BVH (V4) sa optimalizuje využitie pamäte a znižuje štrukturálna réžia. 
+   - Verzie, ktoré vracajú dodatočné dáta (ako normály a vzdialenosti), majú prirodzene vyššie nároky na spracovanie, čo sa odráža v zvýšených čase snímkov.
+
+3. **Komplexita Implementácie:**
+   - Evolúcia od základného ray tracingu cez zavedenie fyzikálne presnejších modelov až po optimalizované verzie ilustruje kompromisy medzi presnosťou osvetlenia a výpočtovým výkonom.
+   - Zavedením PBR prístupov a podpory textúr sa výrazne zlepšuje vizuálna kvalita renderu, avšak na úkor rýchlosti a konzistencie výkonu.
+
+---
+
+### Záver
+
+Vývojový trend týchto verzií ilustruje, že:
+- **Základná verzia (V1)** je najrýchlejšia, ale neposkytuje tak vysokú vizuálnu kvalitu.
+- **V2 a jeho rozšírenia** ponúkajú lepšie osvetlenie a simuláciu materiálových vlastností, pričom sa mierne zvyšuje čas spracovania.
+- **Optimalizované V4 verzie** sa snažia minimalizovať režijné náklady pri zachovaní pokročilých funkcií, čo sa prejavuje nižším mediánom, ale stále sú prítomné výkyvy v 10% horných hodnotách.
+
+Celkovo ide o typický prípad kompromisu medzi výkonom a kvalitou – zložitejšie výpočty prinášajú realistickejšie výsledky, avšak vyžadujú vyššiu výpočtovú silu a môžu viesť k občasným špičkám v čase spracovania.
+
+## Median Graph
+![Median Graph](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/performance_median_frame_time.png?raw=true)
+## Mean Graph
+![Median Graph](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/performance_mean_frame_time.png?raw=true)
+## STD Graph
+![Median Graph](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/performance_std_frame_time.png?raw=true)
+## Min Frame Time
+![Median Graph](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/performance_min_frame_time.png?raw=true)
+## Max Frame Time
+![Median Graph](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/performance_max_frame_time.png?raw=true)
+## Bottom 10 % Frame Time
+![Median Graph](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/performance_bottom_frame_time_10%25.png?raw=true)
+## Top 10 % Frame Time
+![Median Graph](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/performance_top_frame_time_10%25.png?raw=true)
+
+
+### 4.1.2 Úvod do Benchmarkingu
+
+Implementovaný benchmarkový systém predstavuje sofistikovaný nástroj pre komplexnú analýzu výkonu ray-tracera počas rôznych vývojových fáz.
+
+#### 4.1.3 Testované Verzie Rendereru:
+
+1. V1
+2. V2
+3. V2Log
+4. V2Linear
+5. V2LinearTexture
+6. V4Log
+7. V4Lin
+8. V4LinOptim
+9. V4LogOptim
+
+### 4.1.4 Príprava Testovania
+
+#### **Testovacie Pozície Kamery**:
+
+- 3 rôzne priestorové pozície
+
+- 10 sekund Interpolácia medzi poziciami
+
+- Kamera sa počas testovania pohybuje medzi týmito pozíciami na základe interpolovaných nových pozícií v danom čase
+
+#### **Konfigurácia Parametrov**:
+
+- **Konštantné Parametre**:
+  - Hlbka rekurzie: `3`
+  - Rozptyl: `8`
+  - Škálovací faktor: `2`
+  - Gamma korekcia: `0.285`
+
+### 4.1.5 Špecifiká Implementácie
+
+#### **Príprava Testovacích Dát**
+
+
+2. **Profiling Mechanizmus**
+   - Generovanie CPU profilov pre každú verziu
+   - Ukladanie profilov do `/profiles/`
+   - Vytvorenie JSON súboru s nameranými časmi
+
+#### **Optimalizácie Pre Benchmark**
+
+- **Garbage Collection Vypnutý**:
+
+```go
+if Benchmark {
+    debug.SetGCPercent(-1)  // Kompletné vypnutie GC
+} else {
+    debug.SetGCPercent(750) //  Zvysennasenie Limitu GC
+}
+```
+
+## 3. Metriky Výkonu
+
+### 4.1.6 Sledované Ukazovatele
+
+1. **Priemerný Výpočtový Čas**
+   - Pre každú verziu rendereru
+   - Záznamy v mikrosekundách
+   - Štatistická analýza výkonu
+2. **Verzie Profilov**
+   - Štandardné profily
+   - Výkonnostné profily
+   - Detailná analýza pre každú verziu
+
+## 4.1.7. Výstup a Analýza
+
+### 4.1.7.1 Výstupné Formáty
+
+1. **CPU Profily**
+   - Uložené vo formáte `.prof`
+   - Pripravené pre analýzu nástrojmi ako `pprof`
+2. **JSON Výkonnostné Dáta**
+   - Uložené v `profiles/versionTimes.json`
+   - Štruktúrovaný výstup pre ďalšiu analýzu
+
+### 4.1.7.2 Postprocessing
+
+- **Python Analýza**
+  - Generovanie grafov
+  - Štatistické vyhodnotenie
+  - Porovnanie verzií
+
+## 4.1.7 Kľúčové Výhody Systému
+
+1. Systematické testovanie výkonu
+2. Detailná diagnostika
+3. Podpora kontinuálnej optimalizácie
+4. Flexibilita pre rôzne testovacie scenáre
+
+## 4.1.8. Záver
+
+Implementovaný benchmarkový systém poskytuje komplexný a precízny nástroj pre hodnotenie výkonnosti ray-tracera, umožňujúci cielenú optimalizáciu a vývoj.
+
+---
+
+## 4.1.8.1 Implementácia Benchmarku v Go
+
+Nižšie je kód pre konfiguráciu benchmarku:
+
+```go
+if Benchmark {
+    renderVersions := []uint8{V1, V2, V2Log, V2Linear, V2LinearTexture, V4Log, V4Lin, V4LogOptim, V4LinOptim}
+
+    cPositions := []Position{
+        {X: -424.48, Y: 986.71, Z: 17.54, CameraX: 0.24, CameraY: -2.08},
+        {X: 54.16, Y: 784.00, Z: 17.54, CameraX: 1.19, CameraY: -1.95},
+        {X: 669.52, Y: 48.41, Z: 17.54, CameraX: -0.72, CameraY: -1.91}}
+
+    CameraPositions = InterpolateBetweenPositions(10*time.Second, cPositions)
+    camera = Camera{}
+
+    const depth = 3
+    const scatter = 8
+    const scaleFactor = 2
+    const gamma = 0.285
+
+    BlocksImage := MakeNewBlocks(scaleFactor)
+    BlocksImageAdvance := MakeNewBlocksAdvance(scaleFactor)
+
+    TextureMap := [128]Texture{}
+    for i := range TextureMap {
+        for j := range TextureMap[i].texture {
+            for k := range TextureMap[i].texture[j] {
+                TextureMap[i].texture[j][k] = ColorFloat32{rand.Float32() * 256, rand.Float32() * 256, rand.Float32() * 256, 255}
+            }
+        }
+    }
+
+    versionTimes := make(map[string][]float64)
+    preformance := false
+
+    for _, version := range renderVersions {
+        var name string
+        switch version {
+        case V1:
+            name = "V1"
+        case V2:
+            name = "V2"
+        case V2Log:
+            name = "V2Log"
+        case V2Linear:
+            name = "V2Linear"
+        }
+
+        profileFilename := fmt.Sprintf("profiles/cpu_profile_v%s.prof", name)
+        f, err := os.Create(profileFilename)
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        if err := pprof.StartCPUProfile(f); err != nil {
+            log.Fatal(err)
+        }
+    }
+}
+```
+
+
+## 4.4 Vysledky testov
+
+
+## 4.3 FresnelSchlick Funkcia
 ```go
 func FresnelSchlick(cosTheta, F0 float32) float32 {
     return F0 + (1.0-F0)*math32.Pow(1.0-cosTheta, 5)
 }
 ```
+### Účel
+FresnelSchlick funkcia aproximuje **Fresnel efekt**, ktorý popisuje, ako sa mení množstvo odrazeného a lámaného svetla v závislosti od uhla pohľadu.
 
-### Purpose
-The FresnelSchlick function approximates the **Fresnel effect**, which describes how the amount of light reflected vs. refracted changes based on the viewing angle.
+### Parametre
+- `cosTheta`: Kosínus uhla medzi smerom pohľadu a normálou povrchu
+- `F0`: Základná odrazivosť materiálu pri priamom pohľade (pohľad kolmo na povrch)
 
-### Parameters
-- `cosTheta`: The cosine of the angle between the view direction and the surface normal
-- `F0`: Base reflectivity of the material at normal incidence (looking straight at the surface)
+### Ako Funguje
+1. Pri priamom pohľade na povrch (`cosTheta` blízko 1) je odraz blízky základnej odrazivosti materiálu (`F0`)
+2. Pri pohľade z extrémneho uhla (`cosTheta` blízko 0) je takmer všetko svetlo odrazené bez ohľadu na typ materiálu
+3. Funkcia využíva Schlickovu aproximáciu, ktorá je výpočtovo efektívna a poskytuje dobré vizuálne výsledky
 
-### How It Works
-1. When viewing a surface straight on (`cosTheta` near 1), the reflection is close to the material's base reflectivity (`F0`)
-2. When viewing at grazing angles (`cosTheta` near 0), almost all light is reflected regardless of material type
-3. The function uses Schlick's approximation, which is computationally efficient while providing good visual results
 
-### Practical Effects
-- For metals (conductors), `F0` is typically high (0.5-1.0), resulting in strong reflections
-- For non-metals (dielectrics), `F0` is typically low (0.02-0.05), with reflections mainly visible at grazing angles
-- This creates the effect where water, glass, or plastic surfaces become mirror-like when viewed at shallow angles
+### Praktické Efekty
+- Pre kovy (vodiče) je `F0` typicky vysoké (0.5-1.0), čo vedie k silným odrazom
+- Pre nekovové materiály (dielektriká) je `F0` typicky nízke (0.02-0.05), s odrazmi viditeľnými hlavne pri extrémnych uhloch
+- Vytvára efekt, kde sa povrchy ako voda, sklo alebo plast stávajú zrkadlovými pri pohľade z plochého uhla
 
-## GGXDistribution Function
-
+## 4.3.1 GGX Distribučná Funkcia
 ```go
 func GGXDistribution(NdotH, roughness float32) float32 {
     alpha := roughness * roughness
@@ -752,110 +813,85 @@ func GGXDistribution(NdotH, roughness float32) float32 {
 }
 ```
 
-### Purpose
-The GGXDistribution function models the **microfacet distribution** of a surface, describing how microscopic surface irregularities affect light reflection.
+### Účel
+GGX distribučná funkcia modeluje **mikroploškovu distribúciu** povrchu, popisujúc, ako mikroskopické povrchové nepravidelnosti ovplyvňujú odraz svetla.
 
-### Parameters
-- `NdotH`: Dot product between the surface normal and the half vector (the vector halfway between view and light directions)
-- `roughness`: Surface roughness parameter (0 = perfectly smooth, 1 = very rough)
+### Parametre
+- `NdotH`: Dotový súčin medzi normálou povrchu a polovičným vektorom (vektor medzi smerom pohľadu a smerom svetla)
+- `roughness`: Parameter drsnosti povrchu (0 = úplne hladký, 1 = veľmi drsný)
 
-### How It Works
-1. The function implements the GGX/Trowbridge-Reitz distribution, which is considered one of the most realistic microfacet distributions
-2. The `alpha` parameter is derived from roughness (squared to match artistic expectations)
-3. The distribution describes the statistical probability that microfacets are oriented in the half-vector direction
-4. For smooth surfaces (low roughness), the distribution creates a tight, intense specular highlight
-5. For rough surfaces (high roughness), the distribution spreads reflection over a wider area, creating a more diffuse appearance
+### Ako Funguje
+1. Funkcia implementuje GGX/Trowbridge-Reitz distribúciu, považovanú za jeden z najpresnejších modelov mikroploškových distribúcií
+2. Parameter `alpha` je odvodený z drsnosti (štvorcovaný pre zodpovedanie umeleckým očakávaniam)
+3. Distribúcia popisuje štatistickú pravdepodobnosť orientácie mikroploštiek v smere polovičného vektora
+4. Pre hladké povrchy (nízka drsnosť) vytvorí úzky, intenzívny zrkadlový bod
+5. Pre drsné povrchy (vysoká drsnosť) rozptýli odraz do väčšej plochy, vytvárajúc difúznejší vzhľad
 
-### Practical Effects
-- Controls the size and intensity of specular highlights
-- Smooth surfaces (low roughness) have small, bright highlights
-- Rough surfaces (high roughness) have large, dim highlights
-- Properly handles the "bright edge" phenomenon seen on curved objects
+### Praktické Efekty
+- Riadi veľkosť a intenzitu zrkadlových odleskov
+- Hladké povrchy (nízka drsnosť) majú malé, jasné body
+- Drsné povrchy (vysoká drsnosť) majú veľké, tlmené body
+- Správne zachytáva fenomén "jasného okraja" viditeľného na zakrivených objektoch
 
-Together, these two functions form the core of the specular BRDF (Bidirectional Reflectance Distribution Function) in your PBR renderer, accurately modeling how different materials reflect light based on their physical properties.
+Tieto dve funkcie tvoria jadro špecularnej BRDF (Bidirectional Reflectance Distribution Function) vo vašom PBR rendereri, presne modelujúc, ako rôzne materiály odrážajú svetlo na základe ich fyzikálnych vlastností.
 
-# Voxel and Volume Rendering
+## 5.0 Implementácia Voxel Renderingu
 
-The GO-Draaw project implements two related but distinct rendering techniques: voxel rendering and volume rendering. Both utilize a unified data structure but employ different rendering approaches to achieve their visual effects.
-
-## Core Data Structures
-
-```go
-type Block struct {
-    Position   Vector
-    LightColor ColorFloat32  // Used for solid voxel rendering
-    SmokeColor ColorFloat32  // Used for volumetric effects
-}
-
-type VoxelGrid struct {
-    BlocksPointer  unsafe.Pointer   // Direct memory access for performance
-    Blocks         []Block          // Slice view of blocks
-    BBMin          Vector           // Bounding box minimum coordinates
-    BBMax          Vector           // Bounding box maximum coordinates
-    Resolution     int              // Grid resolution
-    VolumeMaterial VolumeMaterial   // Material properties for volumetric rendering
-}
-```
-
-The implementation leverages Go's `unsafe` package to achieve more efficient memory access patterns and avoid bounds checking during ray traversal, resulting in significant performance improvements.
-
-## Voxel Rendering Implementation
-
-Voxel rendering treats each voxel as a discrete, solid element with defined boundaries. The implementation uses a ray-marching technique through the grid, checking for occupied voxels along the ray path.
+Voxel rendering spracováva každý voxel ako diskrétny, pevný prvok s definovanými hranicami. Implementácia využíva techniku ray-marchingu cez mriežku, kontrolujúc obsadené voxely pozdĺž dráhy lúča.
 
 ```go
 func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat32, bool) {
-    // Find entry and exit points of the ray with the bounding box
+    // Nájdenie vstupného a výstupného bodu lúča s ohraničujúcim boxom
     hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
     if !hit {
-        return ColorFloat32{}, false  // Ray doesn't intersect the grid
+        return ColorFloat32{}, false  // Lúč nepreniká mriežkou
     }
 
-    // Calculate step size based on total distance and desired steps
+    // Výpočet veľkosti kroku podľa celkovej vzdialenosti a požadovaných krokov
     stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
     
-    // March along the ray
+    // Postup pozdĺž lúča
     currentPos := entry
     for i := 0; i < steps; i++ {
-        // Check for voxel at current position using unsafe direct access
+        // Kontrola voxelu na aktuálnej pozícii pomocou priameho prístupu
         block, exists := v.GetVoxelUnsafe(currentPos)
         if exists {
-            // Shadow calculation
+            // Výpočet tieňa
             lightStep := light.Position.Sub(currentPos).Mul(1.0 / float32(steps*2))
             lightPos := currentPos.Add(lightStep)
             
-            // Cast shadow ray toward light source
+            // Vyslanie tieňového lúča smerom ku zdroju svetla
             for j := 0; j < steps; j++ {
                 _, shadowHit := v.GetVoxelUnsafe(lightPos)
                 if shadowHit {
-                    return block.LightColor.MulScalar(0.05), true  // Point in shadow
+                    return block.LightColor.MulScalar(0.05), true  // Bod v tieni
                 }
                 lightPos = lightPos.Add(lightStep)
             }
             
-            // Calculate light attenuation based on distance
+            // Výpočet útlmu svetla podľa vzdialenosti
             lightDistance := light.Position.Sub(currentPos).Length()
             attenuation := ExpDecay(lightDistance)
             blockColor := block.LightColor.MulScalar(attenuation)
             
-            return blockColor, true  // Visible voxel with lighting
+            return blockColor, true  // Viditeľný voxel so svetlom
         }
         currentPos = currentPos.Add(stepSize)
     }
     
-    return ColorFloat32{}, false  // No intersection found
+    return ColorFloat32{}, false  // Žiadny priesečník nenájdený
 }
 ```
 
-### Key Features:
-- Binary visibility (voxel exists or doesn't)
-- Hard shadow calculation
-- Exponential light decay with distance
-- Simple direct lighting model
+### 5.0.1 Kľúčové Funkcie:
+- Binárna viditeľnosť (voxel existuje alebo nie)
+- Výpočet tvrdého tieňa
+- Exponenciálny útlm svetla so vzdialenosťou
+- Jednoduchý model priameho osvetlenia
 
-## Volume Rendering Implementation
+## 5.1 Implementácia Objemového Renderingu
 
-Volume rendering treats the grid as a continuous medium with varying densities. It implements physically-based light scattering and absorption through participating media.
+Objemový rendering spracováva mriežku ako kontinuálne médium s premenlivými hustotami. Implementuje fyzikálne založené rozptyľovanie a absorpciu svetla cez participujúce médiá.
 
 ```go
 func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterial VolumeMaterial) ColorFloat32 {
@@ -864,18 +900,18 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterial Vo
         return ColorFloat32{}
     }
 
-    // Physical parameters for light interaction
+    // Fyzikálne parametre pre interakciu svetla
     const (
-        extinctionCoeff  = 0.5          // Controls light absorption
-        scatteringAlbedo = 0.9          // Ratio of scattering to absorption
-        asymmetryParam   = float32(0.3) // Controls scattering direction bias
+        extinctionCoeff  = 0.5          // Kontroluje absorpciu svetla
+        scatteringAlbedo = 0.9          // Pomer rozptylu ku absorpcii
+        asymmetryParam   = float32(0.3) // Kontroluje smerovú zaujatosť rozptylu
     )
 
     stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
     stepLength := stepSize.Length()
 
     var accumColor ColorFloat32
-    transmittance := volumeMaterial.transmittance  // Initial transparency
+    transmittance := volumeMaterial.transmittance  // Počiatočná priehľadnosť
 
     currentPos := entry
     for i := 0; i < steps; i++ {
@@ -888,24 +924,24 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterial Vo
         density := volumeMaterial.density
         extinction := density * extinctionCoeff
 
-        // Henyey-Greenstein phase function calculation
+        // Výpočet Henyey-Greensteinovej fázovej funkcie
         lightDir := light.Position.Sub(currentPos).Normalize()
         cosTheta := ray.direction.Dot(lightDir)
         g := asymmetryParam
         phaseFunction := (1.0 - g*g) / (4.0 * math32.Pi * math32.Pow(1.0+g*g-2.0*g*cosTheta, 1.5))
 
-        // Calculate light attenuation through the volume
+        // Výpočet útlmu svetla cez objem
         lightRay := Ray{origin: currentPos, direction: lightDir}
         lightTransmittance := v.calculateLightTransmittance(lightRay, light, density)
 
-        // Calculate scattered light contribution
+        // Výpočet príspevku rozptýleného svetla
         scattering := extinction * scatteringAlbedo * phaseFunction * 2.0
 
-        // Apply Beer-Lambert law for light absorption
+        // Aplikácia Beer-Lambertovho zákona pre absorpciu svetla
         sampleExtinction := math32.Exp(-extinction * stepLength)
         transmittance *= sampleExtinction
 
-        // Accumulate color with proper physical weighting
+        // Akumulácia farby s príslušným fyzikálnym vážením
         lightContribution := ColorFloat32{
             R: block.SmokeColor.R * light.Color[0] * lightTransmittance * scattering,
             G: block.SmokeColor.G * light.Color[1] * lightTransmittance * scattering,
@@ -913,10 +949,10 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterial Vo
             A: block.SmokeColor.A * density,
         }
 
-        // Add contribution to final color, weighted by current transmittance
+        // Pridanie príspevku do finálnej farby, váženej aktuálnou priehľadnosťou
         accumColor = accumColor.Add(lightContribution.MulScalar(transmittance))
 
-        // Early exit optimization when transmittance becomes negligible
+        // Optimalizácia predčasného ukončenia
         if transmittance < 0.001 {
             break
         }
@@ -924,85 +960,67 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterial Vo
         currentPos = currentPos.Add(stepSize)
     }
 
-    // Ensure proper alpha channel normalization
+    // Zabezpečenie normalizácie alfa kanála
     accumColor.A = math32.Min(accumColor.A, 1.0)
     return accumColor
 }
 ```
 
-### Key Features:
-- Physically-based light scattering using Henyey-Greenstein phase function
-- Beer-Lambert law for light absorption
-- Progressive light accumulation with proper transmittance
-- Support for variable density throughout the volume
-- Early termination optimization for rays with negligible remaining transmittance
+### 5.1.1 Kľúčové Funkcie:
+- Fyzikálne založené rozptyľovanie svetla pomocou Henyey-Greensteinovej fázovej funkcie
+- Beer-Lambertov zákon pre absorpciu svetla
+- Progresívna akumulácia svetla so správnou priehľadnosťou
+- Podpora premenlivej hustoty v objeme
+- Optimalizácia predčasného ukončenia pre lúče s zanedbateľnou zostávajúcou priehľadnosťou
 
-## Performance Optimizations
+## 5.2 Optimalizácie Výkonu
 
-1. **Unsafe Memory Access**: The implementation uses `unsafe.Pointer` for direct memory access to the voxel grid, bypassing Go's bounds checking for improved performance.
+1. **Nebezpečný Prístup do Pamäte**: Implementácia využíva `unsafe.Pointer` pre priamy prístup do pamäte voxelovej mriežky, čím obchádza kontrolu hraníc Go pre zlepšenie výkonu.
 
-2. **Early Ray Termination**: The volume renderer stops ray marching when transmittance falls below a threshold (0.001), avoiding unnecessary calculations.
+2. **Predčasné Ukončenie Lúča**: Renderer objemu zastaví ray marching, keď priehľadnosť klesne pod prah (0.001), čím sa vyhnúc zbytočným výpočtom.
 
-3. **Bounding Box Pre-Testing**: Both renderers first test ray intersection with the grid's bounding box before performing detailed traversal.
+3. **Predbežné Testovanie Ohraničujúceho Boxu**: Oba renderery najprv testujú priesečník lúča s ohraničujúcim boxom mriežky pred vykonaním detailného prechodu.
 
-4. **Distance-Based Light Attenuation**: Light contribution is attenuated based on distance, providing realistic falloff without expensive calculations.
+4. **Útlm Svetla Podľa Vzdialenosti**: Príspevok svetla je útlmený na základe vzdialenosti, poskytujúc realistický pokles bez náročných výpočtov.
 
-## Interactive Editing Features
+## 5.3 Interaktívne Editačné Funkcie
 
-The system supports several interactive editing operations:
+Systém podporuje niekoľko interaktívnych editačných operácií:
 
-- **Adding/Removing Voxels**: Users can interactively add or remove voxels from the grid.
-- **Color Manipulation**: Voxel colors can be changed individually or in groups.
-- **Conversion to Volumes**: Solid voxels can be converted to volumetric data for smoke/fog effects.
-- **Material Parameter Adjustment**: Density and transmittance can be tuned for different visual effects.
+- **Pridávanie/Odoberanie Voxelov**: Používatelia môžu interaktívne pridávať alebo odoberať voxely z mriežky.
+- **Manipulácia Farieb**: Farby voxelov môžu byť menené individuálne alebo skupinovo.
+- **Konverzia na Objemy**: Pevné voxely môžu byť konvertované na objemové dáta pre efekty dymu/hmly.
+- **Úprava Materiálových Parametrov**: Hustota a priehľadnosť môžu byť nastavené pre rôzne vizuálne efekty.
 
-## Potential Future Improvements
+## 5.4 Fyzikálne Modely Objemu
 
-1. **Multi-Resolution Voxel Grid**: Implement an octree or sparse voxel octree (SVO) structure to efficiently handle varying detail levels.
+Aktuálna implementácia zahŕňa zjednodušený fyzikálny model založený na:
 
-2. **Multiple Scattering Simulation**: Extend the volume renderer to simulate multiple light bounces within the volume for more realistic effects.
+- **Beer-Lambertov Zákon**: Pre absorpciu svetla cez participujúce médiá
+- **Henyey-Greensteinova Fázová Funkcia**: Pre anizotropný rozptyl svetla
+- **Exponenciálny Útlm**: Pre útlm svetla so vzdialenosťou
 
-3. **GPU Acceleration**: Port the voxel and volume traversal algorithms to compute shaders for parallel processing.
+Tieto fyzikálne modely poskytujú základ pre realistické objemové efekty ako hmla, dym a mraky, ktoré môžu byť ďalej vylepšené ladením parametrov a ďalšími fyzikálnymi simuláciami.
 
-4. **Procedural Volume Generation**: Add support for procedural noise functions to generate natural-looking volumes.
-
-5. **Adaptive Sampling**: Implement adaptive step sizes based on density gradients to improve detail in areas of high complexity.
-
-6. **Voxel Instancing**: Allow repeated instances of the same voxel structure with different transformations, useful for complex scenes.
-
-7. **Vectorized Calculations**: Utilize SIMD instructions through Go's assembly options for faster numerical calculations.
-
-## Volume Physics Models
-
-The current implementation includes a simplified physical model based on:
-
-- **Beer-Lambert Law**: For light absorption through participating media
-- **Henyey-Greenstein Phase Function**: For anisotropic light scattering
-- **Exponential Decay**: For light attenuation with distance
-
-These physical models provide a foundation for realistic volumetric effects like fog, smoke, and clouds, which can be further enhanced through parameter tuning and additional physical simulations.
-
-# Raymarching Implementation
-
-The current raymarching implementation is limited to spheres due to their simple distance function:
+## 6.0 Implementácia Raymarchingu
+Aktuálna implementácia raymarchingu je obmedzená na gule kvôli ich jednoduchej vzdialenostnej funkcii:
 
 ```go
 func Distance(v1, v2 Vector, radius float32) float32 {
-    // Use vector subtraction and dot product instead of individual calculations
+    // Použitie vektorového odčítania a dotového súčinu namiesto jednotlivých výpočtov
     diff := v1.Sub(v2)
     return diff.Length() - radius
 }
 ```
 
-## Current Status
-- Only supports sphere primitives
-- Uses BVH for acceleration
-- Basic implementation without advanced features
+### 6.1.0 Aktuálny Stav
+- Podporuje iba guľové primitívy
+- Používa BVH pre akceleráciu
+- Základná implementácia bez pokročilých funkcií
 
-## Future Development Plans
-
-### Expanded Primitive Support
-To enhance the raymarching capabilities, I plan to implement additional geometric primitives:
+### 6.1.1 Plány Budúceho Vývoja
+#### Rozšírenie Podpory Primitívov
+Pre vylepšenie raymarchingových schopností plánujem implementovať ďalšie geometrické primitívy:
 
 ```go
 // Box SDF
@@ -1034,53 +1052,52 @@ func CylinderSDF(point, center Vector, height, radius float32) float32 {
 }
 ```
 
-### SDF Operations
-To enable complex object creation through operations like union, intersection, and difference:
+### 6.1.3 SDF Operácie
+Pre umožnenie vytvárania komplexných objektov prostredníctvom operácií ako zjednotenie, priesečník a rozdiel:
 
 ```go
-// Union of two SDFs
+// Zjednotenie dvoch SDF
 func SdfUnion(d1, d2 float32) float32 {
     return math32.Min(d1, d2)
 }
 
-// Smooth union with blending
+// Hladké zjednotenie s prelínaním
 func SdfSmoothUnion(d1, d2, k float32) float32 {
     h := math32.Max(k-math32.Abs(d1-d2), 0.0)
     return math32.Min(d1, d2) - h*h*0.25/k
 }
 
-// Intersection of two SDFs
+// Priesečník dvoch SDF
 func SdfIntersection(d1, d2 float32) float32 {
     return math32.Max(d1, d2)
 }
 
-// Subtraction of SDF2 from SDF1
+// Rozdiel SDF2 od SDF1
 func SdfDifference(d1, d2 float32) float32 {
     return math32.Max(d1, -d2)
 }
 ```
 
-### Implementation Roadmap
+### 6.1.4 Implementačný Plán
+1. **Rozšírenie Primitívov**
+   - Implementácia základných primitívov (kocka, torus, valec)
+   - Pridanie ovládacích parametrov v užívateľskom rozhraní pre každý typ primitívu
 
-1. **Primitive Expansion**
-   - Implement basic primitives (box, torus, cylinder)
-   - Add parameter controls in the UI for each primitive type
+2. **SDF Operácie**
+   - Implementácia Booleovských operácií (zjednotenie, priesečník, rozdiel)
+   - Pridanie hladkého prelínania medzi tvarmi pre organické formy
 
-2. **SDF Operations**
-   - Implement Boolean operations (union, intersection, difference)
-   - Add smooth blending between shapes for organic forms
+3. **Optimalizácia Výkonu**
+   - Rozšírenie BVH akceleračnej štruktúry pre všetky SDF primitívy
+   - Implementácia priestorovej partície špecifickej pre raymarching
 
-3. **Performance Optimization**
-   - Extend BVH acceleration structure to work with all SDF primitives
-   - Implement spatial partitioning specific to raymarching
+4. **Užívateľské Rozhranie**
+   - Vytvorenie dedikovaného ovládacieho panelu raymarchingu
+   - Pridanie vizuálnej spätnej väzby pre SDF operácie
 
-4. **User Interface**
-   - Create a dedicated raymarching control panel
-   - Add visual feedback for SDF operations
+5. **Pokročilé Funkcie**
+   - Priestorová repetícia pre vytváranie vzorov
+   - Deformácie založené na šume pre organické tvary
+   - Priradenie materiálov pre SDF objekty
 
-5. **Advanced Features**
-   - Domain repetition for creating patterns
-   - Noise-based deformations for organic shapes
-   - Material assignment for SDF objects
-
-This expanded raymarching system will enable the creation of complex shapes through constructive solid geometry operations, allowing users to build intricate models that would be difficult to achieve with traditional triangle-based geometry.
+Tento rozšírený raymarchingový systém umožní vytváranie komplexných tvarov prostredníctvom konštruktívnej solid geometrie, čo používateľom umožní budovať zložité modely, ktoré by bolo ťažké dosiahnuť s tradičnou trojuholníkovou geometriou.
