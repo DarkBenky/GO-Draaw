@@ -3464,7 +3464,7 @@ func TraceRayV2(ray Ray, depth int, light Light, samples int) ColorFloat32 {
 				direction: scatterDir,
 			}
 
-			bouncedColor := TraceRayV2(scatterRay, depth-1, light, 0)
+			bouncedColor := TraceRayV2(scatterRay, depth, light, 0)
 			scatteredColor = scatteredColor.Add(bouncedColor)
 		}
 		scatteredColor = scatteredColor.MulScalar(1.0 / float32(samples))
@@ -4322,6 +4322,40 @@ func DrawRaysBlockV2(camera Camera, light Light, scaling int, samples int, depth
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
 					c := TraceRayV2(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(block)
+	}
+
+	if !performance {
+		wg.Wait()
+	}
+}
+
+func DrawRaysBlockV2M(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage, performance bool) {
+	var wg sync.WaitGroup
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImage) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRayV3(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples)
 
 					// Write the pixel color to the pixel buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
@@ -5256,6 +5290,11 @@ func dumpBenchmarkData(rendererVersion int) error {
 
 func (g *Game) Update() error {
 
+	if g.SendImage {
+		saveEbitenImageAsPNG(g.currentFrame, "current.png")
+		g.SendImage = false
+	}
+
 	// if Benchmark {
 	// 	// rotate the camera around the y-axis
 	// 	g.camera.yAxis += 0.005
@@ -5624,6 +5663,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			float64(g.scaleFactor/2),
 		)
 	} else {
+		if g.scaleFactor == 1 {
+			g.scaleFactor = 2
+		}
 		mainOp.GeoM.Scale(
 			float64(g.scaleFactor),
 			float64(g.scaleFactor),
@@ -5654,6 +5696,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions)
 	case V2:
 		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions)
+	case V2M:
+		DrawRaysBlockV2M(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions)
 	case V2Log:
 		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions)
 	case V2Linear:
@@ -5753,6 +5797,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.currentFrame = ApplyShader(g.currentFrame, shader)
 	}
 	screen.DrawImage(g.currentFrame, mainOp)
+
+	g.previousFrame = ebiten.NewImageFromImage(screen)
 
 	if renderFrame.Selected == 2 {
 		// Draw the render
@@ -5865,6 +5911,7 @@ const (
 	RemoveVoxel      = uint8(iota)
 	AddVoxel         = uint8(iota)
 	None             = uint8(iota)
+	V2M              = uint8(iota)
 )
 
 type Game struct {
@@ -5925,6 +5972,7 @@ type Game struct {
 	RayMarching           bool
 	PerformanceOptions    bool
 	UseRandomnessForPaint bool
+	SendImage             bool
 }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
@@ -6471,6 +6519,9 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	case "V2":
 		fmt.Println("V2")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V2
+	case "V2M":
+		fmt.Println("V2M")
+		*(*uint8)(unsafe.Pointer(&g.version)) = V2M
 	case "V2-Log":
 		fmt.Println("V2-Log")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V2Log
@@ -6639,9 +6690,35 @@ func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+func (g *Game) GetCurrentImage(c echo.Context) error {
+	*(*bool)(unsafe.Pointer(&g.SendImage)) = true
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "Rendering image",
+	})
+}
+
+func (g *Game) SendImageToClient(c echo.Context) error {
+	// load png image current.png from disk
+
+	fmt.Println("Send Image to Client")
+
+	path := "current.png"
+	file, err := os.Open(path)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to open image file",
+		})
+	}
+	defer file.Close()
+
+	// read image data
+	data, err := ioutil.ReadAll(file)
+	// send image data to client
+	return c.Blob(http.StatusOK, "image/png", data)
+}
+
 func startServer(game *Game) {
 	e := echo.New()
-
 	// CORS middleware
 	e.Use(corsMiddleware)
 
@@ -6652,6 +6729,9 @@ func startServer(game *Game) {
 	e.POST("/submitShader", game.SubmitShader)
 	e.GET("/getCameraPosition", game.GetPositions)
 	e.POST("/moveToPosition", game.MoveToCameraPosition)
+	e.GET("/getCurrentImage", game.GetCurrentImage)
+	e.GET("/sendImage", game.SendImageToClient)
+	
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -6782,7 +6862,7 @@ func main() {
 	if Benchmark {
 		debug.SetGCPercent(-1)
 	} else {
-		debug.SetGCPercent(750)
+		debug.SetGCPercent(200)
 	}
 	// runtime.SetBlockProfileRate(0)
 
@@ -7125,7 +7205,7 @@ func main() {
 	const scale = 2
 
 	game := &Game{
-		version:              V2,
+		version:              V2M,
 		xyzLock:              true,
 		cursorX:              screenHeight / 2,
 		cursorY:              screenWidth / 2,
