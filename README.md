@@ -1,3 +1,55 @@
+# Obsah
+
+### 1. Úvod
+   - 1.1 Úvod do projektu
+   - 1.2 Ciele práce
+
+### 2. Architektúra
+   - 2.1 Architektúra Projektu GO-Draaw
+   - 2.2 Backend Implementácia
+   - 2.3 Dokumentácia Frontend Komponentov
+   - 2.4 Užívateľské Rozhranie
+
+### 3. BVH (Bounding Volume Hierarchy)
+   - 3.1 Princíp fungovania BVH
+   - 3.2 Surface Area Heuristic (SAH)
+   - 3.3 Reprezentácia Trojuholníkov
+   - 3.4 Podpora Načítavania 3D Geometrie
+
+### 4. Ray Tracing
+   - 4.0 RayTracing Vývoj Funkcionality
+   - 4.1 Výkonnostná Analýza
+   - 4.2 Optimalizácie
+   - 4.3 Fyzikálne Modely
+   - 4.4 Výsledky Testov
+
+### 5. Voxel Rendering
+   - 5.0 Implementácia
+   - 5.1 Objemový Rendering
+   - 5.2 Optimalizácie Výkonu
+   - 5.3 Interaktívne Funkcie
+   - 5.4 Fyzikálne Modely
+
+### 6. Ray Marching
+   - 6.0 Implementácia
+   - 6.1 Rozšírenia a Budúci Vývoj
+
+### 7. Post-Processing
+   - 7.0 Podpora Shaderov
+   - 7.1 Podporované Efekty
+   - 7.2 Implementačné Detaily
+   - 7.3 Výkonnostné Aspekty
+
+### 8. Záver
+   - 8.1 Kľúčové Prínosy
+   - 8.2 Budúci Vývoj
+
+### 9. Zdroje
+   - 9.1 Online Knihy
+   - 9.2 Technické Materiály
+
+---
+
 ## 1.1 Úvod
 V súčasnej dobe počítačová grafika zohráva kľúčovú úlohu v mnohých oblastiach, od herného priemyslu až po vedecké vizualizácie. Jednou z najvýznamnejších technológií v tejto oblasti je Ray-Tracing, ktorý umožňuje vytvárať fotorealistické zobrazenia 3D scén simuláciou fyzikálnych vlastností svetla. Táto maturitná práca sa zameriava na implementáciu vlastného 3D engine-u, ktorý využíva práve túto pokročilú technológiu renderovania.
 
