@@ -5,7 +5,7 @@ Hlavným cieľom práce je vytvoriť flexibilný a výkonný 3D engine, ktorý b
 
 Pre implementáciu bol zvolený programovací jazyk Golang, ktorý sa vyznačuje niekoľkými kľúčovými výhodami. Prvou je jeho efektívna podpora multiprocesingu prostredníctvom Go rutín, čo je esenciálne pre optimalizáciu výkonu pri ray-tracingu. Druhou výhodou je jeho výkonnosť, ktorá sa približuje tradičným systémovým jazykom ako C a C++. Pre implementáciu shaderových programov bude využitý jazyk Kage, ktorý bol vyvinutý pre Ebiten 2D engine. Kage poskytuje intuitívnu syntax inšpirovanú jazykom Go, čo umožňuje efektívny vývoj shaderov.
 
-Aplikácia poskytne užívateľom možnosť interaktívne upravovať vlastnosti 3D geometrie, vrátane farieb a rôznych aspektov materiálov. Dôraz je kladený na optimalizáciu výkonu, aby bolo možné renderovať scény v realistickom čase. Architektúra systému je navrhnutá s ohľadom na budúcu adaptabilitu, najmä v oblasti podpory rôznych grafických API a efektívneho využívania GPU akcelerácie.
+Aplikácia poskytne užívateľom možnosť interaktívne upravovať vlastnosti 3D geometrie, vrátane farieb a rôznych aspektov materiálov. Dôraz je kladený na optimalizáciu výkonu, aby bolo možné renderovať scény v realistickom čase.
 
 
 ## 2.1 Architektúra Projektu GO-Draaw
@@ -298,6 +298,156 @@ Vytváranie reťazcov post-processingových shaderov (napr. pôvodný obrázok �
 
 ![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/Volume%20Picker.png?raw=true)
 
+# 3.1 Princíp fungovania BVH
+
+Pri ray-tracingu je kľúčovou operáciou hľadanie priesečníkov medzi lúčom vyslaným z kamery a objektmi v scéne. Bez optimalizačnej štruktúry by bolo potrebné testovať každý lúč s každým objektom v scéne, čo by viedlo k časovej zložitosti O(n) pre každý lúč, kde n je počet objektov v scéne. BVH rieši tento problém vytvorením hierarchickej štruktúry obaľujúcich objemov (najčastejšie osovo zarovnaných boxov - AABB), ktorá umožňuje rýchlo eliminovať veľké časti scény, ktoré lúč nemôže zasiahnuť.
+
+Keď lúč prechádza scénou, najprv sa testuje prienik s head Node BVH. Ak lúč nezasiahne obaľujúci objem uzla, môžeme okamžite preskočiť všetky objekty v tomto podstrome. Ak prienik existuje, algoritmus rekurzívne pokračuje do potomkov uzla, až kým nedosiahne listové uzly obsahujúce konkrétne objekty scény.
+
+# 3.2 Surface Area Heuristic (SAH)
+
+Pre optimálny výkon BVH je kľúčové, ako sa scéna rozdelí na podpriestory. Tu prichádza do hry Surface Area Heuristic (SAH). Táto heuristika optimalizuje rozdelenie objektov medzi children každej Node na základe plochy ich objemov. Cieľom je minimalizovať očakávaný čas potrebný na prechádzanie stromom a testovanie prienikov.
+
+SAH pracuje na princípe, že pravdepodobnosť, že lúč zasiahne daný objem, je približne úmerná jeho povrchu. Pri delení uzla sa teda snažíme minimalizovať funkciu:
+
+```
+C = Ct + (SA(L)/SA(P)) * NL * Ci + (SA(R)/SA(P)) * NR * Ci
+```
+
+kde:
+* `Ct` je cena prechodu cez Node
+* `Ci` je cena testovania prieniku s objektom 
+* `SA(X)` je plocha povrchu objemu 
+* `NL` a `NR` sú počty objektov v ľavom a pravom potomkovi 
+* `L`, `R`, `P` označujú ľavého potomka, pravého potomka a parent Node
+
+# 3.3 Reprezentácia Trojuholníkov a Materiálové Vlastnosti
+
+Základným stavebným prvkom 3D scény v implementovanom ray-traceri je trojuholník, ktorý je reprezentovaný štruktúrou TriangleSimple. Táto štruktúra kombinuje geometrické vlastnosti trojuholníka s jeho materiálovými charakteristikami, čo umožňuje realistické zobrazenie rôznych povrchov a materiálov.
+
+## 3.3.1 Geometrická Reprezentácia
+
+```go
+type TriangleSimple struct {
+    v1, v2, v3 Vector    // Vrcholy trojuholníka
+    Normal     Vector    // Normálový vektor
+    // ... materiálové vlastnosti
+}
+```
+
+Geometria trojuholníka je definovaná tromi 3D vektormi (v1, v2, v3), ktoré predstavujú jeho vrcholy v priestore. Pre optimalizáciu výkonu je súčasťou štruktúry aj predpočítaný normálový vektor (Normal). Tento prístup významne urýchľuje proces renderovania, keďže normál Vector je kľúčová pri výpočtoch osvetlenia a nie je potrebné ju opakovane počítať pri každom prieniku lúča s trojuholníkom.
+
+## 3.3.2 Materiálové Vlastnosti
+
+Materiálové vlastnosti trojuholníka sú reprezentované niekoľkými kľúčovými parametrami, ktoré určujú jeho vizuálne charakteristiky:
+
+### a) Farba (color ColorFloat32)
+
+```go
+type ColorFloat32 struct {
+    R, G, B, A float32
+}
+```
+
+Farba povrchu je reprezentovaná pomocou vlastnej štruktúry ColorFloat32, ktorá využíva pre každý farebný kanál (červený, zelený, modrý) a alfa kanál hodnoty typu float32. Toto riešenie prináša niekoľko kľúčových výhod oproti tradičnej RGBA reprezentácii (uint8):
+
+1. **Vysoký Dynamický Rozsah (HDR)**: 
+   - Na rozdiel od štandardnej RGBA reprezentácie, kde je každý kanál limitovaný rozsahom 0-255 (uint8), float32 umožňuje reprezentovať hodnoty výrazne presahujúce hodnotu 1.0 
+   - Toto je esenciálne pre realistické zobrazenie emisívnych materiálov, ktoré môžu vyžarovať svetlo s intenzitou mnohonásobne vyššou než 1.0 
+   - Umožňuje presnejšie zachytenie a reprezentáciu svetelných efektov v scéne 
+
+2. **Emisívne Materiály**: 
+   - ColorFloat32 umožňuje definovať materiály, ktoré aktívne emitujú svetlo do scény 
+   - Hodnoty vyššie ako 1.0 reprezentujú materiály, ktoré pridávajú energiu do scény 
+   - Toto je kľúčové pre implementáciu svetelných zdrojov priamo ako súčasti geometrie scény 
+
+3. **Presnosť Výpočtov**: 
+   - Float32 poskytuje vyššiu presnosť pri výpočtoch s farbami 
+   - Eliminuje sa problém kvantizácie, ktorý je typický pre uint8 reprezentáciu 
+   - Umožňuje jemnejšie prechody a gradienty v renderovanom obraze 
+
+4. **Fyzikálna Korektnosť**: 
+   - Reprezentácia pomocou float32 lepšie zodpovedá fyzikálnej realite, kde intenzita svetla nie je zhora obmedzená 
+   - Umožňuje presnejšiu simuláciu svetelných interakcií v scéne 
+   - Podporuje fyzikálne korektné miešanie farieb a svetelných príspevkov
+
+Táto implementácia je kľúčová pre dosiahnutie fotorealistického renderovania, keďže umožňuje pracovať s realistickými
+svetelnými podmienkami a materiálmi, ktoré by nebolo možné reprezentovať v štandardnom 8-bitovom farebnom priestore.
+Zároveň poskytuje základ pre implementáciu pokročilých renderovacích techník ako HDR rendering a tone mapping.
+
+5. **Direct-to-Scatter Ratio (directToScatter float32)**
+Tento parameter, definovaný v rozsahu [0, 1], určuje pomer medzi priamym odrazom svetla a difúznym rozptylom:
+- Hodnota blízka 0: Väčšina svetla je rozptýlená náhodným smerom (matný povrch)
+- Hodnota blízka 1: Prevláda priamy odraz svetla (lesklý povrch) Tento parameter je kľúčový pre realistické zobrazenie
+rôznych typov materiálov, od matných až po vysoko lesklé povrchy.
+6. **Reflection Coefficient (reflection float32)** Koeficient odrazu, definovaný v rozsahu [0, 1], určuje, ako silno povrch odráža
+okolité prostredie:
+ - 0: Žiadne odrazy okolitého prostredia
+- 1: Dokonalé zrkadlové odrazy Tento parameter ovplyvňuje pomer medzi vlastnou farbou objektu a farbou odrazenou z
+okolia, čo umožňuje simulovať materiály od úplne matných až po zrkadlové povrchy.
+7. **Specular Intensity (specular float32)** Parameter v rozsahu [0, 1] určuje intenzitu spekulárneho odrazu:
+- 0: Žiadny spekulárny odraz
+- 1: Maximálny spekulárny odraz Tento
+
+## 3.3.3 Nová Implementácia BVHLean
+
+V novej implementácii BVHLean je štruktúra trojuholníka významne zjednodušená:
+
+### Pôvodná Štruktúra TriangleSimple
+
+```go
+type TriangleSimple struct {
+    // size=88 (0x58)
+    v1, v2, v3 Vector
+    // color color.RGBA
+    color ColorFloat32 
+    Normal Vector
+    reflection float32
+    directToScatter float32
+    specular float32
+    Roughness float32
+    Metallic float32
+    id uint8
+}
+```
+
+### Nová Štruktúra TriangleBBOX
+
+```go
+type TriangleBBOX struct {
+    // size=52 (0x34)
+    V1orBBoxMin, V2orBBoxMax, V3 Vector
+    normal Vector
+    id int32
+}
+```
+
+Kľúčové zmeny:
+- Veľkosť štruktúry sa zmenšila z 88 na 52 bajtov
+- Zjednotenie bounding boxu a trojuholníka
+- Vlastnosti trojuholníka sú teraz definované samostatne
+
+### Nová Štruktúra Textúry
+
+```go
+type Texture struct {
+    texture [128][128]ColorFloat32
+    normals [128][128]Vector
+    
+    // Materiálové vlastnosti
+    reflection      float32
+    directToScatter float32
+    specular        float32
+    Roughness       float32
+    Metallic        float32
+}
+```
+
+Táto nová implementácia umožnila zrýchlenie BVH o:
+- 18 % na procesore Ryzen 9 5950X
+- Systém s 72 GB RAM
+
+Táto optimalizácia zjednodušuje štruktúru dát a umožňuje efektívnejšiu prácu s pamäťou počas ray-tracingu.
 
 ## 3.3 BVH a jej implementácia
 
@@ -377,6 +527,42 @@ Implementácia Array-based BVH poskytla merateľné zlepšenie výkonu:
 Testovanie dostupné na: https://github.com/DarkBenky/testBinaryTree
 
 Array-based implementácia zostala v experimentálnej fáze z dôvodu časových obmedzení projektu, ale predstavuje sľubný smer pre ďalší vývoj.
+
+# 3.4 Podpora Načítavania 3D Geometrie
+
+## 3.4.1 Načítavanie .OBJ Súborov
+
+Implementovaný ray-tracer poskytuje robustnú podporu pre načítavanie 3D geometrie prostredníctvom štandardného .obj formátu, čo výrazne zvyšuje flexibilitu a použiteľnosť aplikácie.
+
+### Kľúčové vlastnosti implementácie
+
+#### 1. Podpora Geometrie
+- **Načítavanie priestorových vrcholov (vertices)**
+- **Extrakcia normálových vektorov**
+- **Podpora textúrovacích koordinát**
+- **Konverzia polygónov na trojuholníkovú sieť**
+
+#### 2. Podpora Materiálov
+- **Parsing .mtl súborov**
+- **Načítavanie základných materiálových vlastností:**
+  - Difúzna farba
+  - Odrazivosť
+  - Spekulárne vlastnosti
+  - Priehľadnosť
+
+#### 3. Optimalizačné Techniky
+- **Predpočítavanie normálových vektorov**
+- **Efektívna konverzia na interný formát TriangleSimple**
+- **Podpora pre zložitejšie geometrické útvary**
+
+### Proces Načítavania .OBJ Súborov
+
+Proces načítavania .obj súborov zahŕňa niekoľko kľúčových krokov:
+
+1. **Parsovanie priestorových súradníc vertices**
+2. **Extrahovanie normálových vektorov**
+3. **Identifikácia a konverzia polygónov na trojuholníky**
+4. **Priradenie materiálových vlastností jednotlivým geometrickým prvkom**
 
 ## 4.0 RayTracing Vývoj Funkcionality 
 
@@ -1101,3 +1287,197 @@ func SdfDifference(d1, d2 float32) float32 {
    - Priradenie materiálov pre SDF objekty
 
 Tento rozšírený raymarchingový systém umožní vytváranie komplexných tvarov prostredníctvom konštruktívnej solid geometrie, čo používateľom umožní budovať zložité modely, ktoré by bolo ťažké dosiahnuť s tradičnou trojuholníkovou geometriou.
+
+# 7.0 Podpora Post-Processing Shaderov
+
+## Úvod do Post-Processingu
+
+Post-processing shadre predstavujú kľúčový nástroj pre vizuálne vylepšenie výstupného obrazu v ray-traceri, umožňujúci sofistikované úpravy renderovaného obrazu po jeho primárnom vygenerovaní.
+
+## Technologické Pozadie
+
+### 7.0.1 Kage Shader Language
+
+**Pôvod**: Vyvinutý súbežne s Ebiten 2D enginom
+
+priklad syntaxu kage shadru
+```kage
+package main
+
+// Edge detection strength
+var Strength float
+var AlphaR float
+var AlphaG float
+var AlphaB float
+var Alpha float
+
+// Convert RGB to grayscale intensity
+func luminance(c vec3) float {
+    return (c.r + c.g + c.b) / 3.0
+}
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+    // Define pixel offset based on texture size
+    offset := vec2(Strength, Strength)
+
+    // Sample neighboring pixels
+    topLeft := imageSrc0At(texCoord + vec2(-offset.x, -offset.y)).rgb
+    top := imageSrc0At(texCoord + vec2(0.0, -offset.y)).rgb
+    topRight := imageSrc0At(texCoord + vec2(offset.x, -offset.y)).rgb
+    left := imageSrc0At(texCoord + vec2(-offset.x, 0.0)).rgb
+    right := imageSrc0At(texCoord + vec2(offset.x, 0.0)).rgb
+    bottomLeft := imageSrc0At(texCoord + vec2(-offset.x, offset.y)).rgb
+    bottom := imageSrc0At(texCoord + vec2(0.0, offset.y)).rgb
+    bottomRight := imageSrc0At(texCoord + vec2(offset.x, offset.y)).rgb
+
+    middle := imageSrc0At(texCoord) * Alpha
+
+    
+
+    tl := luminance(topLeft)
+    t := luminance(top)
+    tr := luminance(topRight)
+    l := luminance(left)
+    r := luminance(right)
+    bl := luminance(bottomLeft)
+    b := luminance(bottom)
+    br := luminance(bottomRight)
+
+    // Sobel kernel
+    gx := (-1.0 * tl) + (-2.0 * l) + (-1.0 * bl) + (1.0 * tr) + (2.0 * r) + (1.0 * br)
+    gy := (-1.0 * tl) + (-2.0 * t) + (-1.0 * tr) + (1.0 * bl) + (2.0 * b) + (1.0 * br)
+
+    // Compute gradient magnitude
+    edge := sqrt((gx * gx) + (gy * gy)) * Alpha
+
+    // Output edge as grayscale
+    return vec4(middle.r + edge*AlphaR, middle.g +edge*AlphaB, middle.b +edge*AlphaB, middle.a * Alpha)
+}
+```
+
+**Charakteristiky**:
+- Syntaxou inšpirovaná programovacím jazykom Go
+- Zameraná na jednoduchost' a čitateľnosť
+- Efektívna pre 2D a 3D grafické efekty
+
+## 7.1 Podporované Post-Processing Efekty
+
+### 7.1.0 Verzia V1: Základné Efekty
+- Tint (farebný nádych)
+- Contrast (kontrast)
+- Bloom (svetelný efekt)
+
+### 7.1.1 Verzia V2: Rozšírené Vizuálne Efekty
+- Bloom V2: Vylepšená verzia svetelného efektu
+- Sharpness: Zvýraznenie ostrosti obrazu
+- Color Mapping: Limitácia počtu RGB hodnôt
+- Chromatic Aberration: Farebná aberácia
+- Edge Detection: Detekcia hrán pomocou Sobelovho filtra
+- Lighten: Úprava RGB hodnôt s multivrstvovou podporou
+
+## 7.1.2 Technické Charakteristiky
+
+### 7.1.3 Shader Architektúra
+- **Jazyk**: Kage Shader Language
+- **Multipass Podpora**:
+  - Umožňuje aplikáciu viacerých shaderov za sebou
+  - Flexibilné reťazenie efektov
+  - Postupné transformácie obrazu
+
+### 7.1.4 Implementačné Detaily
+- **Flexibilita**: Štruktúra pripravená na pridávanie nových shaderov
+- **Výkonnosť**: Optimalizované pre rýchle spracovanie obrazu
+- **Škálovateľnosť**: Jednoduchá rozšíriteľnosť efektov
+
+## 7.1.5 Príklady Efektov
+
+### 7.1.6 Color Mapping
+- Redukcia farebnej hĺbky
+- Kontrola presnosti farieb
+- Umožňuje umělecké a štylizované vykresľovanie
+
+### 7.1.7 Chromatic Aberration
+- Simulácia optických nedokonalostí
+- Pridáva vizuálnu dynamiku
+- Efekt inšpirovaný optikou reálnych kamier
+
+### 7.1.8 Edge Detection (Sobelov Filter)
+- Zvýraznenie hrán v scéne
+- Detekcia kontúr objektov
+- Podpora pre analytické a umelecké vizualizácie
+
+## 7.2 Výhody Implementácie
+1. Vizuálna Flexibilita
+2. Nízka Výpočtová Náročnosť
+3. Jednoduché Rozšírenie
+4. Umelecká Kontrola nad Obrazom
+
+## 7.2.1 Budúci Vývoj
+- Podpora komplexnejších efektov
+- Rozšírenie kreatívnych možností post-processingu
+
+## 7.3 Záver
+
+Implementácia post-processing shaderov predstavuje sofistikovaný prístup k vizuálnemu vylepšeniu raytracerom generovaného obrazu, ponúkajúc bohatú škálu efektov s minimálnou výpočtovou réžiou.
+
+# 8.0 Záver
+
+Predložená maturitná práca predstavuje komplexný návrh a implementáciu 3D ray-tracingového engine-u, ktorý prekračuje tradičné hranice počítačovej grafiky. Projekt nie je iba technickým cvičením, ale ukazuje potenciál pre vytváranie sofistikovaných vizualizačných nástrojov s dôrazom na výkon, flexibilitu a užívateľskú rozšíriteľnosť.
+
+## 8.1 Kľúčové prínosy práce
+
+### 8.1.1 Technologická Inovácia
+- Implementácia pokročilých ray-tracingových techník
+- Podpora komplexných renderovacích algoritmov
+- Flexibilný systém pre volumetrické a 3D zobrazovanie
+
+### 8.1.2 Architektonické a Výkonnostné Riešenia
+- Optimalizačné štruktúry ako BVH
+- Efektívne využitie multiprocesingu
+- Podpora štandardných 3D formátov
+- Robustný benchmarkový systém pre kontinuálne meranie výkonu
+
+### 8.1.3 Rozšírené Grafické Možnosti
+- Pokročilý post-processing
+- Podpora shaderových efektov
+- 2D vrstvový systém pre následné úpravy
+- Flexibilné nástroje pre manuálne a procedurálne úpravy obrazu
+
+Projekt poskytuje nielen technické riešenie, ale aj platformu pre ďalší výskum a vývoj v oblasti počítačovej grafiky. Ukazuje, že moderné programovacie techniky a hlboké pochopenie grafických algoritmov môžu vyústiť do výkonného a adaptabilného grafického systému.
+
+## 8.2 Perspektívy ďalšieho vývoja
+
+- Integrácia pokročilých renderovacích techník
+- Podpora real-time ray-tracingu
+- Implementácia fyzikálne presnejších light transportných modelov
+- Podpora komplexnejších animačných a dynamických scén
+
+Implementovaný engine nie je len akademickým projektom, ale solidným základom pre budúci vývoj sofistikovaných grafických nástrojov. Demonstruje schopnosť navrhnúť komplexný systém, ktorý kombinuje výkonnosť, flexibilitu a inovatívny prístup k počítačovej grafike.
+
+# 9.0 Zdroje
+
+## 9.1 Online Knihy o Ray Tracingu
+1. **Ray Tracing in One Weekend**
+   - URL: https://raytracing.github.io/books/RayTracingInOneWeekend.html#overview
+
+2. **Ray Tracing: The Next Week**
+   - URL: https://raytracing.github.io/books/RayTracingTheNextWeek.html
+
+3. **Ray Tracing: The Rest of Your Life**
+   - URL: https://raytracing.github.io/books/RayTracingTheRestOfYourLife.html#cleaninguppdfmanagement/diffuseversusspecular
+
+## 9.2 Technické Videá a Prezentácie
+1. **Why you should avoid Linked List**
+   - URL: https://www.youtube.com/watch?v=YQs6IC-vgmo
+
+2. **Why is recursion bad?**
+   - URL: https://www.youtube.com/watch?v=mMEmNX6aW_k
+
+3. **How Big Budget AAA Games Render Bloom**
+   - URL: https://www.youtube.com/watch?v=ml-5OGZC7vE
+
+4. **Andrew Kelley Practical Data Oriented Design (DoD)**
+   - URL: https://www.youtube.com/watch?v=IroPQ150F6c
+
+5. **I redesigned my game**
+   - URL: https://www.youtube.com/watch?v=PcMua73C_94
