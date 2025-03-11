@@ -6716,8 +6716,14 @@ func (g *Game) SubmitShader(c echo.Context) error {
 				amount:    float32(shader.Parameters["amount"].(float64)),
 				multipass: int(shader.Parameters["multipass"].(float64)),
 			})
+		case "CRT":
+			shaders = append(shaders, Shader{
+				shader:    CRTShader,
+				options:   shader.Parameters,
+				amount:    float32(shader.Parameters["amount"].(float64)),
+				multipass: int(shader.Parameters["multipass"].(float64)),
+			})
 		}
-
 	}
 
 	fmt.Println("Shaders:", shaders)
@@ -7161,7 +7167,7 @@ var (
 	edgeDetectionShader       *ebiten.Shader
 	colorMappingV2Shader      *ebiten.Shader
 	LightenDarkenShader       *ebiten.Shader
-	CameraPositions           []Position
+	CRTShader                 *ebiten.Shader
 )
 
 // func math32.Sin(x float32) float32 {
@@ -7317,6 +7323,18 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	src, err = LoadShader("shaders/crt.kage")
+	if err != nil {
+		panic(err)
+	}
+
+	CRTShader, err = ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Shader:", CRTShader)
 
 	// src, err = LoadShader("shaders/ColorMappingV2.kage")
 	// if err != nil {
@@ -7712,7 +7730,7 @@ func main() {
 			{X: -424.48, Y: 986.71, Z: 17.54, CameraX: 0.24, CameraY: -2.08},
 			{X: 54.16, Y: 784.00, Z: 17.54, CameraX: 1.19, CameraY: -1.95},
 			{X: 669.52, Y: 48.41, Z: 17.54, CameraX: -0.72, CameraY: -1.91}}
-		CameraPositions = InterpolateBetweenPositions(10*time.Second, cPositions)
+		CameraPositions := InterpolateBetweenPositions(10*time.Second, cPositions)
 		camera = Camera{}
 
 		const depth = 3
