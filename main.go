@@ -34,7 +34,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"runtime/debug"
 	"runtime/pprof"
 	"sort"
 	"strconv"
@@ -67,7 +66,7 @@ const maxDepth = 16
 const NumNodes = (1 << (maxDepth + 1)) - 1
 const numCPU = 16
 
-const Benchmark = false
+const Benchmark = true
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -1277,6 +1276,54 @@ func BoundingBoxCollisionVector(BBMin Vector, BBMax Vector, ray Ray) (bool, floa
 	return false, 0.0 // Return 0 distance if no intersection
 }
 
+// BoundingBoxCollisionPair checks if a ray intersects with two bounding boxes and returns
+// hit status and distance for both boxes
+func BoundingBoxCollisionPair(box1Min, box1Max, box2Min, box2Max Vector, ray Ray) (bool, bool, float32, float32) {
+	// Precompute the inverse direction (once for both boxes)
+	invDirX := 1.0 / ray.direction.x
+	invDirY := 1.0 / ray.direction.y
+	invDirZ := 1.0 / ray.direction.z
+
+	// Box 1 intersection
+	tx1_1 := (box1Min.x - ray.origin.x) * invDirX
+	tx2_1 := (box1Max.x - ray.origin.x) * invDirX
+	tmin_1 := min(tx1_1, tx2_1)
+	tmax_1 := max(tx1_1, tx2_1)
+
+	ty1_1 := (box1Min.y - ray.origin.y) * invDirY
+	ty2_1 := (box1Max.y - ray.origin.y) * invDirY
+	tmin_1 = max(tmin_1, min(ty1_1, ty2_1))
+	tmax_1 = min(tmax_1, max(ty1_1, ty2_1))
+
+	tz1_1 := (box1Min.z - ray.origin.z) * invDirZ
+	tz2_1 := (box1Max.z - ray.origin.z) * invDirZ
+	tmin_1 = max(tmin_1, min(tz1_1, tz2_1))
+	tmax_1 = min(tmax_1, max(tz1_1, tz2_1))
+
+	// Box 2 intersection
+	tx1_2 := (box2Min.x - ray.origin.x) * invDirX
+	tx2_2 := (box2Max.x - ray.origin.x) * invDirX
+	tmin_2 := min(tx1_2, tx2_2)
+	tmax_2 := max(tx1_2, tx2_2)
+
+	ty1_2 := (box2Min.y - ray.origin.y) * invDirY
+	ty2_2 := (box2Max.y - ray.origin.y) * invDirY
+	tmin_2 = max(tmin_2, min(ty1_2, ty2_2))
+	tmax_2 = min(tmax_2, max(ty1_2, ty2_2))
+
+	tz1_2 := (box2Min.z - ray.origin.z) * invDirZ
+	tz2_2 := (box2Max.z - ray.origin.z) * invDirZ
+	tmin_2 = max(tmin_2, min(tz1_2, tz2_2))
+	tmax_2 = min(tmax_2, max(tz1_2, tz2_2))
+
+	// Check intersections
+	hit1 := tmax_1 >= max(0.0, tmin_1)
+	hit2 := tmax_2 >= max(0.0, tmin_2)
+
+	// Return hit status and distances
+	return hit1, hit2, tmin_1, tmin_2
+}
+
 func (triangle *TriangleSimple) Rotate(xAngle, yAngle, zAngle float32) {
 	// Rotation matrices
 	rotationMatrixX := [3][3]float32{
@@ -1900,6 +1947,126 @@ func (ray Ray) IntersectBVHLean_TextureLean(nodeBVH *BVHLeanNode, textureMap *[1
 			}
 		}
 	}
+	return closestIntersection, hit
+}
+
+func (ray Ray) IntersectBVHLean_TextureLeanOptim(nodeBVH *BVHLeanNode, textureMap *[128]Texture) (IntersectionLean, bool) {
+	// Preallocate a stack large enough for the BVH depth
+	stack := make([]*BVHLeanNode, maxDepth)
+	stackIndex := 0
+	stack[stackIndex] = nodeBVH
+	var closestIntersection IntersectionLean
+	closestDist := float32(math.MaxFloat32)
+	hit := false
+
+	for stackIndex >= 0 {
+		currentNode := stack[stackIndex]
+		stackIndex--
+
+		// If the node contains triangles, check for intersections
+		if currentNode.active {
+			intersection, intersects, dist := ray.IntersectTriangleTextureGeneralLean(
+				currentNode.TriangleBBOX.V1orBBoxMin,
+				currentNode.TriangleBBOX.V2orBBoxMax,
+				currentNode.TriangleBBOX.V3,
+				currentNode.TriangleBBOX.normal,
+				textureMap,
+				currentNode.TriangleBBOX.id)
+
+			if intersects && dist < closestDist {
+				closestIntersection = intersection
+				hit = true
+				closestDist = dist
+			}
+			continue
+		}
+
+		// Both children exist, use the optimized function
+		if currentNode.Left != nil && currentNode.Right != nil {
+			// Get bounding box info for both children
+			leftBBoxMin := currentNode.Left.TriangleBBOX.V1orBBoxMin
+			leftBBoxMax := currentNode.Left.TriangleBBOX.V2orBBoxMax
+			rightBBoxMin := currentNode.Right.TriangleBBOX.V1orBBoxMin
+			rightBBoxMax := currentNode.Right.TriangleBBOX.V2orBBoxMax
+
+			// Check both boxes at once, considering if they're leaf nodes
+			leftHit := currentNode.Left.active   // Default true if it's a leaf node
+			rightHit := currentNode.Right.active // Default true if it's a leaf node
+			leftDist := float32(math.MaxFloat32)
+			rightDist := float32(math.MaxFloat32)
+
+			// Only check BB collision if it's not a leaf node
+			if !currentNode.Left.active && !currentNode.Right.active {
+				// Both are boxes, use optimized function
+				leftHit, rightHit, leftDist, rightDist = BoundingBoxCollisionPair(
+					leftBBoxMin, leftBBoxMax,
+					rightBBoxMin, rightBBoxMax,
+					ray)
+			} else if !currentNode.Left.active {
+				// Only left is a box
+				leftHit, leftDist = BoundingBoxCollisionVector(leftBBoxMin, leftBBoxMax, ray)
+			} else if !currentNode.Right.active {
+				// Only right is a box
+				rightHit, rightDist = BoundingBoxCollisionVector(rightBBoxMin, rightBBoxMax, ray)
+			}
+
+			// Prioritize traversal based on hit status and distance
+			if leftHit && rightHit {
+				if leftDist < rightDist {
+					// Left is closer, traverse left first
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+				} else {
+					// Right is closer, traverse right first
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+				}
+			} else if leftHit {
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+			} else if rightHit {
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+			}
+		} else if currentNode.Left != nil {
+			// Only left child exists
+			if !currentNode.Left.active {
+				leftHit, _ := BoundingBoxCollisionVector(
+					currentNode.Left.TriangleBBOX.V1orBBoxMin,
+					currentNode.Left.TriangleBBOX.V2orBBoxMax,
+					ray)
+				if leftHit {
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+				}
+			} else {
+				// It's a leaf node, always traverse
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+			}
+		} else if currentNode.Right != nil {
+			// Only right child exists
+			if !currentNode.Right.active {
+				rightHit, _ := BoundingBoxCollisionVector(
+					currentNode.Right.TriangleBBOX.V1orBBoxMin,
+					currentNode.Right.TriangleBBOX.V2orBBoxMax,
+					ray)
+				if rightHit {
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+				}
+			} else {
+				// It's a leaf node, always traverse
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+			}
+		}
+	}
+
 	return closestIntersection, hit
 }
 
@@ -3333,6 +3500,125 @@ func TraceRayV4AdvanceTextureLean(ray Ray, depth int, light Light, samples int, 
 	}
 }
 
+func TraceRayV4AdvanceTextureLeanOptim(ray Ray, depth int, light Light, samples int, textureMap *[128]Texture, BVH *BVHLeanNode) (c ColorFloat32) {
+	if depth <= 0 {
+		return ColorFloat32{}
+	}
+
+	intersection, intersect := ray.IntersectBVHLean_TextureLeanOptim(BVH, textureMap)
+	if !intersect {
+		return ColorFloat32{}
+	}
+
+	viewDir := ray.origin.Sub(intersection.PointOfIntersection).Normalize()
+	lightDir := light.Position.Sub(intersection.PointOfIntersection).Normalize()
+	halfwayDir := lightDir.Add(viewDir).Normalize()
+
+	// Calculate important dot products
+	NdotL := math32.Max(0.0, intersection.Normal.Dot(lightDir))
+	NdotV := math32.Max(0.0, intersection.Normal.Dot(viewDir))
+	NdotH := math32.Max(0.0, intersection.Normal.Dot(halfwayDir))
+
+	// Calculate Fresnel term
+	// F0 :=  // Base reflectivity for non-metals
+	fresnel := FresnelSchlick(NdotV, intersection.Metallic)
+
+	// Calculate roughness-based distribution
+	distribution := GGXDistribution(NdotH, intersection.Roughness)
+
+	// Scatter calculation using hemisphere sampling
+	var scatteredColor ColorFloat32
+	rayOriginOffset := intersection.PointOfIntersection.Add(intersection.Normal.Mul(0.01))
+
+	for i := 0; i < samples; i++ {
+		scatterDirection := SampleHemisphere(intersection.Normal)
+		scatterDirection = scatterDirection.Perturb(intersection.Normal, intersection.Roughness)
+
+		scatterRay := Ray{
+			origin:    rayOriginOffset,
+			direction: scatterDirection.Normalize(),
+		}
+
+		if bvhIntersection, scatterIntersect := scatterRay.IntersectBVHLean_TextureLeanOptim(BVH, textureMap); scatterIntersect {
+			scatteredColor.R += bvhIntersection.Color.R
+			scatteredColor.G += bvhIntersection.Color.G
+			scatteredColor.B += bvhIntersection.Color.B
+		}
+	}
+
+	if samples > 0 {
+		s := float32(samples)
+		scatteredColor = ColorFloat32{
+			R: scatteredColor.R / s,
+			G: scatteredColor.G / s,
+			B: scatteredColor.B / s,
+		}
+	}
+
+	// Calculate reflection direction using Fresnel
+	reflectDir := lightDir.Mul(-1).Reflect(intersection.Normal)
+	reflectRay := Ray{origin: rayOriginOffset, direction: reflectDir}
+	tempIntersection, _ := reflectRay.IntersectBVHLean_TextureLeanOptim(BVH, textureMap)
+
+	// Apply Fresnel to reflection color
+	directReflectionColor := ColorFloat32{
+		R: tempIntersection.Color.R * fresnel,
+		G: tempIntersection.Color.G * fresnel,
+		B: tempIntersection.Color.B * fresnel,
+		A: intersection.Color.A,
+	}
+
+	// Shadow calculation
+	shadowRay := Ray{
+		origin:    rayOriginOffset,
+		direction: lightDir,
+	}
+	_, inShadow := shadowRay.IntersectBVHLean_TextureLeanOptim(BVH, textureMap)
+
+	// Calculate specular using GGX distribution
+	var lightIntensity float32 = 0.005
+	if !inShadow {
+		lightIntensity = light.intensity * NdotL
+	}
+
+	specularIntensity := distribution * fresnel * lightIntensity * intersection.specular
+
+	specularColor := ColorFloat32{
+		R: specularIntensity * light.Color[0],
+		G: specularIntensity * light.Color[1],
+		B: specularIntensity * light.Color[2],
+	}
+
+	// Calculate diffuse contribution
+	diffuseFactor := (1.0 - fresnel) * (1.0 / math32.Pi)
+	diffuseColor := ColorFloat32{
+		R: intersection.Color.R * diffuseFactor * NdotL * lightIntensity,
+		G: intersection.Color.G * diffuseFactor * NdotL * lightIntensity,
+		B: intersection.Color.B * diffuseFactor * NdotL * lightIntensity,
+	}
+
+	// Combine direct and indirect lighting
+	finalColor := ColorFloat32{
+		R: light.Color[0] * (diffuseColor.R + specularColor.R + (directReflectionColor.R * intersection.directToScatter) + (scatteredColor.R * (1 - intersection.directToScatter))),
+		G: light.Color[1] * (diffuseColor.G + specularColor.G + (directReflectionColor.G * intersection.directToScatter) + (scatteredColor.G * (1 - intersection.directToScatter))),
+		B: light.Color[2] * (diffuseColor.B + specularColor.B + (directReflectionColor.B * intersection.directToScatter) + (scatteredColor.B * (1 - intersection.directToScatter))),
+		A: intersection.Color.A,
+	}
+
+	// Calculate bounced contribution
+	bounceRay := Ray{origin: rayOriginOffset, direction: reflectDir}
+	bouncedColor := TraceRayV4AdvanceTextureLeanOptim(bounceRay, depth-1, light, samples, textureMap, BVH)
+
+	// Final color composition with energy conservation
+	invFresnel := 1.0 - fresnel
+	return ColorFloat32{
+		R: finalColor.R*invFresnel + bouncedColor.R*fresnel,
+		G: finalColor.G*invFresnel + bouncedColor.G*fresnel,
+		B: finalColor.B*invFresnel + bouncedColor.B*fresnel,
+		A: finalColor.A,
+	}
+}
+
 func (v Vector) LengthSquared() float32 {
 	return v.x*v.x + v.y*v.y + v.z*v.z
 }
@@ -4616,6 +4902,118 @@ func DrawRaysBlockAdvanceV4LinOptim(camera Camera, light Light, scaling int, sam
 	}
 }
 
+func DrawRaysBlockAdvanceV4LinO2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool, bvh *BVHLeanNode, textureMap *[128]Texture) {
+	var wg sync.WaitGroup
+
+	// Process each block
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y++ {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x++ {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRayV4AdvanceTextureLeanOptim(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap, bvh)
+
+					// Write the pixel color to the float buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.colorRGB_Float32[index] = c.R
+					block.colorRGB_Float32[index+1] = c.G
+					block.colorRGB_Float32[index+2] = c.B
+					block.colorRGB_Float32[index+3] = c.A
+
+					// Track the maximum values
+					block.maxColor.R = math32.Max(block.maxColor.R, c.R)
+					block.maxColor.G = math32.Max(block.maxColor.G, c.G)
+					block.maxColor.B = math32.Max(block.maxColor.B, c.B)
+				}
+			}
+		}(block)
+	}
+
+	maxColor := ColorFloat32{0, 0, 0, 0}
+	for _, block := range blocks {
+		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
+		maxColor.G = math32.Max(maxColor.G, block.maxColor.G)
+		maxColor.B = math32.Max(maxColor.B, block.maxColor.B)
+	}
+
+	// Apply color grading and write pixels
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			defer wg.Done()
+			block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+			block.normalImage.WritePixels(block.normalsBuffer)
+		}(block)
+	}
+	if !performance {
+		wg.Wait()
+	}
+}
+
+func DrawRaysBlockAdvanceV4LogO2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool, bvh *BVHLeanNode, textureMap *[128]Texture) {
+	var wg sync.WaitGroup
+
+	// Process each block
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y++ {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x++ {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRayV4AdvanceTextureLeanOptim(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap, bvh)
+
+					// Write the pixel color to the float buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.colorRGB_Float32[index] = c.R
+					block.colorRGB_Float32[index+1] = c.G
+					block.colorRGB_Float32[index+2] = c.B
+					block.colorRGB_Float32[index+3] = c.A
+
+					// Track the maximum values
+					block.maxColor.R = math32.Max(block.maxColor.R, c.R)
+					block.maxColor.G = math32.Max(block.maxColor.G, c.G)
+					block.maxColor.B = math32.Max(block.maxColor.B, c.B)
+				}
+			}
+		}(block)
+	}
+
+	maxColor := ColorFloat32{0, 0, 0, 0}
+	for _, block := range blocks {
+		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
+		maxColor.G = math32.Max(maxColor.G, block.maxColor.G)
+		maxColor.B = math32.Max(maxColor.B, block.maxColor.B)
+	}
+
+	// Apply color grading and write pixels
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImageAdvance) {
+			defer wg.Done()
+			block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
+			block.normalImage.WritePixels(block.normalsBuffer)
+		}(block)
+	}
+	if !performance {
+		wg.Wait()
+	}
+}
+
 func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool) {
 	var wg sync.WaitGroup
 
@@ -5714,9 +6112,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		DrawRaysBlockAdvanceV4LinOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
 	case V4LogOptim:
 		DrawRaysBlockAdvanceV4LogOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4LinO2:
+		DrawRaysBlockAdvanceV4LinO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4LogO2:
+		DrawRaysBlockAdvanceV4LogO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
 	}
 
-	if g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
+	if g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
 		switch g.mode {
 		case Classic:
 			for _, block := range g.BlocksImageAdvance {
@@ -5912,6 +6314,8 @@ const (
 	AddVoxel         = uint8(iota)
 	None             = uint8(iota)
 	V2M              = uint8(iota)
+	V4LogO2          = uint8(iota)
+	V4LinO2          = uint8(iota)
 )
 
 type Game struct {
@@ -6546,6 +6950,12 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	case "V4-Linear-Optim":
 		fmt.Println("V4-Lin-Optim")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V4LinOptim
+	case "V4-Log-Optim-V2":
+		fmt.Println("V4-Log-Optim-V2")
+		*(*uint8)(unsafe.Pointer(&g.version)) = V4LogO2
+	case "V4-Linear-Optim-V2":
+		fmt.Println("V4-Lin-Optim-V2")
+		*(*uint8)(unsafe.Pointer(&g.version)) = V4LinO2
 	}
 
 	switch renderOptions.Resolution {
@@ -6731,7 +7141,6 @@ func startServer(game *Game) {
 	e.POST("/moveToPosition", game.MoveToCameraPosition)
 	e.GET("/getCurrentImage", game.GetCurrentImage)
 	e.GET("/sendImage", game.SendImageToClient)
-	
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -6859,11 +7268,31 @@ func main() {
 	}
 	fmt.Println("Rand 64:", time.Since(start))
 
-	if Benchmark {
-		debug.SetGCPercent(-1)
-	} else {
-		debug.SetGCPercent(200)
+	start = time.Now()
+	for i := 0; i < 2*1000_000; i++ {
+		bBoxMin := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		bBoxMax := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		ray := Ray{origin: Vector{rand.Float32(), rand.Float32(), rand.Float32()}, direction: Vector{rand.Float32(), rand.Float32(), rand.Float32()}}
+		_, _ = BoundingBoxCollisionVector(bBoxMin, bBoxMax, ray)
 	}
+	fmt.Println("BoundingBoxCollisionVector:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		bBoxMin := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		bBoxMax := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		bBoxMin1 := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		bBoxMax1 := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		ray := Ray{origin: Vector{rand.Float32(), rand.Float32(), rand.Float32()}, direction: Vector{rand.Float32(), rand.Float32(), rand.Float32()}}
+		_, _, _, _ = BoundingBoxCollisionPair(bBoxMin, bBoxMax, bBoxMin1, bBoxMax1, ray)
+	}
+	fmt.Println("BoundingBoxCollisionPair:", time.Since(start))
+
+	// if Benchmark {
+	// 	debug.SetGCPercent(-1)
+	// } else {
+	// 	debug.SetGCPercent(200)
+	// }
 	// runtime.SetBlockProfileRate(0)
 
 	// Compare the performance of the PrecomputeScreenSpaceCoordinatesSphereOptimalized and PrecomputeScreenSpaceCoordinatesSphere
@@ -7079,6 +7508,29 @@ func main() {
 	fmt.Println("BVH Lean left:", *bvhLean.Left)
 	fmt.Println("BVH Lean right:", *bvhLean.Right)
 
+	texture := &[128]Texture{}
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		ray := Ray{origin: Vector{rand.Float32(), rand.Float32(), rand.Float32()}, direction: Vector{rand.Float32(), rand.Float32(), rand.Float32()}}
+		_, _ = ray.IntersectBVHLean_TextureLeanOptim(bvhLean, texture)
+	}
+	fmt.Println("IntersectBVHLean_TextureLeanOptim:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		ray := Ray{origin: Vector{rand.Float32(), rand.Float32(), rand.Float32()}, direction: Vector{rand.Float32(), rand.Float32(), rand.Float32()}}
+		_, _ = ray.IntersectBVHLean_TextureLean(bvhLean, texture)
+	}
+	fmt.Println("IntersectBVHLean_TextureLean:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		ray := Ray{origin: Vector{rand.Float32(), rand.Float32(), rand.Float32()}, direction: Vector{rand.Float32(), rand.Float32(), rand.Float32()}}
+		_, _ = ray.IntersectBVH(BVH)
+	}
+	fmt.Println("IntersectBVHLean-V1:", time.Since(start))
+
 	// remove obj and objects from memory
 	// obj = object{}
 	// objects = []object{}
@@ -7111,7 +7563,6 @@ func main() {
 	}
 	fmt.Println("Calssic Bvh:", time.Since(start))
 
-	texture := &[128]Texture{}
 	start = time.Now()
 	for i := 0; i < 1_000_000; i++ {
 		// generate random ray
@@ -7255,7 +7706,7 @@ func main() {
 	ebiten.SetWindowTitle("Ebiten Benchmark")
 
 	if Benchmark {
-		renderVersions := []uint8{V1, V2, V2Log, V2Linear, V2LinearTexture, V2LinearTexture2, V4Log, V4Lin, V4LogOptim, V4LinOptim}
+		renderVersions := []uint8{V1, V2, V2M, V2Log, V2Linear, V2LinearTexture, V2LinearTexture2, V4Log, V4Lin, V4LogOptim, V4LinOptim, V4LinO2, V4LogO2}
 
 		cPositions := []Position{
 			{X: -424.48, Y: 986.71, Z: 17.54, CameraX: 0.24, CameraY: -2.08},
@@ -7357,6 +7808,24 @@ func main() {
 				} else {
 					name = "V4LogOptim"
 				}
+			case V2M:
+				if preformance {
+					name = "V2MPreformance"
+				} else {
+					name = "V2M"
+				}
+			case V4LinO2:
+				if preformance {
+					name = "V4LinO2Preformance"
+				} else {
+					name = "V4LinO2"
+				}
+			case V4LogO2:
+				if preformance {
+					name = "V4LogO2Preformance"
+				} else {
+					name = "V4LogO2"
+				}
 			}
 
 			profileFilename := fmt.Sprintf("profiles/cpu_profile_v%s.prof", name)
@@ -7386,6 +7855,10 @@ func main() {
 				case V2:
 					startTime = time.Now()
 					DrawRaysBlockV2(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V2M:
+					startTime = time.Now()
+					DrawRaysBlockV2M(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
 					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 				case V2Log:
 					startTime = time.Now()
@@ -7419,6 +7892,14 @@ func main() {
 					startTime = time.Now()
 					DrawRaysBlockAdvanceV4LogOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
 					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V4LinO2:
+					startTime = time.Now()
+					DrawRaysBlockAdvanceV4LinO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+				case V4LogO2:
+					startTime = time.Now()
+					DrawRaysBlockAdvanceV4LogO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 				}
 
 			}
@@ -7433,14 +7914,43 @@ func main() {
 				averageTime += time
 			}
 			averageTime = averageTime / float64(len(TimeProfile))
-			fmt.Println("Version:", name, "AverageTime:", averageTime, "ms", "samples:", len(TimeProfile))
+			fmt.Println("Version:", name, "AverageTime:", averageTime, "µs", "samples:", len(TimeProfile))
 
 		}
 
 		fmt.Println("Version Times:", versionTimes)
 
+		cpuName, numCores, clockSpeed, totalRAM, err := getSystemInfo()
+		if err != nil {
+			panic(err)
+		}
+
+		type HWInfo struct {
+			CPUName    string  `json:"CPUName"`
+			NumCores   int     `json:"NumCores"`
+			ClockSpeed float64 `json:"ClockSpeed"`
+			TotalRAM   uint64  `json:"TotalRAM"`
+		}
+
+		hwInfo := HWInfo{
+			CPUName:    cpuName,
+			NumCores:   numCores,
+			ClockSpeed: clockSpeed,
+			TotalRAM:   totalRAM,
+		}
+
+		type Report struct {
+			HWInfo       HWInfo             `json:"HWInfo"`
+			VersionTimes map[string][]float64 `json:"VersionTimes"`
+		}
+
+		report := Report{
+			HWInfo:       hwInfo,
+			VersionTimes: versionTimes,
+		}
+
 		// dump times to file
-		dump, err := json.MarshalIndent(versionTimes, "", " ")
+		dump, err := json.MarshalIndent(report, "", " ")
 		if err != nil {
 			panic(err)
 		}

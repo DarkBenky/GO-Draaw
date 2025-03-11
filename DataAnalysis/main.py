@@ -6,9 +6,11 @@ from plotly.subplots import make_subplots
 import json 
 import plotly.io as pio  # Add this import at the top
 import plotly.colors as pc
+import colorlover as cl  # Make sure this is installed
 
 # Load the data
 data = json.load(open('versionTimes.json'))
+data = data['VersionTimes']
 df = pd.DataFrame(data)
 
 # Calculate statistics for each version
@@ -30,7 +32,19 @@ stats_df = pd.DataFrame(versions).T
 
 
 # Create a color palette for versions
-colors = pc.qualitative.Plotly[:len(stats_df.index)]  # Using Set3 palette, you can also try 'Set1', 'Paired', etc.
+num_versions = len(stats_df.index)
+
+# Generate enough colors for all versions
+if num_versions <= 10:
+    # Use a qualitative color scale with enough colors
+    colors = cl.scales['10']['qual']['Paired'][:num_versions]
+elif num_versions <= 20:
+    # For more versions, generate more colors
+    colors = cl.scales['10']['qual']['Paired'] + cl.scales['10']['qual']['Set3'][:num_versions-10]
+else:
+    # For even more versions, create a custom color scale
+    colorscale = cl.scales['10']['div']['Spectral']
+    colors = cl.interp(colorscale, num_versions)
 
 # Create and save individual plots for each metric
 for metric in metrics:
@@ -73,7 +87,7 @@ for i, metric in enumerate(metrics, 1):
             y=stats_df[metric],
             text=stats_df[metric].round(4),
             textposition='auto',
-            marker_color=colors,  # Add this line to set colors
+            marker_color=colors,  # Now colors has enough entries
             showlegend=False
         ),
         row=i, col=1
@@ -101,7 +115,7 @@ fig.show()
 # Create color scale for cells
 def create_color_scale(values):
     normalized = (values - values.min()) / (values.max() - values.min())
-    colors = [f'rgb(200,{int(255*(1.5-x))},{int(255*(1.5-x))})' for x in normalized]
+    colors = [f'rgb({int(255*(x+0.3))},{int(255*(x+0.4))},{int(255*(x+0.2))})' for x in normalized]
     return colors
 
 # Create color-coded cells for each metric

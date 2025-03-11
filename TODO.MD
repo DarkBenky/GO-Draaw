@@ -1,6 +1,14 @@
 # TODO List
 
-- [ ] Test Bach processing of BBOX and Triangles
+- [ ] Update documentation about new version of V4-Linear-Optim-V2 that check bounding box intersection for both boxes usually the node has 2 nodes so we can optimize with one func call not two
+  Whole function
+  - IntersectBVHLean_TextureLeanOptim: 484.632972ms
+  - IntersectBVHLean_TextureLean: 532.122386ms
+  - IntersectBVHLean-V1: 587.8628ms
+  BBox Check
+  - BoundingBoxCollisionVector: 291.248548ms
+  - BoundingBoxCollisionPair: 215.934921ms
+- [X] Test Bach processing of BBOX and Triangles
 - [X] Add material properties type like specular etc.
 
   ```golang
