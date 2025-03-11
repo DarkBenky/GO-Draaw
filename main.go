@@ -34,6 +34,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"runtime/pprof"
 	"sort"
 	"strconv"
@@ -7294,11 +7295,11 @@ func main() {
 	}
 	fmt.Println("BoundingBoxCollisionPair:", time.Since(start))
 
-	// if Benchmark {
-	// 	debug.SetGCPercent(-1)
-	// } else {
-	// 	debug.SetGCPercent(200)
-	// }
+	if Benchmark {
+		debug.SetGCPercent(-1)
+	} else {
+		debug.SetGCPercent(200)
+	}
 	// runtime.SetBlockProfileRate(0)
 
 	// Compare the performance of the PrecomputeScreenSpaceCoordinatesSphereOptimalized and PrecomputeScreenSpaceCoordinatesSphere
@@ -7958,7 +7959,7 @@ func main() {
 		}
 
 		type Report struct {
-			HWInfo       HWInfo             `json:"HWInfo"`
+			HWInfo       HWInfo               `json:"HWInfo"`
 			VersionTimes map[string][]float64 `json:"VersionTimes"`
 		}
 
