@@ -67,7 +67,7 @@ const maxDepth = 16
 const NumNodes = (1 << (maxDepth + 1)) - 1
 const numCPU = 16
 
-const Benchmark = true
+const Benchmark = false
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -2148,6 +2148,83 @@ func (ray Ray) IntersectBVHLean_TextureWithNode(nodeBVH *BVHLeanNode, textureMap
 	return closestIntersection, hit, HitTrianglePtr
 }
 
+func (ray Ray) IntersectBVHLean_TextureSetColor(nodeBVH *BVHLeanNode, textureMap *[128]Texture, color ColorFloat32) (Intersection, bool, *BVHLeanNode) {
+	// Preallocate a stack large enough for the BVH depth
+	stack := make([]*BVHLeanNode, maxDepth)
+	stackIndex := 0
+	stack[stackIndex] = nodeBVH
+	var closestIntersection Intersection
+	var HitTrianglePtr *BVHLeanNode
+	hit := false
+
+	for stackIndex >= 0 {
+		currentNode := stack[stackIndex]
+		stackIndex--
+
+		// If the node contains triangles, check for intersections
+		if currentNode.active {
+			intersection, intersects := ray.IntersectTriangleTextureSetColor(currentNode.TriangleBBOX.V1orBBoxMin, currentNode.TriangleBBOX.V2orBBoxMax, currentNode.TriangleBBOX.V3, currentNode.TriangleBBOX.normal, textureMap, currentNode.TriangleBBOX.id, color)
+			if intersects {
+				if !hit || intersection.Distance < closestIntersection.Distance {
+					closestIntersection = intersection
+					HitTrianglePtr = currentNode
+					hit = true
+				}
+			}
+			continue
+		} else {
+			// Check for bounding box intersections for left and right children
+			var leftHit, rightHit bool
+			var leftDist, rightDist float32
+
+			if currentNode.Left != nil {
+				// Check if the left child is Bounding Box
+				if currentNode.Left.active == false {
+					leftHit, leftDist = BoundingBoxCollisionVector(currentNode.Left.TriangleBBOX.V1orBBoxMin, currentNode.Left.TriangleBBOX.V2orBBoxMax, ray)
+				} else {
+					leftHit = true
+					leftDist = math32.MaxFloat32
+				}
+			}
+			if currentNode.Right != nil {
+				// Check if the right child is Bounding Box
+				if currentNode.Right.active == false {
+					rightHit, rightDist = BoundingBoxCollisionVector(currentNode.Right.TriangleBBOX.V1orBBoxMin, currentNode.Right.TriangleBBOX.V2orBBoxMax, ray)
+				} else {
+					rightHit = true
+					rightDist = math32.MaxFloat32
+				}
+			}
+
+			// Prioritize traversal based on hit distance (closer node first)
+			if leftHit && rightHit {
+				if leftDist < rightDist {
+					// Left is closer, traverse left first
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+				} else {
+					// Right is closer, traverse right first
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+				}
+			} else if leftHit {
+				// Only left child is hit
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+			} else if rightHit {
+				// Only right child is hit
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+			}
+		}
+	}
+	return closestIntersection, hit, HitTrianglePtr
+}
+
 // func (ray *Ray) IntersectTriangle(triangle Triangle) (Intersection, bool) {
 // 	// Check if the ray intersects the bounding box of the triangle first
 // 	if !triangle.IntersectBoundingBox(*ray) {
@@ -2508,6 +2585,82 @@ func (ray Ray) IntersectTriangleTextureGeneral(v1 Vector, v2 Vector, v3 Vector, 
 		y: (baseNormal.y + perturbedNormal.y) * 0.5,
 		z: (baseNormal.z + perturbedNormal.z) * 0.5,
 	}.Normalize()
+
+	return Intersection{
+		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)).Add(normal.Mul(0.01)),
+		Color:               textureMap[id].texture[texU][texV],
+		Normal:              normal,
+		Direction:           ray.direction,
+		Distance:            t,
+		reflection:          textureMap[id].reflection,
+		specular:            textureMap[id].specular,
+		Roughness:           textureMap[id].Roughness,
+		directToScatter:     textureMap[id].directToScatter,
+		Metallic:            textureMap[id].Metallic,
+	}, true
+}
+
+func (ray Ray) IntersectTriangleTextureSetColor(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id int32, color ColorFloat32) (Intersection, bool) {
+	// Möller–Trumbore intersection algorithm
+	edge1 := v2.Sub(v1)
+	edge2 := v3.Sub(v1)
+	h := ray.direction.Cross(edge2)
+	a := edge1.Dot(h)
+	if a > -0.00001 && a < 0.00001 {
+		return Intersection{}, false
+	}
+	f := 1.0 / a
+	s := ray.origin.Sub(v1)
+	u := f * s.Dot(h)
+	if u < 0.0 || u > 1.0 {
+		return Intersection{}, false
+	}
+	q := s.Cross(edge1)
+	v := f * ray.direction.Dot(q)
+	if v < 0.0 || u+v > 1.0 {
+		return Intersection{}, false
+	}
+	t := f * edge2.Dot(q)
+	if t <= 0.00001 {
+		return Intersection{}, false
+	}
+
+	// Compute barycentric coordinates
+	w := 1.0 - u - v
+
+	// Sample the texture using barycentric coordinates
+	texU := int(w * 127)
+	texV := int(v * 127)
+	if texU < 0 {
+		texU = 0
+	} else if texU > 127 {
+		texU = 127
+	}
+	if texV < 0 {
+		texV = 0
+	} else if texV > 127 {
+		texV = 127
+	}
+
+	// index := uint8(1)
+
+	// Blend the normals using a proper normal blending technique
+	// This uses a hemisphere-based blending approach that preserves detail
+	perturbedNormal := textureMap[id].normals[texU][texV]
+
+	// Ensure the perturbed normal is in the same hemisphere as the base normal
+	if baseNormal.Dot(perturbedNormal) < 0 {
+		perturbedNormal = perturbedNormal.Mul(-1)
+	}
+
+	// Blend the normals with emphasis on maintaining the base normal's orientation
+	normal := Vector{
+		x: (baseNormal.x + perturbedNormal.x) * 0.5,
+		y: (baseNormal.y + perturbedNormal.y) * 0.5,
+		z: (baseNormal.z + perturbedNormal.z) * 0.5,
+	}.Normalize()
+
+	textureMap[id].texture[texU][texV] = color
 
 	return Intersection{
 		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)).Add(normal.Mul(0.01)),
@@ -3801,8 +3954,20 @@ type BVHLeanNode struct {
 	active       bool
 }
 
-func (node *BVHLeanNode) FindIntersectionAndSetIt(id int32, ray Ray, textureMap *[128]Texture) {
+func (node *BVHLeanNode) FindIntersectionAndSetId(id int32, ray Ray, textureMap *[128]Texture) {
 	_, hit, n := ray.IntersectBVHLean_TextureWithNode(node, textureMap)
+	if hit {
+		// set Triangle id the id parameter using unsafe pointer
+		idPtr := (*int32)(unsafe.Pointer(&n.TriangleBBOX.id))
+		// fmt.Println("Before:", n.TriangleBBOX.id)
+		*idPtr = id
+		// fmt.Println("After:", n.TriangleBBOX.id)
+	}
+	return
+}
+
+func (node *BVHLeanNode) FindIntersectionAndSetTextureColor(id int32, ray Ray, textureMap *[128]Texture, color ColorFloat32) {
+	_, hit, n := ray.IntersectBVHLean_TextureSetColor(node, textureMap, color)
 	if hit {
 		// set Triangle id the id parameter using unsafe pointer
 		idPtr := (*int32)(unsafe.Pointer(&n.TriangleBBOX.id))
@@ -5771,7 +5936,11 @@ func (g *Game) Update() error {
 			ray := Ray{origin: g.camera.Position, direction: ScreenSpaceCoordinates[mouseX*2][mouseY*2]}
 			c := ColorFloat32{float32(g.r * 255), float32(g.g * 255), float32(g.b * 255), float32(g.a * 255)}
 			findIntersectionAndSetColor(BVH, ray, c, g.reflection, g.specular, g.directToScatter, g.ColorMultiplier, g.roughness, g.metallic)
-			g.bvhLean.FindIntersectionAndSetIt(int32(g.index), ray, g.TextureMap)
+			if g.PaintTexture {
+				g.bvhLean.FindIntersectionAndSetTextureColor(int32(g.index), ray, g.TextureMap, c)
+			} else {
+				g.bvhLean.FindIntersectionAndSetId(int32(g.index), ray, g.TextureMap)
+			}
 			if g.RenderVoxels {
 
 				if g.UseRandomnessForPaint {
@@ -6378,6 +6547,7 @@ type Game struct {
 	PerformanceOptions    bool
 	UseRandomnessForPaint bool
 	SendImage             bool
+	PaintTexture          bool
 }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
@@ -6875,6 +7045,7 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 		R              float64 `json:"r"`
 		G              float64 `json:"g"`
 		B              float64 `json:"b"`
+		PaintTexture   string    `json:"paintTexture"`
 	}
 
 	renderOptions := new(RenderOptions)
@@ -6905,6 +7076,14 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 		*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = true
 	} else {
 		*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = false
+	}
+
+	if renderOptions.PaintTexture == "yes" {
+		fmt.Println("Paint Texture", renderOptions.PaintTexture)
+		*(*bool)(unsafe.Pointer(&g.PaintTexture)) = true
+	} else {
+		fmt.Println("Paint Texture", renderOptions.PaintTexture)
+		*(*bool)(unsafe.Pointer(&g.PaintTexture)) = false
 	}
 
 	*(*float32)(unsafe.Pointer(&g.light.intensity)) = float32(renderOptions.LightIntensity)
