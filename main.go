@@ -7045,7 +7045,7 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 		R              float64 `json:"r"`
 		G              float64 `json:"g"`
 		B              float64 `json:"b"`
-		PaintTexture   string    `json:"paintTexture"`
+		PaintTexture   string  `json:"paintTexture"`
 	}
 
 	renderOptions := new(RenderOptions)
@@ -7273,17 +7273,21 @@ func (g *Game) MoveToCameraPosition(c echo.Context) error {
 }
 
 func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		c.Response().Header().Set("Access-Control-Allow-Origin", "*")
-		c.Response().Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE")
-		c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+    return func(c echo.Context) error {
+        // Set common CORS headers
+        c.Response().Header().Set("Access-Control-Allow-Origin", "*")
+        c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        c.Response().Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+        c.Response().Header().Set("Access-Control-Allow-Credentials", "true")
+        
+        // Handle preflight requests
+        if c.Request().Method == "OPTIONS" {
+            return c.NoContent(http.StatusOK)
+        }
 
-		if c.Request().Method == "OPTIONS" {
-			return c.NoContent(http.StatusOK)
-		}
-
-		return next(c)
-	}
+        // Process the request
+        return next(c)
+    }
 }
 
 func (g *Game) GetCurrentImage(c echo.Context) error {
@@ -7477,7 +7481,7 @@ func main() {
 	if Benchmark {
 		debug.SetGCPercent(-1)
 	} else {
-		debug.SetGCPercent(200)
+		debug.SetGCPercent(500)
 	}
 	// runtime.SetBlockProfileRate(0)
 
