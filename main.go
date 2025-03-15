@@ -67,7 +67,7 @@ const maxDepth = 16
 const NumNodes = (1 << (maxDepth + 1)) - 1
 const numCPU = 16
 
-const Benchmark = false
+const Benchmark = true
 
 var AverageFrameRate float64 = 0.0
 var MinFrameRate float64 = math.MaxFloat64
@@ -4870,6 +4870,10 @@ func DrawRaysBlockAdvanceV4Log(camera Camera, light Light, scaling int, samples 
 		}(block)
 	}
 
+	if !performance {
+		wg.Wait()
+	}
+
 	maxColor := ColorFloat32{0, 0, 0, 0}
 	for _, block := range blocks {
 		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
@@ -4933,6 +4937,10 @@ func DrawRaysBlockAdvanceV4Lin(camera Camera, light Light, scaling int, samples 
 				}
 			}
 		}(block)
+	}
+
+	if !performance {
+		wg.Wait()
 	}
 
 	maxColor := ColorFloat32{0, 0, 0, 0}
@@ -5854,11 +5862,6 @@ func dumpBenchmarkData(rendererVersion int) error {
 
 func (g *Game) Update() error {
 
-	if g.SendImage {
-		saveEbitenImageAsPNG(g.currentFrame, "current.png")
-		g.SendImage = false
-	}
-
 	// if Benchmark {
 	// 	// rotate the camera around the y-axis
 	// 	g.camera.yAxis += 0.005
@@ -6255,7 +6258,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// 	g.currentFrame.DrawImage(subImage, op)
 	// }
 
-	g.previousFrame = g.currentFrame
+	// g.previousFrame = g.currentFrame
 
 	depth = int(g.depth)
 
@@ -6370,7 +6373,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	screen.DrawImage(g.currentFrame, mainOp)
 
-	g.previousFrame = ebiten.NewImageFromImage(screen)
+	// g.previousFrame = ebiten.NewImageFromImage(screen)
 
 	if renderFrame.Selected == 2 {
 		// Draw the render
@@ -6546,7 +6549,6 @@ type Game struct {
 	RayMarching           bool
 	PerformanceOptions    bool
 	UseRandomnessForPaint bool
-	SendImage             bool
 	PaintTexture          bool
 }
 
@@ -7061,20 +7063,26 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	*(*float32)(unsafe.Pointer(&g.gamma)) = float32(renderOptions.Gamma)
 
 	if renderOptions.SnapLight == "yes" {
+		fmt.Println("Snap Light", renderOptions.SnapLight)
 		*(*bool)(unsafe.Pointer(&g.SnapLightToCamera)) = true
 	} else {
+		fmt.Println("Snap Light", renderOptions.SnapLight)
 		*(*bool)(unsafe.Pointer(&g.SnapLightToCamera)) = false
 	}
 
 	if renderOptions.RayMarching == "yes" {
+		fmt.Println("Ray Marching", renderOptions.RayMarching)
 		*(*bool)(unsafe.Pointer(&g.RayMarching)) = true
 	} else {
+		fmt.Println("Ray Marching", renderOptions.RayMarching)
 		*(*bool)(unsafe.Pointer(&g.RayMarching)) = false
 	}
 
 	if renderOptions.Performance == "yes" {
+		fmt.Println("Performance", renderOptions.Performance)
 		*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = true
 	} else {
+		fmt.Println("Performance", renderOptions.Performance)
 		*(*bool)(unsafe.Pointer(&g.PerformanceOptions)) = false
 	}
 
@@ -7273,25 +7281,89 @@ func (g *Game) MoveToCameraPosition(c echo.Context) error {
 }
 
 func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
-    return func(c echo.Context) error {
-        // Set common CORS headers
-        c.Response().Header().Set("Access-Control-Allow-Origin", "*")
-        c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        c.Response().Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
-        c.Response().Header().Set("Access-Control-Allow-Credentials", "true")
-        
-        // Handle preflight requests
-        if c.Request().Method == "OPTIONS" {
-            return c.NoContent(http.StatusOK)
-        }
+	return func(c echo.Context) error {
+		// Set common CORS headers
+		c.Response().Header().Set("Access-Control-Allow-Origin", "*")
+		c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Response().Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+		c.Response().Header().Set("Access-Control-Allow-Credentials", "true")
 
-        // Process the request
-        return next(c)
-    }
+		// Handle preflight requests
+		if c.Request().Method == "OPTIONS" {
+			return c.NoContent(http.StatusOK)
+		}
+
+		// Process the request
+		return next(c)
+	}
 }
 
 func (g *Game) GetCurrentImage(c echo.Context) error {
-	*(*bool)(unsafe.Pointer(&g.SendImage)) = true
+	BlocksImage := MakeNewBlocks(g.scaleFactor)
+	BlocksImageAdvance := MakeNewBlocksAdvance(g.scaleFactor)
+
+	depth := int(g.depth)
+
+	switch g.version {
+	case V1:
+		DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.PerformanceOptions)
+	case V2:
+		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.PerformanceOptions)
+	case V2M:
+		DrawRaysBlockV2M(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.PerformanceOptions)
+	case V2Log:
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions)
+	case V2Linear:
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions)
+	case V2LinearTexture:
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
+	case V2LinearTexture2:
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
+	case V4Log:
+		DrawRaysBlockAdvanceV4Log(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4Lin:
+		DrawRaysBlockAdvanceV4Lin(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4LinOptim:
+		DrawRaysBlockAdvanceV4LinOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4LogOptim:
+		DrawRaysBlockAdvanceV4LogOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4LinO2:
+		DrawRaysBlockAdvanceV4LinO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4LogO2:
+		DrawRaysBlockAdvanceV4LogO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	}
+
+	currentFrame := ebiten.NewImage(screenWidth/g.scaleFactor, screenHeight/g.scaleFactor)
+
+	if g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
+		switch g.mode {
+		case Classic:
+			for _, block := range BlocksImageAdvance {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				currentFrame.DrawImage(block.image, op)
+			}
+		case Normals:
+			for _, block := range BlocksImageAdvance {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				currentFrame.DrawImage(block.normalImage, op)
+			}
+		}
+	} else {
+		for _, block := range BlocksImage {
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(float64(block.startX), float64(block.startY))
+			currentFrame.DrawImage(block.image, op)
+		}
+	}
+
+	// for _, shader := range g.Shaders {
+	// 	currentFrame = ApplyShader(currentFrame, shader)
+	// }
+
+	saveEbitenImageAsPNG(currentFrame, "current.png")
+
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Rendering image",
 	})
@@ -7481,7 +7553,7 @@ func main() {
 	if Benchmark {
 		debug.SetGCPercent(-1)
 	} else {
-		debug.SetGCPercent(500)
+		debug.SetGCPercent(750)
 	}
 	// runtime.SetBlockProfileRate(0)
 
@@ -7945,178 +8017,180 @@ func main() {
 		// Preformance Options Off
 		versionTimes := make(map[string][]float64)
 
-		preformance := false
+		preformanceVersions := []bool{false, true}
 
-		for _, version := range renderVersions {
-			var name string
-			switch version {
-			case V1:
-				if preformance {
-					name = "V1Preformance"
-				} else {
-					name = "V1"
-				}
-			case V2:
-				if preformance {
-					name = "V2Preformance"
-				} else {
-					name = "V2"
-				}
-			case V2Log:
-				if preformance {
-					name = "V2LogPreformance"
-				} else {
-					name = "V2Log"
-				}
-			case V2Linear:
-				if preformance {
-					name = "V2LinearPreformance"
-				} else {
-					name = "V2Linear"
-				}
-			case V2LinearTexture:
-				if preformance {
-					name = "V2LinearTexturePreformance"
-				} else {
-					name = "V2LinearTexture"
-				}
-			case V2LinearTexture2:
-				if preformance {
-					name = "V2LinearTexture2Preformance"
-				} else {
-					name = "V2LinearTexture"
-				}
-			case V4Log:
-				if preformance {
-					name = "V4LogPreformance"
-				} else {
-					name = "V4Log"
-				}
-			case V4Lin:
-				if preformance {
-					name = "V4LinPreformance"
-				} else {
-					name = "V4Lin"
-				}
-			case V4LinOptim:
-				if preformance {
-					name = "V4LinOptimPreformance"
-				} else {
-					name = "V4LinOptim"
-				}
-			case V4LogOptim:
-				if preformance {
-					name = "V4LogOptimPreformance"
-				} else {
-					name = "V4LogOptim"
-				}
-			case V2M:
-				if preformance {
-					name = "V2MPreformance"
-				} else {
-					name = "V2M"
-				}
-			case V4LinO2:
-				if preformance {
-					name = "V4LinO2Preformance"
-				} else {
-					name = "V4LinO2"
-				}
-			case V4LogO2:
-				if preformance {
-					name = "V4LogO2Preformance"
-				} else {
-					name = "V4LogO2"
-				}
-			}
-
-			profileFilename := fmt.Sprintf("profiles/cpu_profile_v%s.prof", name)
-			f, err := os.Create(profileFilename)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			// Start CPU profiling
-			if err := pprof.StartCPUProfile(f); err != nil {
-				log.Fatal(err)
-			}
-
-			TimeProfile := []float64{}
-			for _, cPos := range CameraPositions {
-				camera.Position = Vector{float32(cPos.X), float32(cPos.Y), float32(cPos.Z)}
-				camera.xAxis = float32(cPos.CameraX)
-				camera.yAxis = float32(cPos.CameraY)
-
-				PrecomputeScreenSpaceCoordinatesSphere(camera)
-
+		for _, preformance := range preformanceVersions {
+			for _, version := range renderVersions {
+				var name string
 				switch version {
 				case V1:
-					startTime = time.Now()
-					DrawRaysBlock(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V1Preformance"
+					} else {
+						name = "V1"
+					}
 				case V2:
-					startTime = time.Now()
-					DrawRaysBlockV2(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
-				case V2M:
-					startTime = time.Now()
-					DrawRaysBlockV2M(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V2Preformance"
+					} else {
+						name = "V2"
+					}
 				case V2Log:
-					startTime = time.Now()
-					DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V2LogPreformance"
+					} else {
+						name = "V2Log"
+					}
 				case V2Linear:
-					startTime = time.Now()
-					DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V2LinearPreformance"
+					} else {
+						name = "V2Linear"
+					}
 				case V2LinearTexture:
-					startTime = time.Now()
-					DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V2LinearTexturePreformance"
+					} else {
+						name = "V2LinearTexture"
+					}
 				case V2LinearTexture2:
-					startTime = time.Now()
-					DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V2LinearTexture2Preformance"
+					} else {
+						name = "V2LinearTexture"
+					}
 				case V4Log:
-					startTime = time.Now()
-					DrawRaysBlockAdvanceV4Log(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V4LogPreformance"
+					} else {
+						name = "V4Log"
+					}
 				case V4Lin:
-					startTime = time.Now()
-					DrawRaysBlockAdvanceV4Lin(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V4LinPreformance"
+					} else {
+						name = "V4Lin"
+					}
 				case V4LinOptim:
-					startTime = time.Now()
-					DrawRaysBlockAdvanceV4LinOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V4LinOptimPreformance"
+					} else {
+						name = "V4LinOptim"
+					}
 				case V4LogOptim:
-					startTime = time.Now()
-					DrawRaysBlockAdvanceV4LogOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V4LogOptimPreformance"
+					} else {
+						name = "V4LogOptim"
+					}
+				case V2M:
+					if preformance {
+						name = "V2MPreformance"
+					} else {
+						name = "V2M"
+					}
 				case V4LinO2:
-					startTime = time.Now()
-					DrawRaysBlockAdvanceV4LinO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V4LinO2Preformance"
+					} else {
+						name = "V4LinO2"
+					}
 				case V4LogO2:
-					startTime = time.Now()
-					DrawRaysBlockAdvanceV4LogO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					if preformance {
+						name = "V4LogO2Preformance"
+					} else {
+						name = "V4LogO2"
+					}
 				}
 
-			}
+				profileFilename := fmt.Sprintf("profiles/cpu_profile_v%s.prof", name)
+				f, err := os.Create(profileFilename)
+				if err != nil {
+					log.Fatal(err)
+				}
 
-			// Stop CPU profiling
-			pprof.StopCPUProfile()
-			f.Close()
+				// Start CPU profiling
+				if err := pprof.StartCPUProfile(f); err != nil {
+					log.Fatal(err)
+				}
 
-			versionTimes[name] = TimeProfile
-			averageTime := float64(0)
-			for _, time := range TimeProfile {
-				averageTime += time
+				TimeProfile := []float64{}
+				for _, cPos := range CameraPositions {
+					camera.Position = Vector{float32(cPos.X), float32(cPos.Y), float32(cPos.Z)}
+					camera.xAxis = float32(cPos.CameraX)
+					camera.yAxis = float32(cPos.CameraY)
+
+					PrecomputeScreenSpaceCoordinatesSphere(camera)
+
+					switch version {
+					case V1:
+						startTime = time.Now()
+						DrawRaysBlock(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V2:
+						startTime = time.Now()
+						DrawRaysBlockV2(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V2M:
+						startTime = time.Now()
+						DrawRaysBlockV2M(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V2Log:
+						startTime = time.Now()
+						DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V2Linear:
+						startTime = time.Now()
+						DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V2LinearTexture:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V2LinearTexture2:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V4Log:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceV4Log(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V4Lin:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceV4Lin(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V4LinOptim:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceV4LinOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V4LogOptim:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceV4LogOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V4LinO2:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceV4LinO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V4LogO2:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceV4LogO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					}
+
+				}
+
+				// Stop CPU profiling
+				pprof.StopCPUProfile()
+				f.Close()
+
+				versionTimes[name] = TimeProfile
+				averageTime := float64(0)
+				for _, time := range TimeProfile {
+					averageTime += time
+				}
+				averageTime = averageTime / float64(len(TimeProfile))
+				fmt.Println("Version:", name, "AverageTime:", averageTime, "µs", "samples:", len(TimeProfile))
 			}
-			averageTime = averageTime / float64(len(TimeProfile))
-			fmt.Println("Version:", name, "AverageTime:", averageTime, "µs", "samples:", len(TimeProfile))
 
 		}
 
@@ -8161,6 +8235,8 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+
+		os.Exit(0)
 	}
 
 	go startServer(game)

@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Add option to bake lighting
 - [ ] Update documentation about new version of V4-Linear-Optim-V2 that check bounding box intersection for both boxes usually the node has 2 nodes so we can optimize with one func call not two
   Whole function
   - IntersectBVHLean_TextureLeanOptim: 484.632972ms
