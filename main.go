@@ -69,10 +69,10 @@ const numCPU = 16
 
 const Benchmark = true
 
-var AverageFrameRate float64 = 0.0
-var MinFrameRate float64 = math.MaxFloat64
-var MaxFrameRate float64 = 0.0
-var FPS []float64
+// var AverageFrameRate float64 = 0.0
+// var MinFrameRate float64 = math.MaxFloat64
+// var MaxFrameRate float64 = 0.0
+// var FPS []float64
 
 type Material struct {
 	name            string
@@ -1889,7 +1889,7 @@ func (ray Ray) IntersectBVHLean_TextureLean(nodeBVH *BVHLeanNode, textureMap *[1
 
 		// If the node contains triangles, check for intersections
 		if currentNode.active {
-			intersection, intersects, dist := ray.IntersectTriangleTextureGeneralLean(currentNode.TriangleBBOX.V1orBBoxMin, currentNode.TriangleBBOX.V2orBBoxMax, currentNode.TriangleBBOX.V3, currentNode.TriangleBBOX.normal, textureMap, currentNode.TriangleBBOX.id)
+			intersection, dist, intersects := ray.IntersectTriangleTextureGeneralLean(currentNode.TriangleBBOX.V1orBBoxMin, currentNode.TriangleBBOX.V2orBBoxMax, currentNode.TriangleBBOX.V3, currentNode.TriangleBBOX.normal, textureMap, currentNode.TriangleBBOX.id)
 			if intersects {
 				if !hit || dist < closestDist {
 					closestIntersection = intersection
@@ -1966,7 +1966,7 @@ func (ray Ray) IntersectBVHLean_TextureLeanOptim(nodeBVH *BVHLeanNode, textureMa
 
 		// If the node contains triangles, check for intersections
 		if currentNode.active {
-			intersection, intersects, dist := ray.IntersectTriangleTextureGeneralLean(
+			intersection, dist, intersects := ray.IntersectTriangleTextureGeneralLean(
 				currentNode.TriangleBBOX.V1orBBoxMin,
 				currentNode.TriangleBBOX.V2orBBoxMax,
 				currentNode.TriangleBBOX.V3,
@@ -2676,29 +2676,29 @@ func (ray Ray) IntersectTriangleTextureSetColor(v1 Vector, v2 Vector, v3 Vector,
 	}, true
 }
 
-func (ray Ray) IntersectTriangleTextureGeneralLean(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id int32) (IntersectionLean, bool, float32) {
+func (ray Ray) IntersectTriangleTextureGeneralLean(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id int32) (IntersectionLean, float32, bool) {
 	// Möller–Trumbore intersection algorithm
 	edge1 := v2.Sub(v1)
 	edge2 := v3.Sub(v1)
 	h := ray.direction.Cross(edge2)
 	a := edge1.Dot(h)
 	if a > -0.00001 && a < 0.00001 {
-		return IntersectionLean{}, false, 0
+		return IntersectionLean{}, 0, false
 	}
 	f := 1.0 / a
 	s := ray.origin.Sub(v1)
 	u := f * s.Dot(h)
 	if u < 0.0 || u > 1.0 {
-		return IntersectionLean{}, false, 0
+		return IntersectionLean{}, 0, false
 	}
 	q := s.Cross(edge1)
 	v := f * ray.direction.Dot(q)
 	if v < 0.0 || u+v > 1.0 {
-		return IntersectionLean{}, false, 0
+		return IntersectionLean{}, 0, false
 	}
 	t := f * edge2.Dot(q)
 	if t <= 0.00001 {
-		return IntersectionLean{}, false, 0
+		return IntersectionLean{}, 0, false
 	}
 
 	// Compute barycentric coordinates
@@ -2745,7 +2745,7 @@ func (ray Ray) IntersectTriangleTextureGeneralLean(v1 Vector, v2 Vector, v3 Vect
 		Roughness:           textureMap[id].Roughness,
 		directToScatter:     textureMap[id].directToScatter,
 		Metallic:            textureMap[id].Metallic,
-	}, true, t
+	}, t, true
 }
 
 // func (ray Ray) IntersectTriangleTextureGeneral(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id uint8) (Intersection, bool) {
@@ -4474,7 +4474,7 @@ func PrecomputeScreenSpaceCoordinatesSphere(camera Camera) {
 // 	}
 // }
 
-func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, subImages []*ebiten.Image) {
+func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, subImages []*ebiten.Image, preformance bool) {
 	var wg sync.WaitGroup
 
 	// Create a pool of worker goroutines, each handling a portion of the image
@@ -4507,7 +4507,7 @@ func DrawRays(camera Camera, light Light, scaling int, samples int, depth int, s
 			subImage.WritePixels(pixelBuffer)
 		}(i*rowSize, (i+1)*rowSize, subImages[i])
 	}
-	if performanceOptions.Selected == 0 {
+	if !preformance {
 		// Wait for all workers to finish
 		wg.Wait()
 	}
@@ -4640,7 +4640,7 @@ func ColorGradeLinear(colors []float32, maxRed, maxGreen, maxBlue, gamma float32
 	return out
 }
 
-func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, textureMap *[128]Texture, performance bool) {
+func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, textureMap *[128]Texture, performance bool, mode int) {
 	var wg sync.WaitGroup
 
 	// Process each block
@@ -4743,7 +4743,7 @@ func DrawRaysBlockAdvanceTexture(camera Camera, light Light, scaling int, sample
 		wg.Add(1)
 		go func(block BlocksImageAdvance) {
 			wg.Done()
-			if renderVersion.Selected == logMode {
+			if mode == logMode {
 				block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
 			} else {
 				block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
@@ -4999,6 +4999,10 @@ func DrawRaysBlockAdvanceV4LogOptim(camera Camera, light Light, scaling int, sam
 		}(block)
 	}
 
+	if !performance {
+		wg.Wait()
+	}
+
 	maxColor := ColorFloat32{0, 0, 0, 0}
 	for _, block := range blocks {
 		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
@@ -5053,6 +5057,10 @@ func DrawRaysBlockAdvanceV4LinOptim(camera Camera, light Light, scaling int, sam
 				}
 			}
 		}(block)
+	}
+
+	if !performance {
+		wg.Wait()
 	}
 
 	maxColor := ColorFloat32{0, 0, 0, 0}
@@ -5111,6 +5119,10 @@ func DrawRaysBlockAdvanceV4LinO2(camera Camera, light Light, scaling int, sample
 		}(block)
 	}
 
+	if !performance {
+		wg.Wait()
+	}
+
 	maxColor := ColorFloat32{0, 0, 0, 0}
 	for _, block := range blocks {
 		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
@@ -5127,6 +5139,42 @@ func DrawRaysBlockAdvanceV4LinO2(camera Camera, light Light, scaling int, sample
 			block.normalImage.WritePixels(block.normalsBuffer)
 		}(block)
 	}
+	if !performance {
+		wg.Wait()
+	}
+}
+
+func DrawRaysBlockAdvanceV4O2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImage, gama float32, performance bool, bvh *BVHLeanNode, textureMap *[128]Texture) {
+	var wg sync.WaitGroup
+
+	// Process each block
+	for _, block := range blocks {
+		wg.Add(1)
+		go func(block BlocksImage) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y++ {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x++ {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRayV4AdvanceTextureLeanOptim(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap, bvh)
+
+					// Write the pixel color to the float buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(block)
+	}
+
 	if !performance {
 		wg.Wait()
 	}
@@ -5167,6 +5215,10 @@ func DrawRaysBlockAdvanceV4LogO2(camera Camera, light Light, scaling int, sample
 		}(block)
 	}
 
+	if !performance {
+		wg.Wait()
+	}
+
 	maxColor := ColorFloat32{0, 0, 0, 0}
 	for _, block := range blocks {
 		maxColor.R = math32.Max(maxColor.R, block.maxColor.R)
@@ -5188,7 +5240,7 @@ func DrawRaysBlockAdvanceV4LogO2(camera Camera, light Light, scaling int, sample
 	}
 }
 
-func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool) {
+func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool, mode int) {
 	var wg sync.WaitGroup
 
 	// Process each block
@@ -5258,7 +5310,7 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 		wg.Add(1)
 		go func(block BlocksImageAdvance) {
 			defer wg.Done()
-			if renderVersion.Selected == logMode {
+			if mode == logMode {
 				block.image.WritePixels(ColorGradeLogarithmic(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
 			} else {
 				block.image.WritePixels(ColorGradeLinear(block.colorRGB_Float32, maxColor.R, maxColor.G, maxColor.B, gama+1*gama+1*gama+1))
@@ -5267,7 +5319,9 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 			block.normalImage.WritePixels(block.normalsBuffer)
 		}(block)
 	}
-	wg.Wait()
+	if !performance {
+		wg.Wait()
+	}
 }
 
 // Time taken for V2:  8.789734794642856e+06
@@ -5310,7 +5364,7 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 // 	}
 // }
 
-func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light) {
+func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light, preformance bool) {
 	var wg sync.WaitGroup
 
 	// Create a pool of worker goroutines, each handling a portion of the image
@@ -5344,7 +5398,7 @@ func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten
 		}(i*rowSize, (i+1)*rowSize, subImages[i])
 	}
 
-	if performanceOptions.Selected == 0 {
+	if !preformance {
 		// Wait for all workers to finish
 		wg.Wait()
 	}
@@ -5683,22 +5737,22 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 const sensitivityX = 0.005
 const sensitivityY = 0.005
 
-func calculateMin15PercentFPS() float64 {
-	sort.Float64s(FPS)
-	tenPercentCount := int(0.15 * float64(len(FPS)))
+// func calculateMin15PercentFPS() float64 {
+// 	sort.Float64s(FPS)
+// 	tenPercentCount := int(0.15 * float64(len(FPS)))
 
-	if tenPercentCount == 0 {
-		return FPS[0] // Handle case with fewer than 10 samples
-	}
+// 	if tenPercentCount == 0 {
+// 		return FPS[0] // Handle case with fewer than 10 samples
+// 	}
 
-	min10PercentValues := FPS[:tenPercentCount]
-	sum := 0.0
-	for _, fps := range min10PercentValues {
-		sum += fps
-	}
-	averageMin10PercentFPS := sum / float64(tenPercentCount)
-	return averageMin10PercentFPS
-}
+// 	min10PercentValues := FPS[:tenPercentCount]
+// 	sum := 0.0
+// 	for _, fps := range min10PercentValues {
+// 		sum += fps
+// 	}
+// 	averageMin10PercentFPS := sum / float64(tenPercentCount)
+// 	return averageMin10PercentFPS
+// }
 
 func writeCSV(filename string, data [][]string) error {
 	fmt.Printf("Writing data to %s...\n", filename)
@@ -5747,118 +5801,118 @@ func getSystemInfo() (string, int, float64, uint64, error) {
 	return cpuName, numCores, clockSpeed, totalRAM, nil
 }
 
-func dumpBenchmarkData(rendererVersion int) error {
-	const csvFileName = "benchmark_results.csv"
+// func dumpBenchmarkData(rendererVersion int) error {
+// 	const csvFileName = "benchmark_results.csv"
 
-	fmt.Println("Starting benchmark data dump...")
+// 	fmt.Println("Starting benchmark data dump...")
 
-	// Read the main.go code
-	code, err := os.ReadFile("main.go")
-	if err != nil {
-		return err
-	}
-	codeString := string(code)
+// 	// Read the main.go code
+// 	code, err := os.ReadFile("main.go")
+// 	if err != nil {
+// 		return err
+// 	}
+// 	codeString := string(code)
 
-	// Calculate average FPS for this run
-	currentAvgFPS := AverageFrameRate / float64(FrameCount)
-	min10PercentFPS := calculateMin15PercentFPS() // Calculate min 15% FPS
-	fmt.Printf("Current run - Average FPS: %.2f, Min FPS: %.2f, Max FPS: %.2f, Min 15%% FPS: %.2f\n", currentAvgFPS, MinFrameRate, MaxFrameRate, min10PercentFPS)
+// 	// Calculate average FPS for this run
+// 	currentAvgFPS := AverageFrameRate / float64(FrameCount)
+// 	min10PercentFPS := calculateMin15PercentFPS() // Calculate min 15% FPS
+// 	fmt.Printf("Current run - Average FPS: %.2f, Min FPS: %.2f, Max FPS: %.2f, Min 15%% FPS: %.2f\n", currentAvgFPS, MinFrameRate, MaxFrameRate, min10PercentFPS)
 
-	// Check if CSV file exists and read existing data
-	var records [][]string
-	file, err := os.OpenFile(csvFileName, os.O_RDWR|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+// 	// Check if CSV file exists and read existing data
+// 	var records [][]string
+// 	file, err := os.OpenFile(csvFileName, os.O_RDWR|os.O_CREATE, 0666)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer file.Close()
 
-	// Get system information
-	cpuName, numCores, clockSpeed, totalRAM, err := getSystemInfo()
+// 	// Get system information
+// 	cpuName, numCores, clockSpeed, totalRAM, err := getSystemInfo()
 
-	fmt.Println("Reading existing benchmark results...")
-	reader := csv.NewReader(file)
-	records, _ = reader.ReadAll()
+// 	fmt.Println("Reading existing benchmark results...")
+// 	reader := csv.NewReader(file)
+// 	records, _ = reader.ReadAll()
 
-	// Check if the code already exists in the CSV
-	for i, record := range records {
-		if len(record) > 0 && record[0] == codeString && cpuName == record[5] {
-			fmt.Println("Code already exists in CSV. Updating averages...")
+// 	// Check if the code already exists in the CSV
+// 	for i, record := range records {
+// 		if len(record) > 0 && record[0] == codeString && cpuName == record[5] {
+// 			fmt.Println("Code already exists in CSV. Updating averages...")
 
-			// Parse existing FPS and framerate values
-			existingFPS, err := strconv.ParseFloat(record[1], 64)
-			if err != nil {
-				return err
-			}
-			existingMinFPS, err := strconv.ParseFloat(record[2], 64)
-			if err != nil {
-				return err
-			}
-			existingMaxFPS, err := strconv.ParseFloat(record[3], 64)
-			if err != nil {
-				return err
-			}
-			existingMin10PercentFPS, err := strconv.ParseFloat(record[4], 64)
-			if err != nil {
-				return err
-			}
+// 			// Parse existing FPS and framerate values
+// 			existingFPS, err := strconv.ParseFloat(record[1], 64)
+// 			if err != nil {
+// 				return err
+// 			}
+// 			existingMinFPS, err := strconv.ParseFloat(record[2], 64)
+// 			if err != nil {
+// 				return err
+// 			}
+// 			existingMaxFPS, err := strconv.ParseFloat(record[3], 64)
+// 			if err != nil {
+// 				return err
+// 			}
+// 			existingMin10PercentFPS, err := strconv.ParseFloat(record[4], 64)
+// 			if err != nil {
+// 				return err
+// 			}
 
-			// Calculate new averages
-			newAvgFPS := (existingFPS + currentAvgFPS) / 2
-			newMinFPS := (existingMinFPS + MinFrameRate) / 2
-			newMaxFPS := (existingMaxFPS + MaxFrameRate) / 2
-			newMin10PercentFPS := (existingMin10PercentFPS + min10PercentFPS) / 2
+// 			// Calculate new averages
+// 			newAvgFPS := (existingFPS + currentAvgFPS) / 2
+// 			newMinFPS := (existingMinFPS + MinFrameRate) / 2
+// 			newMaxFPS := (existingMaxFPS + MaxFrameRate) / 2
+// 			newMin10PercentFPS := (existingMin10PercentFPS + min10PercentFPS) / 2
 
-			fmt.Printf("Old FPS: %.2f, New FPS: %.2f, Updated Average FPS: %.2f\n", existingFPS, currentAvgFPS, newAvgFPS)
-			fmt.Printf("Old Min FPS: %.2f, New Min FPS: %.2f\n", existingMinFPS, newMinFPS)
-			fmt.Printf("Old Max FPS: %.2f, New Max FPS: %.2f\n", existingMaxFPS, newMaxFPS)
-			fmt.Printf("Old Min 15%% FPS: %.2f, New Min 15%% FPS: %.2f\n", existingMin10PercentFPS, newMin10PercentFPS)
+// 			fmt.Printf("Old FPS: %.2f, New FPS: %.2f, Updated Average FPS: %.2f\n", existingFPS, currentAvgFPS, newAvgFPS)
+// 			fmt.Printf("Old Min FPS: %.2f, New Min FPS: %.2f\n", existingMinFPS, newMinFPS)
+// 			fmt.Printf("Old Max FPS: %.2f, New Max FPS: %.2f\n", existingMaxFPS, newMaxFPS)
+// 			fmt.Printf("Old Min 15%% FPS: %.2f, New Min 15%% FPS: %.2f\n", existingMin10PercentFPS, newMin10PercentFPS)
 
-			// Update the record with new averages
-			records[i][1] = fmt.Sprintf("%.2f", newAvgFPS)
-			records[i][2] = fmt.Sprintf("%.2f", newMinFPS)
-			records[i][3] = fmt.Sprintf("%.2f", newMaxFPS)
-			records[i][4] = fmt.Sprintf("%.2f", newMin10PercentFPS)
-			// add system information
-			records[i][5] = cpuName
-			records[i][6] = fmt.Sprintf("%d", numCores)
-			records[i][7] = fmt.Sprintf("%.2f", clockSpeed)
-			records[i][8] = fmt.Sprintf("%d", totalRAM)
+// 			// Update the record with new averages
+// 			records[i][1] = fmt.Sprintf("%.2f", newAvgFPS)
+// 			records[i][2] = fmt.Sprintf("%.2f", newMinFPS)
+// 			records[i][3] = fmt.Sprintf("%.2f", newMaxFPS)
+// 			records[i][4] = fmt.Sprintf("%.2f", newMin10PercentFPS)
+// 			// add system information
+// 			records[i][5] = cpuName
+// 			records[i][6] = fmt.Sprintf("%d", numCores)
+// 			records[i][7] = fmt.Sprintf("%.2f", clockSpeed)
+// 			records[i][8] = fmt.Sprintf("%d", totalRAM)
 
-			// Write updated data back to CSV
-			return writeCSV(csvFileName, records)
-		}
-	}
+// 			// Write updated data back to CSV
+// 			return writeCSV(csvFileName, records)
+// 		}
+// 	}
 
-	// If code is not found, add a new row
-	fmt.Println("Code not found in CSV. Adding new entry.")
-	newRecord := []string{
-		codeString,
-		fmt.Sprintf("%.2f", currentAvgFPS),   // Average FPS
-		fmt.Sprintf("%.2f", MinFrameRate),    // Min FPS
-		fmt.Sprintf("%.2f", MaxFrameRate),    // Max FPS
-		fmt.Sprintf("%.2f", min10PercentFPS), // Min 15% FPS
-		cpuName,                              // CPU
-		fmt.Sprintf("%d", numCores),          // Cores
-		fmt.Sprintf("%.2f", clockSpeed),      // Clock speed
-		fmt.Sprintf("%d", totalRAM),          // Total RAM
-		fmt.Sprintf("%d", rendererVersion),   // Render Version
-	}
-	records = append(records, newRecord)
+// 	// If code is not found, add a new row
+// 	fmt.Println("Code not found in CSV. Adding new entry.")
+// 	newRecord := []string{
+// 		codeString,
+// 		fmt.Sprintf("%.2f", currentAvgFPS),   // Average FPS
+// 		fmt.Sprintf("%.2f", MinFrameRate),    // Min FPS
+// 		fmt.Sprintf("%.2f", MaxFrameRate),    // Max FPS
+// 		fmt.Sprintf("%.2f", min10PercentFPS), // Min 15% FPS
+// 		cpuName,                              // CPU
+// 		fmt.Sprintf("%d", numCores),          // Cores
+// 		fmt.Sprintf("%.2f", clockSpeed),      // Clock speed
+// 		fmt.Sprintf("%d", totalRAM),          // Total RAM
+// 		fmt.Sprintf("%d", rendererVersion),   // Render Version
+// 	}
+// 	records = append(records, newRecord)
 
-	if err != nil {
-		panic(err)
-	}
+// 	if err != nil {
+// 		panic(err)
+// 	}
 
-	fmt.Println("System Information")
-	fmt.Printf("CPU: %s\n", cpuName)
-	fmt.Printf("Cores: %d\n", numCores)
-	fmt.Printf("Clock Speed: %.2f GHz\n", clockSpeed)
-	fmt.Printf("Total RAM: %d GB\n", totalRAM)
-	fmt.Println("RenderVesionCode:", rendererVersion)
+// 	fmt.Println("System Information")
+// 	fmt.Printf("CPU: %s\n", cpuName)
+// 	fmt.Printf("Cores: %d\n", numCores)
+// 	fmt.Printf("Clock Speed: %.2f GHz\n", clockSpeed)
+// 	fmt.Printf("Total RAM: %d GB\n", totalRAM)
+// 	fmt.Println("RenderVesionCode:", rendererVersion)
 
-	// Write data back to CSV
-	return writeCSV(csvFileName, records)
-}
+// 	// Write data back to CSV
+// 	return writeCSV(csvFileName, records)
+// }
 
 func (g *Game) Update() error {
 
@@ -5965,7 +6019,6 @@ func (g *Game) Update() error {
 	}
 
 	// check if mouse button is pressed
-
 	if ebiten.IsKeyPressed(ebiten.KeyTab) {
 		fullScreen = !fullScreen
 	}
@@ -6005,105 +6058,105 @@ func saveEbitenImageAsPNG(ebitenImg *ebiten.Image, filename string) error {
 	return nil
 }
 
-var (
-	GUI              = ebiten.NewImage(400, 600)
-	lastMousePressed bool
-	guiNeedsUpdate   = true // Start with true to ensure initial render
-	depthOption      = Options{
-		Header:    "Select Depth",
-		Options:   []string{"1", "2", "4", "8", "16", "32"},
-		Selected:  0,
-		Width:     400,
-		Height:    50,
-		Padding:   10,
-		PositionX: 0,
-		PositionY: 0,
-	}
-	scatterOption = Options{
-		Header:    "Select Scatter",
-		Options:   []string{"0", "1", "2", "4", "8", "16", "32", "64"},
-		Selected:  0,
-		Width:     400,
-		Height:    50,
-		Padding:   10,
-		PositionX: 0,
-		PositionY: 350,
-	}
-	snapLightToCamera = Options{
-		Header:    "Snap Light to Camera",
-		Options:   []string{"No", "Yes"},
-		Selected:  0,
-		Width:     400,
-		Height:    50,
-		Padding:   10,
-		PositionX: 0,
-		PositionY: 400,
-	}
-	screenResolution = Options{
-		Header:    "Render Resolution",
-		Options:   []string{"Native", "2X", "4X", "8X"},
-		Selected:  1,
-		Width:     400,
-		Height:    50,
-		Padding:   10,
-		PositionX: 0,
-		PositionY: 450,
-	}
+// var (
+// 	GUI              = ebiten.NewImage(400, 600)
+// 	lastMousePressed bool
+// 	guiNeedsUpdate   = true // Start with true to ensure initial render
+// 	depthOption      = Options{
+// 		Header:    "Select Depth",
+// 		Options:   []string{"1", "2", "4", "8", "16", "32"},
+// 		Selected:  0,
+// 		Width:     400,
+// 		Height:    50,
+// 		Padding:   10,
+// 		PositionX: 0,
+// 		PositionY: 0,
+// 	}
+// 	scatterOption = Options{
+// 		Header:    "Select Scatter",
+// 		Options:   []string{"0", "1", "2", "4", "8", "16", "32", "64"},
+// 		Selected:  0,
+// 		Width:     400,
+// 		Height:    50,
+// 		Padding:   10,
+// 		PositionX: 0,
+// 		PositionY: 350,
+// 	}
+// 	snapLightToCamera = Options{
+// 		Header:    "Snap Light to Camera",
+// 		Options:   []string{"No", "Yes"},
+// 		Selected:  0,
+// 		Width:     400,
+// 		Height:    50,
+// 		Padding:   10,
+// 		PositionX: 0,
+// 		PositionY: 400,
+// 	}
+// 	screenResolution = Options{
+// 		Header:    "Render Resolution",
+// 		Options:   []string{"Native", "2X", "4X", "8X"},
+// 		Selected:  1,
+// 		Width:     400,
+// 		Height:    50,
+// 		Padding:   10,
+// 		PositionX: 0,
+// 		PositionY: 450,
+// 	}
 
-	rayMarching = Options{
-		Header:    "Ray Marching",
-		Options:   []string{"No", "Yes"},
-		Selected:  0,
-		Width:     400,
-		Height:    50,
-		Padding:   10,
-		PositionX: 0,
-		PositionY: 500,
-	}
+// 	rayMarching = Options{
+// 		Header:    "Ray Marching",
+// 		Options:   []string{"No", "Yes"},
+// 		Selected:  0,
+// 		Width:     400,
+// 		Height:    50,
+// 		Padding:   10,
+// 		PositionX: 0,
+// 		PositionY: 500,
+// 	}
 
-	performanceOptions = Options{
-		Header:    "Performance Options",
-		Options:   []string{"No", "Yes"},
-		Selected:  0,
-		Width:     400,
-		Height:    50,
-		Padding:   10,
-		PositionX: 0,
-		PositionY: 550,
-	}
+// 	performanceOptions = Options{
+// 		Header:    "Performance Options",
+// 		Options:   []string{"No", "Yes"},
+// 		Selected:  0,
+// 		Width:     400,
+// 		Height:    50,
+// 		Padding:   10,
+// 		PositionX: 0,
+// 		PositionY: 550,
+// 	}
 
-	renderFrame = Options{
-		Header:    "Render Frame",
-		Options:   []string{"No", "Yes", "Show"},
-		Selected:  0,
-		Width:     400,
-		Height:    25,
-		Padding:   5,
-		PositionX: 0,
-		PositionY: 300,
-	}
+// renderFrame = Options{
+// 	Header:    "Render Frame",
+// 	Options:   []string{"No", "Yes", "Show"},
+// 	Selected:  0,
+// 	Width:     400,
+// 	Height:    25,
+// 	Padding:   5,
+// 	PositionX: 0,
+// 	PositionY: 300,
+// }
 
-	renderVersion = Options{
-		Header:    "Render Version",
-		Options:   []string{"V1", "V2", "V2-Log", "V2-Linear"},
-		Selected:  1,
-		Width:     400,
-		Height:    25,
-		Padding:   5,
-		PositionX: 0,
-		PositionY: 325,
-	}
+// 	renderVersion = Options{
+// 		Header:    "Render Version",
+// 		Options:   []string{"V1", "V2", "V2-Log", "V2-Linear"},
+// 		Selected:  1,
+// 		Width:     400,
+// 		Height:    25,
+// 		Padding:   5,
+// 		PositionX: 0,
+// 		PositionY: 325,
+// 	}
 
-	gamaSlider = SliderLayout{
-		sliderWidth:     400,
-		sliderHeight:    12,
-		indicatorHeight: 10,
-		sliderValue:     2,
-		padding:         5,
-		startX:          0,
-		startY:          100,
-	}
-)
+// 	gamaSlider = SliderLayout{
+// 		sliderWidth:     400,
+// 		sliderHeight:    12,
+// 		indicatorHeight: 10,
+// 		sliderValue:     2,
+// 		padding:         5,
+// 		startX:          0,
+// 		startY:          100,
+// 	}
+// )
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	return 800, 608
@@ -6127,41 +6180,41 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Perform path tracing and draw rays into the current frame
 
-	depth := 2
-	if !Benchmark {
-		depth = depthOption.Selected
-		depth = depth*2 + 1
-	}
+	// depth := 2
+	// if !Benchmark {
+	// 	depth = depthOption.Selected
+	// 	depth = depth*2 + 1
+	// }
 
-	scatter := 0
-	if !Benchmark {
-		scatter = scatterOption.Selected
-		if scatter > 1 {
-			scatter *= 2
-		}
-	}
+	// scatter := 0
+	// if !Benchmark {
+	// 	scatter = scatterOption.Selected
+	// 	if scatter > 1 {
+	// 		scatter *= 2
+	// 	}
+	// }
 
 	// Render a single frame
-	if renderFrame.Selected == 1 {
-		// Draw the frame
-		Blocks := MakeNewBlocks(g.scaleFactor / 2)
+	// if renderFrame.Selected == 1 {
+	// 	// Draw the frame
+	// 	Blocks := MakeNewBlocks(g.scaleFactor / 2)
 
-		if renderVersion.Selected == 0 {
-			DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks, g.PerformanceOptions)
-		} else {
-			DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks, g.PerformanceOptions)
-		}
-		for _, block := range g.BlocksImage {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(float64(block.startX), float64(block.startY))
-			g.currentFrame.DrawImage(block.image, op)
-		}
+	// 	if renderVersion.Selected == 0 {
+	// 		DrawRaysBlock(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks, g.PerformanceOptions)
+	// 	} else {
+	// 		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, scatter*8, depth, Blocks, g.PerformanceOptions)
+	// 	}
+	// 	for _, block := range g.BlocksImage {
+	// 		op := &ebiten.DrawImageOptions{}
+	// 		op.GeoM.Translate(float64(block.startX), float64(block.startY))
+	// 		g.currentFrame.DrawImage(block.image, op)
+	// 	}
 
-		renderFrame.Selected = 0
+	// 	renderFrame.Selected = 0
 
-		randomNumber := rand.Intn(100000)
-		saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("rendered_frame_%d.png", randomNumber))
-	}
+	// 	randomNumber := rand.Intn(100000)
+	// 	saveEbitenImageAsPNG(g.currentFrame, fmt.Sprintf("rendered_frame_%d.png", randomNumber))
+	// }
 
 	// switch renderVersion.Selected {
 	// case 0:
@@ -6178,51 +6231,50 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// SpeedUp += float64(elapsed.Nanoseconds()) - float64(elapsed2.Nanoseconds())
 
-	if !Benchmark && rayMarching.Selected == 1 {
-		DrawSpheres(g.camera, g.scaleFactor, 2, g.subImagesRayMarching, g.light)
-	}
+	// if !Benchmark && rayMarching.Selected == 1 {
+	// }
 
 	// Handle GUI separately
-	if !fullScreen {
-		mouseX, mouseY := ebiten.CursorPosition()
-		mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	// if !fullScreen {
+	// 	mouseX, mouseY := ebiten.CursorPosition()
+	// 	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
-		// Check if GUI needs updating
-		if mousePressed || lastMousePressed != mousePressed {
-			guiNeedsUpdate = true
-		}
+	// 	// Check if GUI needs updating
+	// 	if mousePressed || lastMousePressed != mousePressed {
+	// 		guiNeedsUpdate = true
+	// 	}
 
-		// Only update GUI if needed
-		if guiNeedsUpdate {
-			GUI.Clear()
-			ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter, &g.ColorMultiplier, &g.roughness, &g.metallic)
-			SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
-			// SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&rayMarching, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&performanceOptions, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&renderFrame, GUI, mouseX, mouseY, mousePressed)
-			SelectOption(&renderVersion, GUI, mouseX, mouseY, mousePressed)
-			processSlider(GUI, gamaSlider, "Gama", &gamaSlider.sliderValue, true, 0, mouseX-400, mouseY, mousePressed)
+	// 	// Only update GUI if needed
+	// 	if guiNeedsUpdate {
+	// 		GUI.Clear()
+	// 		// ColorSlider(0, 50, GUI, 400, 200, &g.r, &g.g, &g.b, &g.a, &g.reflection, &g.specular, mouseX-400, mouseY, mousePressed, &g.directToScatter, &g.ColorMultiplier, &g.roughness, &g.metallic)
+	// 		// SelectOption(&depthOption, GUI, mouseX, mouseY, mousePressed)
+	// 		// SelectOption(&scatterOption, GUI, mouseX, mouseY, mousePressed)
+	// 		// SelectOption(&snapLightToCamera, GUI, mouseX, mouseY, mousePressed)
+	// 		// SelectOption(&screenResolution, GUI, mouseX, mouseY, mousePressed)
+	// 		// SelectOption(&rayMarching, GUI, mouseX, mouseY, mousePressed)
+	// 		// SelectOption(&performanceOptions, GUI, mouseX, mouseY, mousePressed)
+	// 		// SelectOption(&renderFrame, GUI, mouseX, mouseY, mousePressed)
+	// 		// SelectOption(&renderVersion, GUI, mouseX, mouseY, mousePressed)
+	// 		// processSlider(GUI, gamaSlider, "Gama", &gamaSlider.sliderValue, true, 0, mouseX-400, mouseY, mousePressed)
 
-			guiNeedsUpdate = false
-			// if screenResolution.Selected == 0 {
-			// 	g.scaleFactor = 1
-			// }
-			// g.scaleFactor = screenResolution.Selected * 2
+	// 		guiNeedsUpdate = false
+	// 		// if screenResolution.Selected == 0 {
+	// 		// 	g.scaleFactor = 1
+	// 		// }
+	// 		// g.scaleFactor = screenResolution.Selected * 2
 
-			// g.BlocksImage = MakeNewBlocks(g.scaleFactor)
-		}
-		lastMousePressed = mousePressed
+	// 		// g.BlocksImage = MakeNewBlocks(g.scaleFactor)
+	// 	}
+	// 	lastMousePressed = mousePressed
 
-		// Draw GUI on top of the main render
-		guiOp := &ebiten.DrawImageOptions{}
-		guiOp.GeoM.Translate(400, 0)
-		screen.DrawImage(GUI, guiOp)
+	// 	// Draw GUI on top of the main render
+	// 	guiOp := &ebiten.DrawImageOptions{}
+	// 	guiOp.GeoM.Translate(400, 0)
+	// 	screen.DrawImage(GUI, guiOp)
 
-		lastMousePressed = mousePressed
-	}
+	// 	lastMousePressed = mousePressed
+	// }
 
 	// Scale the main render
 	mainOp := &ebiten.DrawImageOptions{}
@@ -6243,10 +6295,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		)
 	}
 
-	if performanceOptions.Selected == 1 {
-		wg := sync.WaitGroup{}
-		wg.Wait()
-	}
+	// if performanceOptions.Selected == 1 {
+	// 	wg := sync.WaitGroup{}
+	// 	wg.Wait()
+	// }
 
 	// for i, subImage := range g.subImages {
 	// 	op := &ebiten.DrawImageOptions{}
@@ -6260,7 +6312,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// g.previousFrame = g.currentFrame
 
-	depth = int(g.depth)
+	depth := int(g.depth)
 
 	switch g.version {
 	case V1:
@@ -6270,13 +6322,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	case V2M:
 		DrawRaysBlockV2M(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.PerformanceOptions)
 	case V2Log:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions)
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, logMode)
 	case V2Linear:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions)
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, linMode)
 	case V2LinearTexture:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
-	case V2LinearTexture2:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions, linMode)
+	case V2LogTexture:
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions, logMode)
 	case V4Log:
 		DrawRaysBlockAdvanceV4Log(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
 	case V4Lin:
@@ -6289,9 +6341,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		DrawRaysBlockAdvanceV4LinO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
 	case V4LogO2:
 		DrawRaysBlockAdvanceV4LogO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4O2:
+		DrawRaysBlockAdvanceV4O2(g.camera, g.light, g.scaleFactor, g.scatter, depth, g.BlocksImage, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
 	}
 
-	if g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
+	if g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LogTexture {
 		switch g.mode {
 		case Classic:
 			for _, block := range g.BlocksImageAdvance {
@@ -6340,19 +6394,18 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// 	}
 	// }
 
-	for i, subImage := range g.subImagesRayMarching {
-		op := &ebiten.DrawImageOptions{}
-		// if !fullScreen {
-		op.GeoM.Translate(0, float64(subImageHeight/screenResolution.Selected)*float64(i))
-		// } else {
-		// 	op.GeoM.Translate(0, float64(subImageHeight)*float64(i))
-		// }
-		g.currentFrame.DrawImage(subImage, op)
+	if g.RayMarching {
+		DrawSpheres(g.camera, g.scaleFactor, 2, g.subImagesRayMarching, g.light, g.PerformanceOptions)
+		for i, subImage := range g.subImagesRayMarching {
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(0, float64(subImageHeight/g.scaleFactor*2)*float64(i))
+			g.currentFrame.DrawImage(subImage, op)
+		}
 	}
 
 	// Draw Voxel Grid
 	if g.RenderVolume {
-		DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial)
+		DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial, g.PerformanceOptions)
 		for _, block := range g.VoxelGridBlocksImage {
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(block.startX), float64(block.startY))
@@ -6360,7 +6413,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 	if g.RenderVoxels {
-		DrawRaysBlockVoxels(g.camera, g.scaleFactor, 32, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial)
+		DrawRaysBlockVoxels(g.camera, g.scaleFactor, 32, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial, g.PerformanceOptions)
 		for _, block := range g.VoxelGridBlocksImage {
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(block.startX), float64(block.startY))
@@ -6373,12 +6426,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	screen.DrawImage(g.currentFrame, mainOp)
 
-	// g.previousFrame = ebiten.NewImageFromImage(screen)
-
-	if renderFrame.Selected == 2 {
-		// Draw the render
-		screen.DrawImage(g.renderedFrame, mainOp)
-	}
+	// if renderFrame.Selected == 2 {
+	// 	// Draw the render
+	// 	screen.DrawImage(g.renderedFrame, mainOp)
+	// }
 
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
 }
@@ -6465,30 +6516,31 @@ func ApplyShader(image *ebiten.Image, shader Shader) *ebiten.Image {
 // }
 
 const (
-	V1               = uint8(iota)
-	V2               = uint8(iota)
-	V2Log            = uint8(iota)
-	V2Linear         = uint8(iota)
-	Native           = uint8(iota)
-	TwoX             = uint8(iota)
-	FourX            = uint8(iota)
-	EightX           = uint8(iota)
-	Classic          = uint8(iota)
-	Normals          = uint8(iota)
-	Depth            = uint8(iota)
-	V2LinearTexture  = uint8(iota)
-	V2LinearTexture2 = uint8(iota)
-	V4Log            = uint8(iota)
-	V4Lin            = uint8(iota)
-	V4LogOptim       = uint8(iota)
-	V4LinOptim       = uint8(iota)
-	DrawVoxel        = uint8(iota)
-	RemoveVoxel      = uint8(iota)
-	AddVoxel         = uint8(iota)
-	None             = uint8(iota)
-	V2M              = uint8(iota)
-	V4LogO2          = uint8(iota)
-	V4LinO2          = uint8(iota)
+	V1              = uint8(iota)
+	V2              = uint8(iota)
+	V2Log           = uint8(iota)
+	V2Linear        = uint8(iota)
+	Native          = uint8(iota)
+	TwoX            = uint8(iota)
+	FourX           = uint8(iota)
+	EightX          = uint8(iota)
+	Classic         = uint8(iota)
+	Normals         = uint8(iota)
+	Depth           = uint8(iota)
+	V2LinearTexture = uint8(iota)
+	V2LogTexture    = uint8(iota)
+	V4Log           = uint8(iota)
+	V4Lin           = uint8(iota)
+	V4LogOptim      = uint8(iota)
+	V4LinOptim      = uint8(iota)
+	DrawVoxel       = uint8(iota)
+	RemoveVoxel     = uint8(iota)
+	AddVoxel        = uint8(iota)
+	None            = uint8(iota)
+	V2M             = uint8(iota)
+	V4LogO2         = uint8(iota)
+	V4LinO2         = uint8(iota)
+	V4O2            = uint8(iota)
 )
 
 type Game struct {
@@ -7131,7 +7183,7 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 		*(*uint8)(unsafe.Pointer(&g.version)) = V2LinearTexture
 	case "V2-Log-Texture":
 		fmt.Println("V2-Log-Texture")
-		*(*uint8)(unsafe.Pointer(&g.version)) = V2LinearTexture2
+		*(*uint8)(unsafe.Pointer(&g.version)) = V2LogTexture
 	case "V4-Log":
 		fmt.Println("V4-Log")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V4Log
@@ -7150,6 +7202,9 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	case "V4-Linear-Optim-V2":
 		fmt.Println("V4-Lin-Optim-V2")
 		*(*uint8)(unsafe.Pointer(&g.version)) = V4LinO2
+	case "V4-Optim-V2":
+		fmt.Println("V4-Optim-V2")
+		*(*uint8)(unsafe.Pointer(&g.version)) = V4O2
 	}
 
 	switch renderOptions.Resolution {
@@ -7303,39 +7358,42 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 	BlocksImageAdvance := MakeNewBlocksAdvance(g.scaleFactor)
 
 	depth := int(g.depth)
+	PerformanceOptions := false
 
 	switch g.version {
 	case V1:
-		DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.PerformanceOptions)
+		DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
 	case V2:
-		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.PerformanceOptions)
+		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
 	case V2M:
-		DrawRaysBlockV2M(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.PerformanceOptions)
+		DrawRaysBlockV2M(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
 	case V2Log:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions)
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, logMode)
 	case V2Linear:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions)
+		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, linMode)
 	case V2LinearTexture:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
-	case V2LinearTexture2:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, g.PerformanceOptions)
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, PerformanceOptions, linMode)
+	case V2LogTexture:
+		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, PerformanceOptions, linMode)
 	case V4Log:
-		DrawRaysBlockAdvanceV4Log(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+		DrawRaysBlockAdvanceV4Log(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
 	case V4Lin:
-		DrawRaysBlockAdvanceV4Lin(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+		DrawRaysBlockAdvanceV4Lin(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
 	case V4LinOptim:
-		DrawRaysBlockAdvanceV4LinOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+		DrawRaysBlockAdvanceV4LinOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
 	case V4LogOptim:
-		DrawRaysBlockAdvanceV4LogOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+		DrawRaysBlockAdvanceV4LogOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
 	case V4LinO2:
-		DrawRaysBlockAdvanceV4LinO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+		DrawRaysBlockAdvanceV4LinO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
 	case V4LogO2:
-		DrawRaysBlockAdvanceV4LogO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.PerformanceOptions, g.bvhLean, g.TextureMap)
+		DrawRaysBlockAdvanceV4LogO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+	case V4O2:
+		DrawRaysBlockAdvanceV4O2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
 	}
 
 	currentFrame := ebiten.NewImage(screenWidth/g.scaleFactor, screenHeight/g.scaleFactor)
 
-	if g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LinearTexture2 {
+	if g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LogTexture {
 		switch g.mode {
 		case Classic:
 			for _, block := range BlocksImageAdvance {
@@ -7358,9 +7416,9 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 		}
 	}
 
-	// for _, shader := range g.Shaders {
-	// 	currentFrame = ApplyShader(currentFrame, shader)
-	// }
+	for _, shader := range g.Shaders {
+		currentFrame = ApplyShader(currentFrame, shader)
+	}
 
 	saveEbitenImageAsPNG(currentFrame, "current.png")
 
@@ -7980,7 +8038,7 @@ func main() {
 	ebiten.SetWindowTitle("Ebiten Benchmark")
 
 	if Benchmark {
-		renderVersions := []uint8{V1, V2, V2M, V2Log, V2Linear, V2LinearTexture, V2LinearTexture2, V4Log, V4Lin, V4LogOptim, V4LinOptim, V4LinO2, V4LogO2}
+		renderVersions := []uint8{V1, V2, V2M, V2Log, V2Linear, V2LinearTexture, V2LogTexture, V4Log, V4Lin, V4LogOptim, V4LinOptim, V4LinO2, V4LogO2, V4O2}
 
 		cPositions := []Position{
 			{X: -424.48, Y: 986.71, Z: 17.54, CameraX: 0.24, CameraY: -2.08},
@@ -8017,7 +8075,8 @@ func main() {
 		// Preformance Options Off
 		versionTimes := make(map[string][]float64)
 
-		preformanceVersions := []bool{false, true}
+		// preformanceVersions := []bool{false, true}
+		preformanceVersions := []bool{false}
 
 		for _, preformance := range preformanceVersions {
 			for _, version := range renderVersions {
@@ -8053,11 +8112,11 @@ func main() {
 					} else {
 						name = "V2LinearTexture"
 					}
-				case V2LinearTexture2:
+				case V2LogTexture:
 					if preformance {
-						name = "V2LinearTexture2Preformance"
+						name = "V2LogTexturePreformance"
 					} else {
-						name = "V2LinearTexture"
+						name = "V2LogTexture"
 					}
 				case V4Log:
 					if preformance {
@@ -8101,6 +8160,12 @@ func main() {
 					} else {
 						name = "V4LogO2"
 					}
+				case V4O2:
+					if preformance {
+						name = "V4O2Preformance"
+					} else {
+						name = "V4O2"
+					}
 				}
 
 				profileFilename := fmt.Sprintf("profiles/cpu_profile_v%s.prof", name)
@@ -8137,19 +8202,19 @@ func main() {
 						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V2Log:
 						startTime = time.Now()
-						DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance)
+						DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, logMode)
 						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V2Linear:
 						startTime = time.Now()
-						DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance)
+						DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, linMode)
 						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V2LinearTexture:
 						startTime = time.Now()
-						DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance)
+						DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance, linMode)
 						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
-					case V2LinearTexture2:
+					case V2LogTexture:
 						startTime = time.Now()
-						DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance)
+						DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance, logMode)
 						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V4Log:
 						startTime = time.Now()
@@ -8174,6 +8239,10 @@ func main() {
 					case V4LogO2:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceV4LogO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
+						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V4O2:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceV4O2(camera, light, scaleFactor, scatter, depth, BlocksImage, gamma, preformance, bvhLean, &TextureMap)
 						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					}
 
@@ -9177,7 +9246,7 @@ func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light, intensity 
 	return transmittance
 }
 
-func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light, volumeMaterial VolumeMaterial) {
+func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light, volumeMaterial VolumeMaterial, preformance bool) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(blocks); i++ {
 		wg.Add(1)
@@ -9207,12 +9276,12 @@ func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []Bl
 		}(i)
 	}
 
-	if performanceOptions.Selected == 0 {
+	if !preformance {
 		wg.Wait()
 	}
 }
 
-func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light, volumeMaterial VolumeMaterial) {
+func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light, volumeMaterial VolumeMaterial, preformance bool) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(blocks); i++ {
 		wg.Add(1)
@@ -9242,7 +9311,7 @@ func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []Block
 		}(i)
 	}
 
-	if performanceOptions.Selected == 0 {
+	if !preformance {
 		wg.Wait()
 	}
 }
