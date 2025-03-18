@@ -67,7 +67,7 @@ const maxDepth = 16
 const NumNodes = (1 << (maxDepth + 1)) - 1
 const numCPU = 16
 
-const Benchmark = true
+const Benchmark = false
 
 // var AverageFrameRate float64 = 0.0
 // var MinFrameRate float64 = math.MaxFloat64
@@ -678,16 +678,232 @@ func (bvh *BVHNode) ConvertToArray(index int, bvhArr *BVHArray) {
 	}
 }
 
-type SphereSimple struct {
-	center Vector
-	radius float32
-	color  color.RGBA
-}
-
 func Distance(v1, v2 Vector, radius float32) float32 {
 	// Use vector subtraction and dot product instead of individual calculations
 	diff := v1.Sub(v2)
 	return diff.Length() - radius
+}
+
+func Union(d1, d2 float32) float32 {
+	return math32.Min(d1, d2)
+}
+
+//	func SmoothUnion(d1, d2, k float32) float32 {
+//		h := math32.Max(k-math32.Abs(d1-d2), 0.0) / k
+//		return math32.Min(d1, d2) - h*h*h*k*(1.0/6.0)
+//	}
+func SmoothUnion(d1, d2, k float32, color1, color2 ColorFloat32) (float32, ColorFloat32) {
+	h := math32.Max(k-math32.Abs(d1-d2), 0.0) / k
+	d := math32.Min(d1, d2) - h*h*h*k*(1.0/6.0)
+
+	// Calculate blend factor based on the smoothing
+	blend := h * h * h // Cubic falloff for smoother transition
+
+	// Blend colors based on the smoothing factor
+	blendedColor := ColorFloat32{
+		R: color1.R*(1-blend) + color2.R*blend,
+		G: color1.G*(1-blend) + color2.G*blend,
+		B: color1.B*(1-blend) + color2.B*blend,
+		A: color1.A*(1-blend) + color2.A*blend,
+	}
+
+	return d, blendedColor
+}
+
+func IntersectionOfTwoSDFs(d1, d2 float32) float32 {
+	return math32.Max(d1, d2)
+}
+
+func SmoothIntersection(d1, d2, k float32) float32 {
+	h := math32.Max(k+math32.Abs(d1-d2), 0.0) / k
+	return math32.Max(d1, d2) + h*h*h*k*(1.0/6.0)
+}
+
+func Subtraction(d1, d2 float32) float32 {
+	return math32.Max(-d1, d2)
+}
+
+func SmoothSubtraction(d1, d2, k float32) float32 {
+	h := math32.Max(k-math32.Abs(d1+d2), 0.0) / k
+	return math32.Max(d1, -d2) - h*h*h*k*(1.0/6.0)
+}
+
+func SmoothAddition(d1, d2, k float32) float32 {
+	return math32.Log(math32.Exp(d1/k)+math32.Exp(d2/k)) * k
+}
+
+func Addition(d1, d2 float32) float32 {
+	return math32.Log(math32.Exp(d1) + math32.Exp(d2))
+}
+
+const (
+	distance           = uint8(iota)
+	union              = uint8(iota)
+	smoothUnion        = uint8(iota)
+	intersection       = uint8(iota)
+	smoothIntersection = uint8(iota)
+	subtraction        = uint8(iota)
+	smoothSubtraction  = uint8(iota)
+	addition           = uint8(iota)
+	smoothAddition     = uint8(iota)
+)
+
+type SphereSimple struct {
+	center             Vector
+	radius             float32
+	color              color.RGBA
+	IndexOfOtherSphere int
+	SdfType            uint8
+	amount             float32
+}
+
+func RayMarching(ray Ray, spheres []SphereSimple, iterations int, light Light) (color.RGBA, float32) {
+	const (
+		EPSILON      = float32(0.0001)
+		MAX_DISTANCE = float32(10000.0)
+	)
+
+	var (
+		totalDistance float32
+		sphereColor   = color.RGBA{0, 0, 0, 255}
+		currentPoint  Vector
+	)
+
+	// Early exit if no spheres
+	if len(spheres) == 0 {
+		return sphereColor, totalDistance
+	}
+
+	for i := 0; i < iterations; i++ {
+		currentPoint = ray.origin.Add(ray.direction.Mul(totalDistance))
+		minDistance := MAX_DISTANCE
+		closestSphereIndex := -1
+		blendedColor := ColorFloat32{0, 0, 0, 0}
+
+		// Find closest object distance
+		for i, sphere := range spheres {
+			var dist float32
+
+			// Calculate distance to this sphere
+			dist1 := Distance(currentPoint, sphere.center, sphere.radius)
+
+			// If this sphere uses another SDF operation, calculate the combined distance
+			if sphere.SdfType != distance {
+				// Skip if the other sphere index is invalid
+				if sphere.IndexOfOtherSphere < 0 || sphere.IndexOfOtherSphere >= len(spheres) {
+					continue
+				}
+
+				// Get distance from the other sphere
+				dist2 := Distance(currentPoint, spheres[sphere.IndexOfOtherSphere].center, spheres[sphere.IndexOfOtherSphere].radius)
+
+				// Apply the appropriate SDF operation
+				switch sphere.SdfType {
+				case union:
+					dist = Union(dist1, dist2)
+				case smoothUnion:
+					dist, blendedColor = SmoothUnion(
+						dist1,
+						dist2,
+						sphere.amount,
+						ColorFloat32{
+							float32(sphere.color.R),
+							float32(sphere.color.G),
+							float32(sphere.color.B),
+							float32(sphere.color.A),
+						},
+						ColorFloat32{
+							float32(spheres[sphere.IndexOfOtherSphere].color.R),
+							float32(spheres[sphere.IndexOfOtherSphere].color.G),
+							float32(spheres[sphere.IndexOfOtherSphere].color.B),
+							float32(spheres[sphere.IndexOfOtherSphere].color.A),
+						},
+					)
+				case intersection:
+					dist = IntersectionOfTwoSDFs(dist1, dist2)
+				case smoothIntersection:
+					dist = SmoothIntersection(dist1, dist2, sphere.amount)
+				case subtraction:
+					dist = Subtraction(dist1, dist2)
+				case smoothSubtraction:
+					dist = SmoothSubtraction(dist1, dist2, sphere.amount)
+				case addition:
+					dist = Addition(dist1, dist2)
+				case smoothAddition:
+					dist = SmoothAddition(dist1, dist2, sphere.amount)
+				}
+			} else {
+				dist = dist1
+			}
+
+			// Update minimum distance and closest sphere
+			if dist < minDistance {
+				minDistance = dist
+				closestSphereIndex = i
+				sphere.color = color.RGBA{
+					uint8(blendedColor.R),
+					uint8(blendedColor.G),
+					uint8(blendedColor.B),
+					uint8(blendedColor.A),
+				}
+			}
+		}
+
+		// Update total distance
+		totalDistance += minDistance
+
+		// Hit detection with early exit
+		if minDistance < EPSILON && closestSphereIndex >= 0 {
+			return calculateShading(currentPoint, spheres[closestSphereIndex], totalDistance, MAX_DISTANCE, light), totalDistance
+		}
+
+		// Miss detection with early exit
+		if minDistance > MAX_DISTANCE || totalDistance > MAX_DISTANCE {
+			return color.RGBA{0, 0, 0, 0}, totalDistance
+		}
+	}
+
+	// If we reach the iteration limit and still haven't hit anything
+	// Return black or a background color
+	return color.RGBA{0, 0, 0, 0}, totalDistance
+}
+
+// Helper function for color shading calculations
+func calculateShading(point Vector, sphere SphereSimple, totalDistance, maxDistance float32, light Light) color.RGBA {
+
+	// Calculate normal at intersection point
+	normal := calculateNormal(point, sphere.center)
+
+	// Calculate light direction
+	lightDir := light.Position.Sub(point).Normalize()
+
+	// Ambient component
+	ambientStrength := float32(0.1)
+	ambient := float32(sphere.color.R) * ambientStrength
+
+	// Diffuse component
+	diff := max(normal.Dot(lightDir), 0.0)
+	diffuse := diff * float32(sphere.color.R)
+
+	// Specular component
+	specularStrength := float32(0.5)
+	viewDir := point.Mul(-1).Normalize()
+	reflectDir := lightDir.Mul(-1).Reflect(normal)
+	spec := math32.Pow(max(viewDir.Dot(reflectDir), 0.0), 32)
+	specular := specularStrength * spec
+
+	// Distance attenuation
+	// attenuation := maxDistance / totalDistance
+
+	// Combine components
+	final := min((ambient + diffuse + specular), 255)
+
+	return color.RGBA{
+		R: uint8(final / 255 * float32(sphere.color.R)),
+		G: uint8(final / 255 * float32(sphere.color.G)),
+		B: uint8(final / 255 * float32(sphere.color.B)),
+		A: 255,
+	}
 }
 
 // Add normal calculation for spheres
@@ -882,19 +1098,22 @@ func IntersectBVH_RayMarching(bvh RayMarchingBVH, ray Ray) (bool, *SphereSimple)
 }
 
 // Improved sphere conversion with pre-allocated slice
-func (obj object) ConvertToSquare(count int) []SphereSimple {
+func (obj object) ConvertToSquare(count int, radius int) []SphereSimple {
 	spheres := make([]SphereSimple, 0, count)
 
 	for i := 0; i < count; i += 1 {
 		randIndex := rand.Intn(len(obj.triangles))
-		R := clampUint8(obj.triangles[randIndex].color.R)
-		G := clampUint8(obj.triangles[randIndex].color.G)
-		B := clampUint8(obj.triangles[randIndex].color.B)
+		R := uint8(rand.Intn(200) + 55)
+		G := uint8(rand.Intn(200) + 55)
+		B := uint8(rand.Intn(200) + 55)
 		spheres = append(spheres, SphereSimple{
 			center: obj.triangles[randIndex].v1,
-			radius: 2,
+			radius: float32(radius),
 			// color:  obj.triangles[randIndex].color,
-			color: color.RGBA{R, G, B, 255},
+			color:              color.RGBA{R, G, B, 255},
+			IndexOfOtherSphere: rand.Intn(count),
+			SdfType:            uint8(2),
+			amount:             float32(rand.Intn(1000)) * rand.Float32(),
 		})
 	}
 	return spheres
@@ -936,90 +1155,6 @@ func RayMarchBvh(ray Ray, iterations int, light Light) (color.RGBA, float32) {
 	}
 
 	return calculateShading(currentPoint, *closestSphere, totalDistance, MAX_DISTANCE, light), totalDistance
-}
-
-func RayMarching(ray Ray, spheres []SphereSimple, iterations int, light Light) (color.RGBA, float32) {
-	const (
-		EPSILON      = float32(0.0001)
-		MAX_DISTANCE = float32(10000.0)
-	)
-
-	var (
-		totalDistance float32
-		sphereColor   = color.RGBA{0, 0, 0, 255}
-		closestSphere SphereSimple
-		currentPoint  Vector
-	)
-
-	// Early exit if no spheres
-	if len(spheres) == 0 {
-		return sphereColor, totalDistance
-	}
-
-	for i := 0; i < iterations; i++ {
-		currentPoint = ray.origin.Add(ray.direction.Mul(totalDistance))
-		minDistance := MAX_DISTANCE
-
-		// Find closest sphere
-		for _, sphere := range spheres {
-			if dist := Distance(currentPoint, sphere.center, sphere.radius); dist < minDistance {
-				minDistance = dist
-				closestSphere = sphere
-			}
-		}
-
-		totalDistance += minDistance
-
-		// Hit detection with early exit
-		if minDistance < EPSILON {
-			return calculateShading(currentPoint, closestSphere, totalDistance, MAX_DISTANCE, light), totalDistance
-		}
-
-		// Miss detection with early exit
-		if minDistance > MAX_DISTANCE || totalDistance > MAX_DISTANCE {
-			return color.RGBA{0, 0, 0, 0}, totalDistance
-		}
-	}
-
-	return calculateShading(currentPoint, closestSphere, totalDistance, MAX_DISTANCE, light), totalDistance
-}
-
-// Helper function for color shading calculations
-func calculateShading(point Vector, sphere SphereSimple, totalDistance, maxDistance float32, light Light) color.RGBA {
-
-	// Calculate normal at intersection point
-	normal := calculateNormal(point, sphere.center)
-
-	// Calculate light direction
-	lightDir := light.Position.Sub(point).Normalize()
-
-	// Ambient component
-	ambientStrength := float32(0.1)
-	ambient := float32(sphere.color.R) * ambientStrength
-
-	// Diffuse component
-	diff := max(normal.Dot(lightDir), 0.0)
-	diffuse := diff * float32(sphere.color.R)
-
-	// Specular component
-	specularStrength := float32(0.5)
-	viewDir := point.Mul(-1).Normalize()
-	reflectDir := lightDir.Mul(-1).Reflect(normal)
-	spec := math32.Pow(max(viewDir.Dot(reflectDir), 0.0), 32)
-	specular := specularStrength * spec
-
-	// Distance attenuation
-	// attenuation := maxDistance / totalDistance
-
-	// Combine components
-	final := min((ambient + diffuse + specular), 255)
-
-	return color.RGBA{
-		R: uint8(final / 255 * float32(sphere.color.R)),
-		G: uint8(final / 255 * float32(sphere.color.G)),
-		B: uint8(final / 255 * float32(sphere.color.B)),
-		A: 255,
-	}
 }
 
 func (t *TriangleSimple) CalculateNormal() {
@@ -5364,7 +5499,7 @@ func DrawRaysBlockAdvance(camera Camera, light Light, scaling int, samples int, 
 // 	}
 // }
 
-func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light, preformance bool) {
+func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light, preformance bool, spheres []SphereSimple) {
 	var wg sync.WaitGroup
 
 	// Create a pool of worker goroutines, each handling a portion of the image
@@ -5382,6 +5517,46 @@ func DrawSpheres(camera Camera, scaling int, iterations int, subImages []*ebiten
 					rayDir := ScreenSpaceCoordinates[x][y]
 					// c, _ := RayMarching(Ray{origin: camera.Position, direction: rayDir}, spheres, iterations, light)
 					c, _ := RayMarchBvh(Ray{origin: camera.Position, direction: rayDir}, iterations, light)
+					// Write the pixel color to the pixel buffer
+					index := ((yRow*width + xColumn) * 4)
+					pixelBuffer[index] = uint8(c.R)
+					pixelBuffer[index+1] = uint8(c.G)
+					pixelBuffer[index+2] = uint8(c.B)
+					pixelBuffer[index+3] = uint8(c.A)
+					xColumn++
+					// // Set the pixel color in the sub-image
+					// subImage.Set(x/scaling, yRow, c)
+				}
+				yRow++
+			}
+			subImage.WritePixels(pixelBuffer)
+		}(i*rowSize, (i+1)*rowSize, subImages[i])
+	}
+
+	if !preformance {
+		// Wait for all workers to finish
+		wg.Wait()
+	}
+}
+
+func DrawSpheresAdvanced(camera Camera, scaling int, iterations int, subImages []*ebiten.Image, light Light, preformance bool, spheres []SphereSimple) {
+	var wg sync.WaitGroup
+
+	// Create a pool of worker goroutines, each handling a portion of the image
+	for i := 0; i < numCPU; i++ {
+		wg.Add(1)
+		go func(startY int, endIndex int, subImage *ebiten.Image) {
+			defer wg.Done()
+			yRow := 0
+			width, height := subImage.Bounds().Dx(), subImage.Bounds().Dy()
+			imageSize := width * height * 4
+			pixelBuffer := make([]uint8, imageSize)
+			for y := startY; y < endIndex; y += scaling {
+				xColumn := 0
+				for x := 0; x < screenWidth; x += scaling {
+					rayDir := ScreenSpaceCoordinates[x][y]
+					c, _ := RayMarching(Ray{origin: camera.Position, direction: rayDir}, spheres, iterations, light)
+					// c, _ := RayMarchBvh(Ray{origin: camera.Position, direction: rayDir}, iterations, light)
 					// Write the pixel color to the pixel buffer
 					index := ((yRow*width + xColumn) * 4)
 					pixelBuffer[index] = uint8(c.R)
@@ -6023,6 +6198,15 @@ func (g *Game) Update() error {
 		fullScreen = !fullScreen
 	}
 
+	// for s := range g.Spheres.Spheres {
+	// 	randomX := rand.Float32()*2 - 1
+	// 	randomY := rand.Float32()*2 - 1
+	// 	randomZ := rand.Float32()*2 - 1
+	// 	g.Spheres.Spheres[s].center = g.Spheres.Spheres[s].center.Add(Vector{randomX, randomY, randomZ})
+	// 	g.Spheres.Spheres[s].radius += rand.Float32()*0.1 - 0.05
+	// 	g.Spheres.Spheres[s].CalculateBoundingBox()
+	// }
+
 	return nil
 }
 
@@ -6395,11 +6579,21 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// }
 
 	if g.RayMarching {
-		DrawSpheres(g.camera, g.scaleFactor, 2, g.subImagesRayMarching, g.light, g.PerformanceOptions)
-		for i, subImage := range g.subImagesRayMarching {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(0, float64(subImageHeight/g.scaleFactor*2)*float64(i))
-			g.currentFrame.DrawImage(subImage, op)
+		switch g.RayMarchingVersion {
+		case RayMarchingV1:
+			DrawSpheres(g.camera, g.scaleFactor, 128, g.subImagesRayMarching, g.light, g.PerformanceOptions, g.Spheres)
+			for i, subImage := range g.subImagesRayMarching {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(0, float64(subImageHeight/g.scaleFactor*2)*float64(i))
+				g.currentFrame.DrawImage(subImage, op)
+			}
+		case RayMarchingV2:
+			DrawSpheresAdvanced(g.camera, g.scaleFactor, 128, g.subImagesRayMarching, g.light, g.PerformanceOptions, g.Spheres)
+			for i, subImage := range g.subImagesRayMarching {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(0, float64(subImageHeight/g.scaleFactor*2)*float64(i))
+				g.currentFrame.DrawImage(subImage, op)
+			}
 		}
 	}
 
@@ -6431,7 +6625,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// 	screen.DrawImage(g.renderedFrame, mainOp)
 	// }
 
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f", fps))
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %.2f Enabled Movement: %t", fps, fullScreen))
 }
 
 var BVH *BVHNode
@@ -6541,6 +6735,8 @@ const (
 	V4LogO2         = uint8(iota)
 	V4LinO2         = uint8(iota)
 	V4O2            = uint8(iota)
+	RayMarchingV1   = uint8(iota)
+	RayMarchingV2   = uint8(iota)
 )
 
 type Game struct {
@@ -6577,6 +6773,7 @@ type Game struct {
 	BlocksImage          []BlocksImage
 	BlocksImageAdvance   []BlocksImageAdvance
 	Shaders              []Shader
+	Spheres              []SphereSimple
 
 	// 20-bit pointers (2.5 bytes each) grouped together
 	camera Camera
@@ -6586,12 +6783,13 @@ type Game struct {
 	scaleFactor      int
 
 	// Uint8 values (1 byte each) grouped together
-	mode            uint8
-	version         uint8
-	depth           uint8
-	index           uint8
-	VoxelMode       uint8
-	RandomnessVoxel uint8
+	mode               uint8
+	version            uint8
+	depth              uint8
+	index              uint8
+	VoxelMode          uint8
+	RandomnessVoxel    uint8
+	RayMarchingVersion uint8
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume          bool
@@ -7085,21 +7283,22 @@ func (g *Game) submitTextures(c echo.Context) error {
 
 func (g *Game) submitRenderOptions(c echo.Context) error {
 	type RenderOptions struct {
-		Depth          int     `json:"depth"`
-		Scatter        int     `json:"scatter"`
-		Gamma          float64 `json:"gamma"`
-		SnapLight      string  `json:"snapLight"`
-		RayMarching    string  `json:"rayMarching"`
-		Performance    string  `json:"performance"`
-		Mode           string  `json:"mode"`
-		Resolution     string  `json:"resolution"`
-		Version        string  `json:"version"`
-		FOV            float64 `json:"fov"`
-		LightIntensity float64 `json:"lightIntensity"`
-		R              float64 `json:"r"`
-		G              float64 `json:"g"`
-		B              float64 `json:"b"`
-		PaintTexture   string  `json:"paintTexture"`
+		Depth              int     `json:"depth"`
+		Scatter            int     `json:"scatter"`
+		Gamma              float64 `json:"gamma"`
+		SnapLight          string  `json:"snapLight"`
+		RayMarching        string  `json:"rayMarching"`
+		Performance        string  `json:"performance"`
+		Mode               string  `json:"mode"`
+		Resolution         string  `json:"resolution"`
+		Version            string  `json:"version"`
+		FOV                float64 `json:"fov"`
+		LightIntensity     float64 `json:"lightIntensity"`
+		R                  float64 `json:"r"`
+		G                  float64 `json:"g"`
+		B                  float64 `json:"b"`
+		PaintTexture       string  `json:"paintTexture"`
+		RayMarchingVersion string  `json:"rayMarchingVersion"`
 	}
 
 	renderOptions := new(RenderOptions)
@@ -7113,6 +7312,13 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 	*(*uint8)(unsafe.Pointer(&g.depth)) = uint8(renderOptions.Depth)
 	*(*uint8)(unsafe.Pointer(&g.scatter)) = uint8(renderOptions.Scatter)
 	*(*float32)(unsafe.Pointer(&g.gamma)) = float32(renderOptions.Gamma)
+
+	switch renderOptions.RayMarchingVersion {
+	case "V1":
+		*(*uint8)(unsafe.Pointer(&g.RayMarchingVersion)) = RayMarchingV1
+	case "V2":
+		*(*uint8)(unsafe.Pointer(&g.RayMarchingVersion)) = RayMarchingV2
+	}
 
 	if renderOptions.SnapLight == "yes" {
 		fmt.Println("Snap Light", renderOptions.SnapLight)
@@ -7427,6 +7633,59 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 	})
 }
 
+func (g *Game) GetSpheres(c echo.Context) error {
+    type Sphere struct {
+        CenterX            float64 `json:"centerX"`  // Note the uppercase and json tag
+        CenterY            float64 `json:"centerY"`
+        CenterZ            float64 `json:"centerZ"`
+        Radius             float64 `json:"radius"`
+        ColorR             float64 `json:"colorR"`
+        ColorG             float64 `json:"colorG"`
+        ColorB             float64 `json:"colorB"`
+        ColorA             float64 `json:"colorA"`
+        IndexOfOtherSphere float64 `json:"indexOfOtherSphere"`
+        SdfType            float64 `json:"sdfType"`
+        Amount             float64 `json:"amount"`
+    }
+
+    spheres := []Sphere{}
+
+    // convert spheres to json
+    for _, sphere := range g.Spheres {
+        s := Sphere{
+            CenterX:            float64(sphere.center.x),
+            CenterY:            float64(sphere.center.y),
+            CenterZ:            float64(sphere.center.z),
+            Radius:             float64(sphere.radius),
+            ColorR:             float64(sphere.color.R),
+            ColorG:             float64(sphere.color.G),
+            ColorB:             float64(sphere.color.B),
+            ColorA:             float64(sphere.color.A),
+            IndexOfOtherSphere: float64(sphere.IndexOfOtherSphere),
+            SdfType:            float64(sphere.SdfType),
+            Amount:             float64(sphere.amount),
+        }
+        spheres = append(spheres, s)
+    }
+
+    return c.JSON(http.StatusOK, spheres)
+}
+
+func (g *Game) GetTypes(c echo.Context) error {
+	types := map[string]int{
+		"distance":           int(distance),
+		"union":              int(union),
+		"smoothUnion":        int(smoothUnion),
+		"intersection":       int(intersection),
+		"smoothIntersection": int(smoothIntersection),
+		"subtraction":        int(subtraction),
+		"smoothSubtraction":  int(smoothSubtraction),
+		"addition":           int(addition),
+		"smoothAddition":     int(smoothAddition),
+	}
+	return c.JSON(http.StatusOK, types)
+}
+
 func (g *Game) SendImageToClient(c echo.Context) error {
 	// load png image current.png from disk
 
@@ -7461,6 +7720,8 @@ func startServer(game *Game) {
 	e.POST("/moveToPosition", game.MoveToCameraPosition)
 	e.GET("/getCurrentImage", game.GetCurrentImage)
 	e.GET("/sendImage", game.SendImageToClient)
+	e.GET("getSpheres", game.GetSpheres)
+	e.GET("getTypes", game.GetTypes)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -7970,7 +8231,7 @@ func main() {
 		subImagesRayMarching[i] = ebiten.NewImage(int(subImageWidth), int(subImageHeight))
 	}
 
-	sphereBVH = *BuildBvhForSpheres(obj.ConvertToSquare(256), 6)
+	sphereBVH = *BuildBvhForSpheres(obj.ConvertToSquare(256, 16), 6)
 
 	// for _, t := range texture {
 	// 	t.directToScatter = 0.5
@@ -7985,9 +8246,28 @@ func main() {
 	// 	}
 	// }
 
+	// spheres := SphereAdvanceHandler{}
+	// s := SphereAdvance{center: Vector{x: -424.48, y: 986.71, z: 17.54}, radius: 6, color: ColorFloat32{255, 0, 0, 255}, SFDType: distance}
+	// spheres.AddSphere(s)
+	// s1 := SphereAdvance{center: Vector{x: -424.48, y: 0, z: 17.54}, radius: 5, color: ColorFloat32{0, 255, 0, 255}, SFDType: distance}
+	// spheres.AddSphere(s1)
+	// s2 := SphereAdvance{center: Vector{x: 0, y: 90, z: 17.54}, radius: 3, color: ColorFloat32{0, 0, 255, 255}, SFDType: distance}
+	// spheres.AddSphere(s2)
+	// s3 := SphereAdvance{center: Vector{x: 0, y: 90, z: 17.54}, radius: 4, color: ColorFloat32{255, 255, 0, 255}, SFDType: distance}
+	// spheres.AddSphere(s3)
+	// s4 := SphereAdvance{center: Vector{x: -4.48, y: 9.71, z: 17.54}, radius: 2, color: ColorFloat32{255, 0, 255, 255}, SFDType: distance}
+	// spheres.AddSphere(s4)
+	// s5 := SphereAdvance{center: Vector{x: -44, y: 971, z: 17.54}, radius: 1, color: ColorFloat32{0, 255, 255, 255}, SFDType: distance}
+	// spheres.AddSphere(s5)
+	// s6 := SphereAdvance{center: Vector{x: 0, y: 0, z: 17.54}, radius: 4, color: ColorFloat32{255, 255, 255, 255}, SFDType: distance}
+	// spheres.AddSphere(s6)
+
+	// fmt.Println("Sphere:", spheres)
+
 	const scale = 2
 
 	game := &Game{
+		Spheres:              obj.ConvertToSquare(8, 32),
 		version:              V2M,
 		xyzLock:              true,
 		cursorX:              screenHeight / 2,
