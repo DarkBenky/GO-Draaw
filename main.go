@@ -688,10 +688,11 @@ func Union(d1, d2 float32) float32 {
 	return math32.Min(d1, d2)
 }
 
-//	func SmoothUnion(d1, d2, k float32) float32 {
-//		h := math32.Max(k-math32.Abs(d1-d2), 0.0) / k
-//		return math32.Min(d1, d2) - h*h*h*k*(1.0/6.0)
-//	}
+func SmoothUnionNoMix(d1, d2, k float32) float32 {
+	h := math32.Max(k-math32.Abs(d1-d2), 0.0) / k
+	return math32.Min(d1, d2) - h*h*h*k*(1.0/6.0)
+}
+
 func SmoothUnion(d1, d2, k float32, color1, color2 ColorFloat32) (float32, ColorFloat32) {
 	h := math32.Max(k-math32.Abs(d1-d2), 0.0) / k
 	d := math32.Min(d1, d2) - h*h*h*k*(1.0/6.0)
@@ -737,15 +738,16 @@ func Addition(d1, d2 float32) float32 {
 }
 
 const (
-	distance           = uint8(iota)
-	union              = uint8(iota)
-	smoothUnion        = uint8(iota)
-	intersection       = uint8(iota)
-	smoothIntersection = uint8(iota)
-	subtraction        = uint8(iota)
-	smoothSubtraction  = uint8(iota)
-	addition           = uint8(iota)
-	smoothAddition     = uint8(iota)
+	distance              = uint8(iota)
+	union                 = uint8(iota)
+	smoothUnion           = uint8(iota)
+	intersection          = uint8(iota)
+	smoothIntersection    = uint8(iota)
+	subtraction           = uint8(iota)
+	smoothSubtraction     = uint8(iota)
+	addition              = uint8(iota)
+	smoothAddition        = uint8(iota)
+	smoothUnionNoColorMix = uint8(iota)
 )
 
 type SphereSimple struct {
@@ -831,6 +833,8 @@ func RayMarching(ray Ray, spheres []SphereSimple, iterations int, light Light) (
 					dist = Addition(dist1, dist2)
 				case smoothAddition:
 					dist = SmoothAddition(dist1, dist2, sphere.amount)
+				case smoothUnionNoColorMix:
+					dist = SmoothUnionNoMix(dist1, dist2, sphere.amount)
 				}
 			} else {
 				dist = dist1
@@ -1112,7 +1116,7 @@ func (obj object) ConvertToSquare(count int, radius int) []SphereSimple {
 			// color:  obj.triangles[randIndex].color,
 			color:              color.RGBA{R, G, B, 255},
 			IndexOfOtherSphere: rand.Intn(count),
-			SdfType:            uint8(2),
+			SdfType:            uint8(smoothUnionNoColorMix),
 			amount:             float32(rand.Intn(1000)) * rand.Float32(),
 		})
 	}
@@ -7634,54 +7638,55 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 }
 
 func (g *Game) GetSpheres(c echo.Context) error {
-    type Sphere struct {
-        CenterX            float64 `json:"centerX"`  // Note the uppercase and json tag
-        CenterY            float64 `json:"centerY"`
-        CenterZ            float64 `json:"centerZ"`
-        Radius             float64 `json:"radius"`
-        ColorR             float64 `json:"colorR"`
-        ColorG             float64 `json:"colorG"`
-        ColorB             float64 `json:"colorB"`
-        ColorA             float64 `json:"colorA"`
-        IndexOfOtherSphere float64 `json:"indexOfOtherSphere"`
-        SdfType            float64 `json:"sdfType"`
-        Amount             float64 `json:"amount"`
-    }
+	type Sphere struct {
+		CenterX            float64 `json:"centerX"` // Note the uppercase and json tag
+		CenterY            float64 `json:"centerY"`
+		CenterZ            float64 `json:"centerZ"`
+		Radius             float64 `json:"radius"`
+		ColorR             float64 `json:"colorR"`
+		ColorG             float64 `json:"colorG"`
+		ColorB             float64 `json:"colorB"`
+		ColorA             float64 `json:"colorA"`
+		IndexOfOtherSphere float64 `json:"indexOfOtherSphere"`
+		SdfType            float64 `json:"sdfType"`
+		Amount             float64 `json:"amount"`
+	}
 
-    spheres := []Sphere{}
+	spheres := []Sphere{}
 
-    // convert spheres to json
-    for _, sphere := range g.Spheres {
-        s := Sphere{
-            CenterX:            float64(sphere.center.x),
-            CenterY:            float64(sphere.center.y),
-            CenterZ:            float64(sphere.center.z),
-            Radius:             float64(sphere.radius),
-            ColorR:             float64(sphere.color.R),
-            ColorG:             float64(sphere.color.G),
-            ColorB:             float64(sphere.color.B),
-            ColorA:             float64(sphere.color.A),
-            IndexOfOtherSphere: float64(sphere.IndexOfOtherSphere),
-            SdfType:            float64(sphere.SdfType),
-            Amount:             float64(sphere.amount),
-        }
-        spheres = append(spheres, s)
-    }
+	// convert spheres to json
+	for _, sphere := range g.Spheres {
+		s := Sphere{
+			CenterX:            float64(sphere.center.x),
+			CenterY:            float64(sphere.center.y),
+			CenterZ:            float64(sphere.center.z),
+			Radius:             float64(sphere.radius),
+			ColorR:             float64(sphere.color.R),
+			ColorG:             float64(sphere.color.G),
+			ColorB:             float64(sphere.color.B),
+			ColorA:             float64(sphere.color.A),
+			IndexOfOtherSphere: float64(sphere.IndexOfOtherSphere),
+			SdfType:            float64(sphere.SdfType),
+			Amount:             float64(sphere.amount),
+		}
+		spheres = append(spheres, s)
+	}
 
-    return c.JSON(http.StatusOK, spheres)
+	return c.JSON(http.StatusOK, spheres)
 }
 
 func (g *Game) GetTypes(c echo.Context) error {
 	types := map[string]int{
-		"distance":           int(distance),
-		"union":              int(union),
-		"smoothUnion":        int(smoothUnion),
-		"intersection":       int(intersection),
-		"smoothIntersection": int(smoothIntersection),
-		"subtraction":        int(subtraction),
-		"smoothSubtraction":  int(smoothSubtraction),
-		"addition":           int(addition),
-		"smoothAddition":     int(smoothAddition),
+		"distance":             int(distance),
+		"union":                int(union),
+		"smoothUnion":          int(smoothUnion),
+		"intersection":         int(intersection),
+		"smoothIntersection":   int(smoothIntersection),
+		"subtraction":          int(subtraction),
+		"smoothSubtraction":    int(smoothSubtraction),
+		"addition":             int(addition),
+		"smoothAddition":       int(smoothAddition),
+		"smothUnionNoColorMix": int(smoothUnionNoColorMix),
 	}
 	return c.JSON(http.StatusOK, types)
 }
@@ -7706,6 +7711,75 @@ func (g *Game) SendImageToClient(c echo.Context) error {
 	return c.Blob(http.StatusOK, "image/png", data)
 }
 
+func (g *Game) UpdateSphere(c echo.Context) error {
+	// Define a struct to match the incoming JSON structure
+	type SphereUpdate struct {
+		Amount             float32 `json:"amount"`
+		CenterX            float32 `json:"centerX"`
+		CenterY            float32 `json:"centerY"`
+		CenterZ            float32 `json:"centerZ"`
+		ColorA             uint8   `json:"colorA"`
+		ColorB             uint8   `json:"colorB"`
+		ColorG             uint8   `json:"colorG"`
+		ColorR             uint8   `json:"colorR"`
+		Index              int     `json:"index"`
+		IndexOfOtherSphere int     `json:"indexOfOtherSphere"`
+		Radius             float32 `json:"radius"`
+		SdfType            int     `json:"sdfType"`
+	}
+
+	// Parse the request body into our struct
+	sphere := new(SphereUpdate)
+	if err := c.Bind(sphere); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request format",
+		})
+	}
+
+	// rebind the sphere to current implementation of square
+	s := SphereSimple{
+		center: Vector{
+			x: sphere.CenterX,
+			y: sphere.CenterY,
+			z: sphere.CenterZ,
+		},
+		radius: float32(sphere.Radius),
+		color: color.RGBA{
+			R: sphere.ColorR,
+			G: sphere.ColorG,
+			B: sphere.ColorB,
+			A: sphere.ColorA,
+		},
+		IndexOfOtherSphere: sphere.IndexOfOtherSphere,
+		SdfType:            uint8(sphere.SdfType),
+		amount:             float32(sphere.Amount),
+	}
+
+	// Check if the sphere index is valid
+	if sphere.Index < 0 || sphere.Index >= len(g.Spheres) {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid sphere index",
+		})
+	}
+
+	// check if index of other sphere is valid
+	if sphere.IndexOfOtherSphere < 0 || sphere.IndexOfOtherSphere >= len(g.Spheres) {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid index of other sphere",
+		})
+	}
+
+	// Update the sphere data using unsafe
+	*(*SphereSimple)(unsafe.Pointer(&g.Spheres[sphere.Index])) = s
+
+	// Return the updated sphere data
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Sphere updated successfully",
+		"sphere":  g.Spheres[sphere.Index],
+	})
+}
+
 func startServer(game *Game) {
 	e := echo.New()
 	// CORS middleware
@@ -7722,6 +7796,7 @@ func startServer(game *Game) {
 	e.GET("/sendImage", game.SendImageToClient)
 	e.GET("getSpheres", game.GetSpheres)
 	e.GET("getTypes", game.GetTypes)
+	e.POST("/updateSphere", game.UpdateSphere)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -8267,7 +8342,7 @@ func main() {
 	const scale = 2
 
 	game := &Game{
-		Spheres:              obj.ConvertToSquare(8, 32),
+		Spheres:              obj.ConvertToSquare(4, 16),
 		version:              V2M,
 		xyzLock:              true,
 		cursorX:              screenHeight / 2,
