@@ -1,5 +1,108 @@
 # TODO List
 
+- [ ] Add part about this benchmark
+  - Results: BoolArray check time: 18.178246ms
+    BitArray check time: 17.968679ms
+    Direct check time: 17.94769ms
+
+  ```go
+    // BoolArray stores each bit as a separate bool
+  type BoolArray struct {
+    data []bool
+    size int
+  }
+
+  // NewBoolArray initializes a bool array of given size
+  func NewBoolArray(size int) *BoolArray {
+    return &BoolArray{
+      data: make([]bool, size),
+      size: size,
+    }
+  }
+
+  // IsSet checks if the n-th bit is 1 in BoolArray
+  func (b *BoolArray) IsSet(n int) bool {
+    if n >= b.size || n < 0 {
+      return false
+    }
+    return b.data[n]
+  }
+
+  // BitArray stores bits efficiently using uint64
+  type BitArray struct {
+    data []uint64
+    size int
+  }
+
+  // NewBitArray initializes a bit array of given size
+  func NewBitArray(size int) *BitArray {
+    return &BitArray{
+      data: make([]uint64, (size+63)/64),
+      size: size,
+    }
+  }
+
+  // IsSet checks if the n-th bit is 1 in BitArray
+  func (b *BitArray) IsSet(n int) bool {
+    if n >= b.size || n < 0 {
+      return false
+    }
+    return (b.data[n/64] & (1 << (n % 64))) != 0
+  }
+
+  // Benchmark function to compare BoolArray vs BitArray
+  func BenchmarkCheckSpeed() {
+    const size = 32*32*32
+    const numChecks = 128*128*128
+
+    // Initialize BoolArray and set some random bits
+    boolArr := NewBoolArray(size)
+    for i := 0; i < size/10; i++ {
+      boolArr.data[rand.Intn(size)] = true
+    }
+
+    // initialize random blocks
+    blocks := make([]Block, size)
+    // set randomly block to true (LightColor.A > 25)
+    for i := 0; i < size/10; i++ {
+      blocks[rand.Intn(size)] = Block{LightColor: ColorFloat32{A: 26}}
+    }
+
+    // Initialize BitArray and set some random bits
+    bitArr := NewBitArray(size)
+    for i := 0; i < size/10; i++ {
+      pos := rand.Intn(size)
+      bitArr.data[pos/64] |= (1 << (pos % 64))
+    }
+
+    // Benchmark BoolArray
+    start := time.Now()
+    for i := 0; i < numChecks; i++ {
+      _ = boolArr.IsSet(rand.Intn(size))
+    }
+    boolTime := time.Since(start)
+
+    // Benchmark BitArray
+    start = time.Now()
+    for i := 0; i < numChecks; i++ {
+      _ = bitArr.IsSet(rand.Intn(size))
+    }
+    bitTime := time.Since(start)
+
+    // Benchmark direct access
+    start = time.Now()
+    for i := 0; i < numChecks; i++ {
+      _ = blocks[rand.Intn(size)].LightColor.A > 25
+    }
+    directTime := time.Since(start)
+
+    // Print results
+    fmt.Println("BoolArray check time:", boolTime)
+    fmt.Println("BitArray check time:", bitTime)
+    fmt.Println("Direct check time:", directTime)
+  }
+  ```
+
 - [ ] Add option to bake lighting
 - [ ] Update documentation about new version of V4-Linear-Optim-V2 that check bounding box intersection for both boxes usually the node has 2 nodes so we can optimize with one func call not two
   Whole function
