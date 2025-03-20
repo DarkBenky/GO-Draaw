@@ -754,7 +754,7 @@ type SphereSimple struct {
 	center             Vector
 	radius             float32
 	color              color.RGBA
-	IndexOfOtherSphere int
+	IndexOfOtherSphere int32
 	SdfType            uint8
 	amount             float32
 }
@@ -792,7 +792,7 @@ func RayMarching(ray Ray, spheres []SphereSimple, iterations int, light Light) (
 			// If this sphere uses another SDF operation, calculate the combined distance
 			if sphere.SdfType != distance {
 				// Skip if the other sphere index is invalid
-				if sphere.IndexOfOtherSphere < 0 || sphere.IndexOfOtherSphere >= len(spheres) {
+				if sphere.IndexOfOtherSphere < 0 || sphere.IndexOfOtherSphere >= int32(len(spheres)) {
 					continue
 				}
 
@@ -1115,7 +1115,7 @@ func (obj object) ConvertToSquare(count int, radius int) []SphereSimple {
 			radius: float32(radius),
 			// color:  obj.triangles[randIndex].color,
 			color:              color.RGBA{R, G, B, 255},
-			IndexOfOtherSphere: rand.Intn(count),
+			IndexOfOtherSphere: int32(rand.Intn(count)),
 			SdfType:            uint8(smoothUnionNoColorMix),
 			amount:             float32(rand.Intn(1000)) * rand.Float32(),
 		})
@@ -7564,8 +7564,8 @@ func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func (g *Game) GetCurrentImage(c echo.Context) error {
-	BlocksImage := MakeNewBlocks(g.scaleFactor)
-	BlocksImageAdvance := MakeNewBlocksAdvance(g.scaleFactor)
+	BlocksImage := MakeNewBlocks(g.scaleFactor/2)
+	BlocksImageAdvance := MakeNewBlocksAdvance(g.scaleFactor/2)
 
 	depth := int(g.depth)
 	PerformanceOptions := false
@@ -7750,7 +7750,7 @@ func (g *Game) UpdateSphere(c echo.Context) error {
 			B: sphere.ColorB,
 			A: sphere.ColorA,
 		},
-		IndexOfOtherSphere: sphere.IndexOfOtherSphere,
+		IndexOfOtherSphere: int32(sphere.IndexOfOtherSphere),
 		SdfType:            uint8(sphere.SdfType),
 		amount:             float32(sphere.Amount),
 	}
