@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] correct the translation 
 - [ ] modify the triangle texture intersection to take into aspect triangle normal texture ( add geometry)
 - [ ] Test Vector Package ([link](https://github.com/viterin/vek)) with GOAMD64=v3
 - [ ] Make Web server run in different processes
