@@ -6368,6 +6368,7 @@ func (g *Game) Update() error {
 		g.camera = tempCamera
 		// remove last element
 		g.InterpolatedPositions = g.InterpolatedPositions[:len(g.InterpolatedPositions)-1]
+		PrecomputeScreenSpaceCoordinatesSphere(g.camera)
 	}
 
 	// for s := range g.Spheres.Spheres {
