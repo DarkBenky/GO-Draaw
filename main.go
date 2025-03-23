@@ -7564,78 +7564,156 @@ func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func (g *Game) GetCurrentImage(c echo.Context) error {
-	BlocksImage := MakeNewBlocks(g.scaleFactor/2)
-	BlocksImageAdvance := MakeNewBlocksAdvance(g.scaleFactor/2)
+	BlocksImage := MakeNewBlocks(g.scaleFactor / 2)
+	BlocksImageAdvance := MakeNewBlocksAdvance(g.scaleFactor / 2)
+
+	// Fix the conversion from string to int
+	framesParam := c.QueryParam("frames") // Changed from c.Param() to c.QueryParam()
+	fmt.Println("Frames Parameter", framesParam)
+	numberFramesToAverage, err := strconv.Atoi(framesParam)
+	if err != nil {
+		// Default to 1 frame if parameter is invalid
+		numberFramesToAverage = 1
+		fmt.Println("Invalid frames parameter, using default value of 1")
+	}
+	fmt.Println("Number of Frames to Average", numberFramesToAverage)
 
 	depth := int(g.depth)
 	PerformanceOptions := false
 
-	switch g.version {
-	case V1:
-		DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
-	case V2:
-		DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
-	case V2M:
-		DrawRaysBlockV2M(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
-	case V2Log:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, logMode)
-	case V2Linear:
-		DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, linMode)
-	case V2LinearTexture:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, PerformanceOptions, linMode)
-	case V2LogTexture:
-		DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, PerformanceOptions, linMode)
-	case V4Log:
-		DrawRaysBlockAdvanceV4Log(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
-	case V4Lin:
-		DrawRaysBlockAdvanceV4Lin(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
-	case V4LinOptim:
-		DrawRaysBlockAdvanceV4LinOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
-	case V4LogOptim:
-		DrawRaysBlockAdvanceV4LogOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
-	case V4LinO2:
-		DrawRaysBlockAdvanceV4LinO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
-	case V4LogO2:
-		DrawRaysBlockAdvanceV4LogO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
-	case V4O2:
-		DrawRaysBlockAdvanceV4O2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+	// load shader for averiging 2 frames
+	src, err := LoadShader("shaders/AverageFrames.kage")
+	if err != nil {
+		panic(err)
 	}
 
-	currentFrame := ebiten.NewImage(screenWidth/g.scaleFactor, screenHeight/g.scaleFactor)
+	averageFramesShader, err := ebiten.NewShader(src)
+	if err != nil {
+		panic(err)
+	}
+	
 
-	if g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LogTexture {
-		switch g.mode {
-		case Classic:
-			for _, block := range BlocksImageAdvance {
+	// Create a slice of pointers to images, not actual Image values
+	averagedFrame := ebiten.NewImage(screenWidth/g.scaleFactor, screenHeight/g.scaleFactor)
+	for i := 0; i < numberFramesToAverage; i++ {
+		switch g.version {
+		case V1:
+			DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
+		case V2:
+			DrawRaysBlockV2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
+		case V2M:
+			DrawRaysBlockV2M(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
+		case V2Log:
+			DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, logMode)
+		case V2Linear:
+			DrawRaysBlockAdvance(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, linMode)
+		case V2LinearTexture:
+			DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, PerformanceOptions, linMode)
+		case V2LogTexture:
+			DrawRaysBlockAdvanceTexture(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, g.TextureMap, PerformanceOptions, linMode)
+		case V4Log:
+			DrawRaysBlockAdvanceV4Log(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+		case V4Lin:
+			DrawRaysBlockAdvanceV4Lin(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+		case V4LinOptim:
+			DrawRaysBlockAdvanceV4LinOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+		case V4LogOptim:
+			DrawRaysBlockAdvanceV4LogOptim(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+		case V4LinO2:
+			DrawRaysBlockAdvanceV4LinO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+		case V4LogO2:
+			DrawRaysBlockAdvanceV4LogO2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImageAdvance, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+		case V4O2:
+			DrawRaysBlockAdvanceV4O2(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, g.gamma, PerformanceOptions, g.bvhLean, g.TextureMap)
+		}
+
+		currentFrame := ebiten.NewImage(screenWidth/g.scaleFactor, screenHeight/g.scaleFactor)
+
+		if g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V2Log || g.version == V2Linear || g.version == V2LinearTexture || g.version == V2LogTexture {
+			switch g.mode {
+			case Classic:
+				for _, block := range BlocksImageAdvance {
+					op := &ebiten.DrawImageOptions{}
+					op.GeoM.Translate(float64(block.startX), float64(block.startY))
+					currentFrame.DrawImage(block.image, op)
+				}
+			case Normals:
+				for _, block := range BlocksImageAdvance {
+					op := &ebiten.DrawImageOptions{}
+					op.GeoM.Translate(float64(block.startX), float64(block.startY))
+					currentFrame.DrawImage(block.normalImage, op)
+				}
+			}
+		} else {
+			for _, block := range BlocksImage {
 				op := &ebiten.DrawImageOptions{}
 				op.GeoM.Translate(float64(block.startX), float64(block.startY))
 				currentFrame.DrawImage(block.image, op)
 			}
-		case Normals:
-			for _, block := range BlocksImageAdvance {
-				op := &ebiten.DrawImageOptions{}
-				op.GeoM.Translate(float64(block.startX), float64(block.startY))
-				currentFrame.DrawImage(block.normalImage, op)
-			}
 		}
-	} else {
-		for _, block := range BlocksImage {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(float64(block.startX), float64(block.startY))
-			currentFrame.DrawImage(block.image, op)
+
+		for _, shader := range g.Shaders {
+			currentFrame = ApplyShader(currentFrame, shader)
 		}
+
+		image := ebiten.NewImageFromImage(currentFrame)
+		opts := &ebiten.DrawRectShaderOptions{}
+		opts.Images[0] = currentFrame
+		opts.Images[1] = averagedFrame
+		image.DrawRectShader(
+			averagedFrame.Bounds().Dx(),
+			averagedFrame.Bounds().Dy(),
+			averageFramesShader,
+			opts,
+		)
+		averagedFrame = image	
 	}
 
-	for _, shader := range g.Shaders {
-		currentFrame = ApplyShader(currentFrame, shader)
+	
+	saveEbitenImageAsPNG(averagedFrame, "current.png")
+
+	fmt.Println("Send Image to Client")
+
+	path := "current.png"
+	file, err := os.Open(path)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to open image file",
+		})
+	}
+	defer file.Close()
+
+	// Read image data
+	data, err := ioutil.ReadAll(file)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to read image data: " + err.Error(),
+		})
 	}
 
-	saveEbitenImageAsPNG(currentFrame, "current.png")
-
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Rendering image",
-	})
+	// Send image data to client
+	return c.Blob(http.StatusOK, "image/png", data)
 }
+
+// func (g *Game) SendImageToClient(c echo.Context) error {
+// 	// load png image current.png from disk
+
+// 	fmt.Println("Send Image to Client")
+
+// 	path := "current.png"
+// 	file, err := os.Open(path)
+// 	if err != nil {
+// 		return c.JSON(http.StatusInternalServerError, map[string]string{
+// 			"error": "Failed to open image file",
+// 		})
+// 	}
+// 	defer file.Close()
+
+// 	// read image data
+// 	data, err := ioutil.ReadAll(file)
+// 	// send image data to client
+// 	return c.Blob(http.StatusOK, "image/png", data)
+// }
 
 func (g *Game) GetSpheres(c echo.Context) error {
 	type Sphere struct {
@@ -7689,26 +7767,6 @@ func (g *Game) GetTypes(c echo.Context) error {
 		"smothUnionNoColorMix": int(smoothUnionNoColorMix),
 	}
 	return c.JSON(http.StatusOK, types)
-}
-
-func (g *Game) SendImageToClient(c echo.Context) error {
-	// load png image current.png from disk
-
-	fmt.Println("Send Image to Client")
-
-	path := "current.png"
-	file, err := os.Open(path)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to open image file",
-		})
-	}
-	defer file.Close()
-
-	// read image data
-	data, err := ioutil.ReadAll(file)
-	// send image data to client
-	return c.Blob(http.StatusOK, "image/png", data)
 }
 
 func (g *Game) UpdateSphere(c echo.Context) error {
@@ -7793,7 +7851,7 @@ func startServer(game *Game) {
 	e.GET("/getCameraPosition", game.GetPositions)
 	e.POST("/moveToPosition", game.MoveToCameraPosition)
 	e.GET("/getCurrentImage", game.GetCurrentImage)
-	e.GET("/sendImage", game.SendImageToClient)
+	// e.GET("/sendImage", game.SendImageToClient)
 	e.GET("getSpheres", game.GetSpheres)
 	e.GET("getTypes", game.GetTypes)
 	e.POST("/updateSphere", game.UpdateSphere)
@@ -8119,15 +8177,6 @@ func main() {
 		panic(err)
 	}
 
-	// src, err = LoadShader("shaders/AverageFrames.kage")
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// averageFramesShader, err := ebiten.NewShader(src)
-	// if err != nil {
-	// 	panic(err)
-	// }
 
 	// fmt.Println("Shader:", rayMarchingShader)
 
