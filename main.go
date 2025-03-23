@@ -2287,6 +2287,87 @@ func (ray Ray) IntersectBVHLean_TextureWithNode(nodeBVH *BVHLeanNode, textureMap
 	return closestIntersection, hit, HitTrianglePtr
 }
 
+func (ray Ray) IntersectBVHLean_TextureGetTextureCoordinates(nodeBVH *BVHLeanNode, textureMap *[128]Texture) (Intersection, bool, *BVHLeanNode, int, int) {
+	// Preallocate a stack large enough for the BVH depth
+	stack := make([]*BVHLeanNode, maxDepth)
+	stackIndex := 0
+	stack[stackIndex] = nodeBVH
+	var closestIntersection Intersection
+	var HitTrianglePtr *BVHLeanNode
+	hit := false
+	var textureX int
+	var textureY int
+
+	for stackIndex >= 0 {
+		currentNode := stack[stackIndex]
+		stackIndex--
+
+		// If the node contains triangles, check for intersections
+		if currentNode.active {
+			intersection, intersects, textX, textY := ray.IntersectTriangleTextureGetTextureCoordinates(currentNode.TriangleBBOX.V1orBBoxMin, currentNode.TriangleBBOX.V2orBBoxMax, currentNode.TriangleBBOX.V3, currentNode.TriangleBBOX.normal, textureMap, currentNode.TriangleBBOX.id)
+			if intersects {
+				if !hit || intersection.Distance < closestIntersection.Distance {
+					closestIntersection = intersection
+					HitTrianglePtr = currentNode
+					hit = true
+					textureX = textX
+					textureY = textY
+				}
+			}
+			continue
+		} else {
+			// Check for bounding box intersections for left and right children
+			var leftHit, rightHit bool
+			var leftDist, rightDist float32
+
+			if currentNode.Left != nil {
+				// Check if the left child is Bounding Box
+				if currentNode.Left.active == false {
+					leftHit, leftDist = BoundingBoxCollisionVector(currentNode.Left.TriangleBBOX.V1orBBoxMin, currentNode.Left.TriangleBBOX.V2orBBoxMax, ray)
+				} else {
+					leftHit = true
+					leftDist = math32.MaxFloat32
+				}
+			}
+			if currentNode.Right != nil {
+				// Check if the right child is Bounding Box
+				if currentNode.Right.active == false {
+					rightHit, rightDist = BoundingBoxCollisionVector(currentNode.Right.TriangleBBOX.V1orBBoxMin, currentNode.Right.TriangleBBOX.V2orBBoxMax, ray)
+				} else {
+					rightHit = true
+					rightDist = math32.MaxFloat32
+				}
+			}
+
+			// Prioritize traversal based on hit distance (closer node first)
+			if leftHit && rightHit {
+				if leftDist < rightDist {
+					// Left is closer, traverse left first
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+				} else {
+					// Right is closer, traverse right first
+					stackIndex++
+					stack[stackIndex] = currentNode.Left
+					stackIndex++
+					stack[stackIndex] = currentNode.Right
+				}
+			} else if leftHit {
+				// Only left child is hit
+				stackIndex++
+				stack[stackIndex] = currentNode.Left
+			} else if rightHit {
+				// Only right child is hit
+				stackIndex++
+				stack[stackIndex] = currentNode.Right
+			}
+		}
+	}
+	return closestIntersection, hit, HitTrianglePtr, textureX, textureY
+}
+
 func (ray Ray) IntersectBVHLean_TextureSetColor(nodeBVH *BVHLeanNode, textureMap *[128]Texture, color ColorFloat32) (Intersection, bool, *BVHLeanNode) {
 	// Preallocate a stack large enough for the BVH depth
 	stack := make([]*BVHLeanNode, maxDepth)
@@ -2737,6 +2818,80 @@ func (ray Ray) IntersectTriangleTextureGeneral(v1 Vector, v2 Vector, v3 Vector, 
 		directToScatter:     textureMap[id].directToScatter,
 		Metallic:            textureMap[id].Metallic,
 	}, true
+}
+
+func (ray Ray) IntersectTriangleTextureGetTextureCoordinates(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id int32) (Intersection, bool, int, int) {
+	// Möller–Trumbore intersection algorithm
+	edge1 := v2.Sub(v1)
+	edge2 := v3.Sub(v1)
+	h := ray.direction.Cross(edge2)
+	a := edge1.Dot(h)
+	if a > -0.00001 && a < 0.00001 {
+		return Intersection{}, false, 0, 0
+	}
+	f := 1.0 / a
+	s := ray.origin.Sub(v1)
+	u := f * s.Dot(h)
+	if u < 0.0 || u > 1.0 {
+		return Intersection{}, false, 0, 0
+	}
+	q := s.Cross(edge1)
+	v := f * ray.direction.Dot(q)
+	if v < 0.0 || u+v > 1.0 {
+		return Intersection{}, false, 0, 0
+	}
+	t := f * edge2.Dot(q)
+	if t <= 0.00001 {
+		return Intersection{}, false, 0, 0
+	}
+
+	// Compute barycentric coordinates
+	w := 1.0 - u - v
+
+	// Sample the texture using barycentric coordinates
+	texU := int(w * 127)
+	texV := int(v * 127)
+	if texU < 0 {
+		texU = 0
+	} else if texU > 127 {
+		texU = 127
+	}
+	if texV < 0 {
+		texV = 0
+	} else if texV > 127 {
+		texV = 127
+	}
+
+	// index := uint8(1)
+
+	// Blend the normals using a proper normal blending technique
+	// This uses a hemisphere-based blending approach that preserves detail
+	perturbedNormal := textureMap[id].normals[texU][texV]
+
+	// Ensure the perturbed normal is in the same hemisphere as the base normal
+	if baseNormal.Dot(perturbedNormal) < 0 {
+		perturbedNormal = perturbedNormal.Mul(-1)
+	}
+
+	// Blend the normals with emphasis on maintaining the base normal's orientation
+	normal := Vector{
+		x: (baseNormal.x + perturbedNormal.x) * 0.5,
+		y: (baseNormal.y + perturbedNormal.y) * 0.5,
+		z: (baseNormal.z + perturbedNormal.z) * 0.5,
+	}.Normalize()
+
+	return Intersection{
+		PointOfIntersection: ray.origin.Add(ray.direction.Mul(t)).Add(normal.Mul(0.01)),
+		Color:               textureMap[id].texture[texU][texV],
+		Normal:              normal,
+		Direction:           ray.direction,
+		Distance:            t,
+		reflection:          textureMap[id].reflection,
+		specular:            textureMap[id].specular,
+		Roughness:           textureMap[id].Roughness,
+		directToScatter:     textureMap[id].directToScatter,
+		Metallic:            textureMap[id].Metallic,
+	}, true, texU, texV
 }
 
 func (ray Ray) IntersectTriangleTextureSetColor(v1 Vector, v2 Vector, v3 Vector, baseNormal Vector, textureMap *[128]Texture, id int32, color ColorFloat32) (Intersection, bool) {
@@ -6202,6 +6357,19 @@ func (g *Game) Update() error {
 		fullScreen = !fullScreen
 	}
 
+	// check if g.InterpolatedPositions is not empty
+	if len(g.InterpolatedPositions) > 0 {
+		// get last element
+		lastElement := g.InterpolatedPositions[len(g.InterpolatedPositions)-1]
+		tempCamera := Camera{}
+		tempCamera.xAxis = float32(lastElement.CameraX)
+		tempCamera.yAxis = float32(lastElement.CameraY)
+		tempCamera.Position = Vector{float32(lastElement.X) ,float32(lastElement.Y), float32(lastElement.Z)}
+		g.camera = tempCamera
+		// remove last element
+		g.InterpolatedPositions = g.InterpolatedPositions[:len(g.InterpolatedPositions)-1]
+	}
+
 	// for s := range g.Spheres.Spheres {
 	// 	randomX := rand.Float32()*2 - 1
 	// 	randomY := rand.Float32()*2 - 1
@@ -6772,12 +6940,13 @@ type Game struct {
 	light Light
 
 	// 24-bit pointers (3 bytes each) grouped together
-	subImagesRayMarching []*ebiten.Image
-	VoxelGridBlocksImage []BlocksImage
-	BlocksImage          []BlocksImage
-	BlocksImageAdvance   []BlocksImageAdvance
-	Shaders              []Shader
-	Spheres              []SphereSimple
+	subImagesRayMarching  []*ebiten.Image
+	VoxelGridBlocksImage  []BlocksImage
+	BlocksImage           []BlocksImage
+	BlocksImageAdvance    []BlocksImageAdvance
+	Shaders               []Shader
+	Spheres               []SphereSimple
+	InterpolatedPositions []Position
 
 	// 20-bit pointers (2.5 bytes each) grouped together
 	camera Camera
@@ -7568,7 +7737,14 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 	BlocksImageAdvance := MakeNewBlocksAdvance(g.scaleFactor / 2)
 
 	// Fix the conversion from string to int
-	framesParam := c.QueryParam("frames") // Changed from c.Param() to c.QueryParam()
+	framesParam := c.QueryParam("frames")
+	// convertImageToTextures := c.QueryParam("bakeLighting")
+	// convert := false
+	// if convertImageToTextures == "yes" {
+	// 	convert = true
+	// }
+	// fmt.Println("Convert Image to Textures", convert)
+
 	fmt.Println("Frames Parameter", framesParam)
 	numberFramesToAverage, err := strconv.Atoi(framesParam)
 	if err != nil {
@@ -7591,7 +7767,6 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 	if err != nil {
 		panic(err)
 	}
-	
 
 	// Create a slice of pointers to images, not actual Image values
 	averagedFrame := ebiten.NewImage(screenWidth/g.scaleFactor, screenHeight/g.scaleFactor)
@@ -7658,18 +7833,74 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 
 		image := ebiten.NewImageFromImage(currentFrame)
 		opts := &ebiten.DrawRectShaderOptions{}
-		opts.Images[0] = currentFrame
-		opts.Images[1] = averagedFrame
+		opts.Images[0] = averagedFrame
+		opts.Images[1] = currentFrame
 		image.DrawRectShader(
 			averagedFrame.Bounds().Dx(),
 			averagedFrame.Bounds().Dy(),
 			averageFramesShader,
 			opts,
 		)
-		averagedFrame = image	
+		averagedFrame = image
 	}
 
-	
+	// fmt.Println("Image Size", averagedFrame.Bounds().Dx(), averagedFrame.Bounds().Dy())
+
+	// fmt.Println("G. Scale Factor", g.scaleFactor)
+
+	// if convert && g.version == V4LogO2 || g.version == V4LinO2 || g.version == V4LogOptim || g.version == V4LinOptim || g.version == V4Log || g.version == V4Lin || g.version == V4O2 {
+	// 	textureMap := map[*BVHLeanNode]Texture{}
+
+	// 	imageHeight := averagedFrame.Bounds().Dy()
+	// 	imageWidth := averagedFrame.Bounds().Dx()
+
+	// 	for i := 0; i < imageWidth; i++ {
+	// 		for j := 0; j < imageHeight; j++ {
+	// 			// get color of pixel\
+	// 			R, G, B, A := averagedFrame.At(i, j).RGBA()
+	// 			ray := Ray{
+	// 				origin:    g.camera.Position,
+	// 				direction: ScreenSpaceCoordinates[i*g.scaleFactor][j*g.scaleFactor],
+	// 			}
+	// 			_, _, BVHNode, textureX, textureY := ray.IntersectBVHLean_TextureGetTextureCoordinates(g.bvhLean, g.TextureMap)
+	// 			// check if the BVHNode is in the textureMap
+	// 			if _, ok := textureMap[BVHNode]; !ok {
+	// 				t := Texture{}
+	// 				t.texture[textureX][textureY] = ColorFloat32{
+	// 					float32(R >> 8),
+	// 					float32(G >> 8),
+	// 					float32(B >> 8),
+	// 					float32(A >> 8),
+	// 				}
+	// 				textureMap[BVHNode] = t
+	// 			} else {
+	// 				tempTexture := textureMap[BVHNode]
+	// 				tempTexture.texture[textureX][textureY] = ColorFloat32{
+	// 					float32(R >> 8),
+	// 					float32(G >> 8),
+	// 					float32(B >> 8),
+	// 					float32(A >> 8),
+	// 				}
+	// 				textureMap[BVHNode] = tempTexture
+	// 			}
+	// 		}
+	// 	}
+
+	// 	// iterate over the textureMap and update the textureMap in the BVH
+	// 	index := 0
+	// 	for BVHnode, texture := range textureMap {
+	// 		if index < len(g.TextureMap) {
+	// 			// assign the texture to the BVHNode
+	// 			*(*Texture)(unsafe.Pointer(&g.TextureMap[index].texture)) = texture
+	// 			// change index of the BVHNode to the index of the textureMap
+	// 			*(*int32)(unsafe.Pointer(&BVHnode.TriangleBBOX.id)) = int32(index)
+	// 			index++
+	// 			fmt.Println("BVH Updated", BVHnode)
+	// 		}
+	// 	}
+
+	// }
+
 	saveEbitenImageAsPNG(averagedFrame, "current.png")
 
 	fmt.Println("Send Image to Client")
@@ -7694,26 +7925,6 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 	// Send image data to client
 	return c.Blob(http.StatusOK, "image/png", data)
 }
-
-// func (g *Game) SendImageToClient(c echo.Context) error {
-// 	// load png image current.png from disk
-
-// 	fmt.Println("Send Image to Client")
-
-// 	path := "current.png"
-// 	file, err := os.Open(path)
-// 	if err != nil {
-// 		return c.JSON(http.StatusInternalServerError, map[string]string{
-// 			"error": "Failed to open image file",
-// 		})
-// 	}
-// 	defer file.Close()
-
-// 	// read image data
-// 	data, err := ioutil.ReadAll(file)
-// 	// send image data to client
-// 	return c.Blob(http.StatusOK, "image/png", data)
-// }
 
 func (g *Game) GetSpheres(c echo.Context) error {
 	type Sphere struct {
@@ -7838,6 +8049,33 @@ func (g *Game) UpdateSphere(c echo.Context) error {
 	})
 }
 
+func (g *Game) InterpolateBetweenPositions(c echo.Context) error {
+    type Positions struct {
+        Positions    []Position `json:"positions"`
+        TimeDuration float64    `json:"timeDuration"`
+    }
+
+    positions := new(Positions)
+    if err := c.Bind(positions); err != nil {
+        return c.JSON(http.StatusBadRequest, map[string]string{
+            "error": "Failed to parse request: " + err.Error(),
+        })
+    }
+
+    fmt.Println("Interpolate between positions request", positions)
+
+    // Convert float64 seconds to time.Duration
+    timeDuration := time.Duration(positions.TimeDuration * float64(time.Second))
+    interpolatedPositions := InterpolateBetweenPositions(timeDuration, positions.Positions)
+
+    // Assign the interpolated positions to the camera
+    *(*[]Position)(unsafe.Pointer(&g.InterpolatedPositions)) = interpolatedPositions
+
+	fmt.Println("Interpolated Positions", interpolatedPositions)
+
+    return c.JSON(http.StatusOK, interpolatedPositions)
+}
+
 func startServer(game *Game) {
 	e := echo.New()
 	// CORS middleware
@@ -7855,6 +8093,7 @@ func startServer(game *Game) {
 	e.GET("getSpheres", game.GetSpheres)
 	e.GET("getTypes", game.GetTypes)
 	e.POST("/updateSphere", game.UpdateSphere)
+	e.POST("/moveCamera", game.InterpolateBetweenPositions)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -8176,7 +8415,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 
 	// fmt.Println("Shader:", rayMarchingShader)
 
