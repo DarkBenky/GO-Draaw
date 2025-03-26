@@ -954,6 +954,9 @@ Optimalizovanejšia verzia, ktorá:
 - [V4Optim-V2 Profil](https://flamegraph.com/share/d27d9331-09f0-11f0-8d53-2a7e77e4af82)
 ---
 
+- **Normal Image**
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Normal.png?raw=true)
+
 ## 4.1 Kľúčové body evolúcie:
 
 1. **Renderovací Model**: Od základného modelu (TraceRay) po plný PBR model (V3 a novšie)
@@ -963,6 +966,13 @@ Optimalizovanejšia verzia, ktorá:
 5. **Podpora Textúr**: Pridaná vo V3AdvanceTexture a zachovaná vo V4 variantoch
 6. **Využitie Pamäte**: Postupne optimalizované, najmä vo variante V4Lean
 7. **Výkon**: Každá verzia robí kompromisy medzi funkciami a rýchlosťou
+
+**Ilustračné obrázky**
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V4Lin(2).png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/render.png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V4lin(3).png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/55d0fe3f-f5fe-4da3-aebe-fe4996b52ff9.jpeg?raw=true)
+
 
 
 Tieto funkcie reprezentujú typickú vývojovú cestu ray tracera, ktorá sa pohybuje od správnosti cez optimalizáciu výkonu so zachovaním princípov fyzikálne založeného renderingu.
