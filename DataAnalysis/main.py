@@ -226,3 +226,77 @@ print(f"\nBVH Performance Improvement:")
 print(f"Classic BVH: {bvh_df['Execution Time (ms)'][0]:.2f} ms")
 print(f"Lean BVH: {bvh_df['Execution Time (ms)'][1]:.2f} ms")
 print(f"Improvement: {improvement:.2f}%")
+
+# Bounding Box collision functions performance comparison data
+bbox_data = {
+    'Implementation': ['BoundingBoxCollisionVector', 'BoundingBoxCollisionPair'],
+    'Execution Time (ms)': [291.248548, 215.934921],
+    'Percentage': [100, (215.934921/291.248548)*100]  # Calculate percentage relative to BoundingBoxCollisionVector
+}
+
+bbox_df = pd.DataFrame(bbox_data)
+
+# Calculate improvement percentage
+bbox_improvement = ((291.248548 - 215.934921) / 291.248548) * 100
+
+# Create bar chart for Bounding Box collision functions comparison
+bbox_fig = go.Figure([
+    go.Bar(
+        x=bbox_df['Implementation'],
+        y=bbox_df['Execution Time (ms)'],
+        text=[f"{time:.2f} ms" for time in bbox_df['Execution Time (ms)']],
+        textposition='auto',
+        marker_color=['#ff7f0e', '#9467bd'],  # Different colors from BVH chart
+        width=0.6
+    )
+])
+
+# Update layout with annotations
+bbox_fig.update_layout(
+    title='Bounding Box Collision Functions Performance Comparison',
+    title_font_size=20,
+    xaxis_title='Collision Function Implementation',
+    yaxis_title='Execution Time Per 1 000 000 Samples (ms)',
+    height=600,
+    width=900,
+    bargap=0.2,
+    annotations=[
+        dict(
+            x=1,  # Position above the BoundingBoxCollisionPair bar
+            y=bbox_df['Execution Time (ms)'][1] + 20,  # Slightly above the bar
+            xref="x",
+            yref="y",
+            text=f"Performance improvement: {bbox_improvement:.2f}%",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=2,
+            arrowcolor="#9467bd",
+            ax=0,
+            ay=-40
+        )
+    ]
+)
+
+# Add a horizontal line showing the BoundingBoxCollisionVector time for reference
+bbox_fig.add_shape(
+    type="line",
+    x0=-0.4,
+    y0=bbox_df['Execution Time (ms)'][0],
+    x1=1.4,
+    y1=bbox_df['Execution Time (ms)'][0],
+    line=dict(
+        color="red",
+        width=2,
+        dash="dash",
+    )
+)
+
+# Save the Bounding Box comparison figure
+pio.write_image(bbox_fig, 'bbox_performance_comparison.png')
+
+# Print the Bounding Box collision functions performance improvement
+print(f"\nBounding Box Collision Functions Performance Improvement:")
+print(f"BoundingBoxCollisionVector: {bbox_df['Execution Time (ms)'][0]:.2f} ms")
+print(f"BoundingBoxCollisionPair: {bbox_df['Execution Time (ms)'][1]:.2f} ms")
+print(f"Improvement: {bbox_improvement:.2f}%")
