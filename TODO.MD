@@ -1,5 +1,6 @@
 # TODO List
 
+- [X] APIs Updated
 - [ ] Add part about this benchmark
   - Results: BoolArray check time: 18.178246ms
     BitArray check time: 17.968679ms

@@ -6364,7 +6364,7 @@ func (g *Game) Update() error {
 		tempCamera := Camera{}
 		tempCamera.xAxis = float32(lastElement.CameraX)
 		tempCamera.yAxis = float32(lastElement.CameraY)
-		tempCamera.Position = Vector{float32(lastElement.X) ,float32(lastElement.Y), float32(lastElement.Z)}
+		tempCamera.Position = Vector{float32(lastElement.X), float32(lastElement.Y), float32(lastElement.Z)}
 		g.camera = tempCamera
 		// remove last element
 		g.InterpolatedPositions = g.InterpolatedPositions[:len(g.InterpolatedPositions)-1]
@@ -7772,6 +7772,7 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 	// Create a slice of pointers to images, not actual Image values
 	averagedFrame := ebiten.NewImage(screenWidth/g.scaleFactor, screenHeight/g.scaleFactor)
 	for i := 0; i < numberFramesToAverage; i++ {
+		start := time.Now()
 		switch g.version {
 		case V1:
 			DrawRaysBlock(g.camera, g.light, g.scaleFactor, g.scatter, depth, BlocksImage, PerformanceOptions)
@@ -7843,6 +7844,12 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 			opts,
 		)
 		averagedFrame = image
+		elapsed := time.Since(start)
+		remainingFrames := numberFramesToAverage - i - 1
+		avgTimePerFrame := elapsed.Seconds()
+		remainingTime := avgTimePerFrame * float64(remainingFrames)
+
+		fmt.Printf("Frame %d, Remaining: %d, Remaining Time: %.1f seconds\n",i, remainingFrames, remainingTime)
 	}
 
 	// fmt.Println("Image Size", averagedFrame.Bounds().Dx(), averagedFrame.Bounds().Dy())
@@ -8051,30 +8058,30 @@ func (g *Game) UpdateSphere(c echo.Context) error {
 }
 
 func (g *Game) InterpolateBetweenPositions(c echo.Context) error {
-    type Positions struct {
-        Positions    []Position `json:"positions"`
-        TimeDuration float64    `json:"timeDuration"`
-    }
+	type Positions struct {
+		Positions    []Position `json:"positions"`
+		TimeDuration float64    `json:"timeDuration"`
+	}
 
-    positions := new(Positions)
-    if err := c.Bind(positions); err != nil {
-        return c.JSON(http.StatusBadRequest, map[string]string{
-            "error": "Failed to parse request: " + err.Error(),
-        })
-    }
+	positions := new(Positions)
+	if err := c.Bind(positions); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Failed to parse request: " + err.Error(),
+		})
+	}
 
-    fmt.Println("Interpolate between positions request", positions)
+	fmt.Println("Interpolate between positions request", positions)
 
-    // Convert float64 seconds to time.Duration
-    timeDuration := time.Duration(positions.TimeDuration * float64(time.Second))
-    interpolatedPositions := InterpolateBetweenPositions(timeDuration, positions.Positions)
+	// Convert float64 seconds to time.Duration
+	timeDuration := time.Duration(positions.TimeDuration * float64(time.Second))
+	interpolatedPositions := InterpolateBetweenPositions(timeDuration, positions.Positions)
 
-    // Assign the interpolated positions to the camera
-    *(*[]Position)(unsafe.Pointer(&g.InterpolatedPositions)) = interpolatedPositions
+	// Assign the interpolated positions to the camera
+	*(*[]Position)(unsafe.Pointer(&g.InterpolatedPositions)) = interpolatedPositions
 
 	fmt.Println("Interpolated Positions", interpolatedPositions)
 
-    return c.JSON(http.StatusOK, interpolatedPositions)
+	return c.JSON(http.StatusOK, interpolatedPositions)
 }
 
 func startServer(game *Game) {
@@ -8441,10 +8448,13 @@ func main() {
 		obj.Scale(75)
 	} else {
 		obj, err = LoadOBJ("monkey.obj")
+		// obj, err = LoadOBJ("Room.obj")
+		// obj, err = LoadOBJ("cubes.obj")
 		if err != nil {
 			panic(err)
 		}
 		obj.Scale(75)
+		// obj.Rotate(90, 0, 0)
 	}
 
 	objects := []object{}
@@ -8556,7 +8566,7 @@ func main() {
 
 	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
-	VoxelGrid := NewVoxelGrid(32, obj.BoundingBox[0].Mul(0.75), obj.BoundingBox[1].Mul(0.75), ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
+	VoxelGrid := NewVoxelGrid(96, obj.BoundingBox[0].Mul(0.75), obj.BoundingBox[1].Mul(0.75), ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 
 	// VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	// VoxelGrid.SetRandomLightColor()
