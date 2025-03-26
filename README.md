@@ -185,6 +185,83 @@ type Position struct {
 }
 ```
 
+* `GET /getCurrentImage`: Získa aktuálny vyrenderovaný obrázok.
+* `GET /getSpheres`: Získa aktuálne vlastnosti objektov pre SDF rendering, ako sú pozícia a farba.
+
+```go
+type Sphere struct {
+    CenterX            float64 `json:"centerX"` // Poznámka: veľké písmená a json tag
+    CenterY            float64 `json:"centerY"`
+    CenterZ            float64 `json:"centerZ"`
+    Radius             float64 `json:"radius"`
+    ColorR             float64 `json:"colorR"`
+    ColorG             float64 `json:"colorG"`
+    ColorB             float64 `json:"colorB"`
+    ColorA             float64 `json:"colorA"`
+    IndexOfOtherSphere float64 `json:"indexOfOtherSphere"`
+    SdfType            float64 `json:"sdfType"`
+    Amount             float64 `json:"amount"`
+}
+```
+
+API odošle na frontend pole objektov:
+
+```go
+[]Sphere{}
+```
+* ``GET /getTypes``: Pošle mapu objektov na frontend s ID pre jednotlivé typy objektov
+
+```go
+types := map[string]int{
+    "distance":             int(distance),
+    "union":                int(union),
+    "smoothUnion":          int(smoothUnion),
+    "intersection":         int(intersection),
+    "smoothIntersection":   int(smoothIntersection),
+    "subtraction":          int(subtraction),
+    "smoothSubtraction":    int(smoothSubtraction),
+    "addition":             int(addition),
+    "smoothAddition":       int(smoothAddition),
+    "smothUnionNoColorMix": int(smoothUnionNoColorMix),
+}
+```
+* ``POST /updateSphere``: API slúži na odoslanie modifikovaného SDF objektu na backend
+
+```go
+type SphereUpdate struct {
+    Amount             float32 `json:"amount"`
+    CenterX            float32 `json:"centerX"`
+    CenterY            float32 `json:"centerY"`
+    CenterZ            float32 `json:"centerZ"`
+    ColorA             uint8   `json:"colorA"`
+    ColorB             uint8   `json:"colorB"`
+    ColorG             uint8   `json:"colorG"`
+    ColorR             uint8   `json:"colorR"`
+    Index              int     `json:"index"`
+    IndexOfOtherSphere int     `json:"indexOfOtherSphere"`
+    Radius             float32 `json:"radius"`
+    SdfType            int     `json:"sdfType"`
+}
+```
+
+* ``POST /moveCamera``: API slúži na vygenerovanie pozícií, cez ktoré sa má kamera v 3D scéne pohybovať
+
+```go
+type Positions struct {
+    Positions    []Position `json:"positions"` 
+    TimeDuration float64    `json:"timeDuration"` 
+}
+
+
+type Position struct {
+    X       float64 `json:"x"`       
+    Y       float64 `json:"y"`      
+    Z       float64 `json:"z"`       
+    CameraX float64 `json:"cameraX"` 
+    CameraY float64 `json:"cameraY"` 
+}
+```
+
 ## 2.3 Dokumentácia Frontend Komponentov Ray Tracingu
 
 ![GUI](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/GUI.png?raw=true)
@@ -211,8 +288,7 @@ type Position struct {
 
 ### Normal Mapa
 - Rozlíšenie: 128 × 128 × 3
-- Rozsah Normalizácie: -1 až 1
-- Konverzia na Backende: Normalizovaná na vektor
+- Tlačidlo na zmenu normalizácie normálovej mapy medzi rozsahmi 0/1 a -1/1
 
 #### Funkcie Normal Mapy
 - Tlačidlo Nahraj Normal Mapu: Umožňuje nahrať normal mapy
@@ -249,43 +325,54 @@ Vytváranie reťazcov post-processingových shaderov (napr. pôvodný obrázok �
 - `amount`: Podiel upraveného obrázku, ktorý sa pridá do renderingu
 - `multipass`: Počet po sebe nasledujúcich aplikácií shaderu
 
+#### Render Bez Shadrov
+![Native](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/Normal.png?raw=true)
+
 #### Podporované Shadery
 1. **Kontrast**
    - Množstvo
    - Multipass
    - Sila kontrastu
+![Kontrast](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/Contrast.png?raw=true)
 
 2. **Tint**
    - Množstvo
    - Multipass
    - Tint farba
    - Sila tint shaderu
+![Tint](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/Tint.png?raw=true)
 
 3. **Bloom**
    - Množstvo
    - Multipass
    - Prahová hodnota
    - Intenzita
+![BloomV1](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/BloomV1.png?raw=true)
 
 4. **BloomV2**
    - Podobné Bloomu s miernym variantom
+![BloomV2](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/BloomV2.png?raw=true)
 
 5. **Ostrosť**
    - Množstvo
    - Multipass
    - Sila filtra
+![Sharpness](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/Sharpness.png?raw=true)
 
 6. **Mapovanie Farieb**
    - Množstvo
    - Multipass
    - Farebné kanály (R/G/B)
    - Definuje distribúciu farieb (napr. 2 úrovne: 0% alebo 100%)
+![ColorMapping](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/ColorMapping.png?raw=true)
 
 7. **Chromatická Aberácia**
    - Množstvo
    - Multipass
    - Sila filtra
    - Posun farebného kanála (Červená vľavo, Modrá vpravo)
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/chromaticAberration.png?raw=true)
+
 
 8. **Detekcia Hrán**
    - Používa Sobelov filter
@@ -293,20 +380,49 @@ Vytváranie reťazcov post-processingových shaderov (napr. pôvodný obrázok �
    - Multipass
    - Sila zvýraznenia hrán
    - Nastaviteľná farba hrán (R/G/B)
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/edgeDetection.png?raw=true)
+
 
 9. **Zosvetlenie**
    - Množstvo
    - Multipass
    - Sila filtra
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/Lighten.png?raw=true)
+
+10. **Vignette**
+   - Množstvo
+   - Multipass
+   - Base
+   - Glow
+   - Radius
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Shaders/CRT.png?raw=true)
   
-![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/ShaderMenu.png?raw=true)
 
 ## 2.3.4 Render Options
-### Správa Kamery
+
+### Horná Lišta
 - Odoslať Render Možnosti
 - Tlačidlo Získať Pozíciu Kamery
 - Skryť/Zobraziť Pozíciu Kamery
-- Presunúť Kameru na Špecifickú Pozíciu
+- Tlačidlo Získať Vyrendrovaný Obrázok
+- Tlačidlo Ukázať Vyrendrovaný Obrázok
+- Tlačidlo Načítať SDF Objekty
+- Slider na určenie snímkov, z ktorých sa vytvorí obrázok
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/TopBar.png?raw=true)
+
+### Menu Pozície Kamery
+- V danom menu je možné vidieť získané pozície a presunúť kameru na danú pozíciu alebo vytvoriť animáciu medzi viacerými pozíciami
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/CameraPositions.png?raw=true)
+
+
+### Menu Render Ukážky
+- Menu slúžiace na zobrazenie vyrendrovaného obrázku
+ ![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/Render.png?raw=true)
+- Jeden obrázok, z ktorého je vykonaný render, je viac šumový
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/NotAveraged.png?raw=true)
+- 32 obrázkov, ktoré sú spriemernené do jedného obrázku
+![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Averaged.png?raw=true)
+
 
 ### Hlavné Parametre Renderingu
 - **Hĺbka**: Počet odrazov na renderovanie
@@ -320,15 +436,26 @@ Vytváranie reťazcov post-processingových shaderov (napr. pôvodný obrázok �
 
 ### Nastavenia Renderingu
 - Pripnúť Svetlo ku Kamere
-- Raymarching (momentálne neimplementované)
+- Raymarching
 - Performance Mód
   - Odobratie `wg.Wait`
   - Potenciálne menej plynulý rendering
   - Maximalizácia využitia hardvéru
+- Rozlíšenie
+  - Natívne (aktuálne neimplementované)
+  - 2X
+  - 4X
+  - 8X
+- Verzia RayMarchingu
+  - V1 - Využíva BVH pre efektívnejšie rendrovanie
+  ![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/RayMarchingV1.png?raw=true)
+  - V2 - Umožňuje meniť radius alebo SDF funkciu
+  ![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/RayMarching(1).png?raw=true)
+  ![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/RayMarching.png?raw=true)
 
 ### Módy Renderingu
 - Klasický: Štandardné renderovanie
-- Normál: Renderovanie normálových povrchov (V2Log, V2Lin, V2LogTexture, V2LinTexture, V4Log, V4Lin)
+- Normál: Renderovanie normálových povrchov (V2Log, V2Lin, V2LogTexture, V2LinTexture, V4Log, V4Lin, V4LinOptim, V4LogOptim, V4LinOptim-V2, V4LogOptim-V2, V4Optim-V2)
 - Vzdialenosť: Momentálne nesprávne implementované
 
 ![image](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/GUI/Render%20Options.png?raw=true)
@@ -355,6 +482,8 @@ Vytváranie reťazcov post-processingových shaderov (napr. pôvodný obrázok �
 Pri ray-tracingu je kľúčovou operáciou hľadanie priesečníkov medzi lúčom vyslaným z kamery a objektmi v scéne. Bez optimalizačnej štruktúry by bolo potrebné testovať každý lúč s každým objektom v scéne, čo by viedlo k časovej zložitosti O(n) pre každý lúč, kde n je počet objektov v scéne. BVH rieši tento problém vytvorením hierarchickej štruktúry obaľujúcich objemov (najčastejšie osovo zarovnaných boxov - AABB), ktorá umožňuje rýchlo eliminovať veľké časti scény, ktoré lúč nemôže zasiahnuť.
 
 Keď lúč prechádza scénou, najprv sa testuje prienik s head Node BVH. Ak lúč nezasiahne obaľujúci objem uzla, môžeme okamžite preskočiť všetky objekty v tomto podstrome. Ak prienik existuje, algoritmus rekurzívne pokračuje do potomkov uzla, až kým nedosiahne listové uzly obsahujúce konkrétne objekty scény.
+
+![image](https://www.scratchapixel.com/images/acceleration-structure/bvhfig.gif)
 
 # 3.2 Surface Area Heuristic (SAH)
 
@@ -553,6 +682,56 @@ Pre verziu V4 bola vytvorená optimalizovaná implementácia BVHLean, ktorá:
 - Zlúčila ohraničujúci box a trojuholník do jednej štruktúry pre lepšiu lokalitu dát
 - Odstránila priame ukladanie materiálových vlastností v uzle a nahradila ich systémom ID odkazov na textúry
 
+#### Optimalizácia BVHLean - porovnanie 2 bounding boxov naraz
+- Keďže vždy musím pozerať intersekciu s obomi dvoma bounding boxami, je omnoho efektívnejšie porovnať intersekciu v jednej funkcii, takže sa dá vyhnúť počiatočnej inverse direction
+```go
+func BoundingBoxCollisionPair(box1Min, box1Max, box2Min, box2Max Vector, ray Ray) (bool, bool, float32, float32) {
+	// Precompute the inverse direction (once for both boxes)
+	invDirX := 1.0 / ray.direction.x
+	invDirY := 1.0 / ray.direction.y
+	invDirZ := 1.0 / ray.direction.z
+	// Box 1 intersection
+	tx1_1 := (box1Min.x - ray.origin.x) * invDirX
+	tx2_1 := (box1Max.x - ray.origin.x) * invDirX
+	tmin_1 := min(tx1_1, tx2_1)
+	tmax_1 := max(tx1_1, tx2_1)
+	ty1_1 := (box1Min.y - ray.origin.y) * invDirY
+	ty2_1 := (box1Max.y - ray.origin.y) * invDirY
+	tmin_1 = max(tmin_1, min(ty1_1, ty2_1))
+	tmax_1 = min(tmax_1, max(ty1_1, ty2_1))
+	tz1_1 := (box1Min.z - ray.origin.z) * invDirZ
+	tz2_1 := (box1Max.z - ray.origin.z) * invDirZ
+	tmin_1 = max(tmin_1, min(tz1_1, tz2_1))
+	tmax_1 = min(tmax_1, max(tz1_1, tz2_1))
+	// Box 2 intersection
+	tx1_2 := (box2Min.x - ray.origin.x) * invDirX
+	tx2_2 := (box2Max.x - ray.origin.x) * invDirX
+	tmin_2 := min(tx1_2, tx2_2)
+	tmax_2 := max(tx1_2, tx2_2)
+	ty1_2 := (box2Min.y - ray.origin.y) * invDirY
+	ty2_2 := (box2Max.y - ray.origin.y) * invDirY
+	tmin_2 = max(tmin_2, min(ty1_2, ty2_2))
+	tmax_2 = min(tmax_2, max(ty1_2, ty2_2))
+	tz1_2 := (box2Min.z - ray.origin.z) * invDirZ
+	tz2_2 := (box2Max.z - ray.origin.z) * invDirZ
+	tmin_2 = max(tmin_2, min(tz1_2, tz2_2))
+	tmax_2 = min(tmax_2, max(tz1_2, tz2_2))
+	// Check intersections
+	hit1 := tmax_1 >= max(0.0, tmin_1)
+	hit2 := tmax_2 >= max(0.0, tmin_2)
+	// Return hit status and distances
+	return hit1, hit2, tmin_1, tmin_2
+}
+```
+- Toto vylepšenie je výkonnejšie zhruba o 25.86%
+   - BoundingBoxCollisionVector: 291.248548ms
+   - BoundingBoxCollisionPair: 215.934921ms
+![BVH Comparison](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/DataAnalysis/bbox_performance_comparison.png?raw=true)
+
+Opravil som drobné pravopisné a gramatické chyby v slovenskom texte, zachoval som pôvodné formátovanie a obsah.
+  
+
+
 ### Experimentálna array-based implementácia
 
 ```go
@@ -631,12 +810,12 @@ Pôvodná funkcia, ktorá poskytuje základnú ray tracing funkcionalitu:
 - Vykonáva výpočet tieňov pomocou shadow rays
 - Kombinuje priame svetlo, rozptýlené svetlo a odrazy lineárne
 
+- **V1**
 ![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V1.png?raw=true)
----
 ![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V1-Table.png?raw=true)
-
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V1.png?raw=true)
 - [V1 Profile](https://flamegraph.com/share/ac2b59ab-f8ea-11ef-8d53-2a7e77e4af82)
-
+---
 
 ### TraceRayV2
 
@@ -649,16 +828,15 @@ Pôvodná funkcia, ktorá poskytuje základnú ray tracing funkcionalitu:
 - Kombinuje komponenty pomocou fyzikálnejšieho prístupu
 - Lepšie spracováva energetickú rovnováhu medzi difúznym a zrkadlovým svetlom
 
+- **V2**
 ![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2.png?raw=true)
----
 ![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2-Table.png?raw=true)
-
 - [V2 Profile](https://flamegraph.com/share/d20735a0-f944-11ef-8d53-2a7e77e4af82)
-
+---
 
 ### TraceRayV3
 
-#### Web Name : Not Implemented
+#### Web Name : V2M
 
 PBR (Physically Based Rendering) prístup, ktorý:
 
@@ -669,18 +847,12 @@ PBR (Physically Based Rendering) prístup, ktorý:
 - Používa presnejšiu energetickú konzerváciu pre kombinovanie komponentov
 - Vracia jednu farebnú hodnotu
 
-![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Lin.png?raw=true)
+- **V2M**
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2M.png?raw=true)
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2M-Table.png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V2M.png?raw=true)
+- [V2M Profile](https://flamegraph.com/share/53c2fa28-09ed-11f0-8d53-2a7e77e4af82)
 ---
-![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Lin-Table.png?raw=true)
-
-- [V2Lin Profile](https://flamegraph.com/share/de162a6c-f8ee-11ef-8d53-2a7e77e4af82)
-
-![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Log.png?raw=true)
----
-![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Log-Table.png?raw=true)
-
-- [V2Log Profile](https://flamegraph.com/share/e8dbdb86-f8ef-11ef-8d53-2a7e77e4af82)
-
 
 ### TraceRayV3Advance
 
@@ -690,19 +862,19 @@ Rozšírenie TraceRayV3, ktoré:
 - Vracia dodatočné dáta: farbu, vzdialenosť a normálový vektor
 - Umožňuje pokročilejšie post-processing techniky
 - Inak používa rovnaký PBR prístup ako TraceRayV3
-- Podporuje ukladanie dát pre deferred shading techniky
 
-![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LinTexture.png?raw=true)
+- **V2Lin**
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Lin.png?raw=true)
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Lin-Table.png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V2Lin.png?raw=true)
+- [V2Lin Profile](https://flamegraph.com/share/de162a6c-f8ee-11ef-8d53-2a7e77e4af82)
 ---
-![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LinTexture-Table.png?raw=true)
-
-- [V2LinTexture Profile](https://flamegraph.com/share/348d13a7-f8ef-11ef-8d53-2a7e77e4af82)
-
-![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LogTexture.png?raw=true)
+- **V2Log**
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Log.png?raw=true)
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2Log-Table.png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V2Log.png?raw=true)
+- [V2Log Profile](https://flamegraph.com/share/e8dbdb86-f8ef-11ef-8d53-2a7e77e4af82)
 ---
-![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LogTexture-Table.png?raw=true)
-
-- [V2LinTexture Profile](https://flamegraph.com/share/e8dbdb86-f8ef-11ef-8d53-2a7e77e4af82)
 
 ### TraceRayV3AdvanceTexture
 
@@ -715,6 +887,19 @@ Verzia s podporou textúr, ktorá:
 - Používa špecializovaný BVH traversal (`IntersectBVH_Texture`) pre podporu textúr
 - Aplikuje dáta textúr na materiálové parametre ako drsnosť a kovový lesk
 
+- **V2LinTexture**
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LinTexture.png?raw=true)
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LinTexture-Table.png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V2LinTexture.png?raw=true)
+- [V2LinTexture Profile](https://flamegraph.com/share/348d13a7-f8ef-11ef-8d53-2a7e77e4af82)
+---
+- **V2LogTextture**
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LogTexture.png?raw=true)
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V2LogTexture-Table.png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V2LogTexture.png?raw=true)
+- [V2LinTexture Profile](https://flamegraph.com/share/e8dbdb86-f8ef-11ef-8d53-2a7e77e4af82)
+---
+
 
 ### TraceRayV4AdvanceTexture
 
@@ -726,42 +911,48 @@ Optimalizovaná verzia s podporou textúr, ktorá:
 - Inak podobná TraceRayV3AdvanceTexture vo funkcionalite
 - Vracia informácie o farbe a normále
 
+- **V4Lin**
 ![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Lin.png?raw=true)
----
 ![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Lin-Table.png?raw=true)
-
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V4Lin.png?raw=true)
 - [V4Lin Profile](https://flamegraph.com/share/04263b3f-f8f1-11ef-8d53-2a7e77e4af82)
-
-![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Log.png?raw=true)
 ---
+- **V4Log**
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Log.png?raw=true)
 ![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4Log-Table.png?raw=true)
-
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V4Log.png?raw=true)
 - [V4Log Profile](https://flamegraph.com/share/60e31daf-f8f0-11ef-8d53-2a7e77e4af822)
-
+---
 
 ### TraceRayV4AdvanceTextureLean
-
-#### Web Name : V4LinOptim / V4LogOptim
-
+#### Webové Meno: V4LinOptim / V4LogOptim / V4Optim-V2
 Optimalizovanejšia verzia, ktorá:
 - Vracia len farebnú informáciu (bez normálových vektorov a vzdialenosti)
 - Používa minimálny `IntersectBVHLean_TextureLean` intersekčný postup
 - Znižuje pamäťovú spotrebu a minimalizuje štruktúrnu réžiu
 - Zachováva všetky PBR výpočty, ale zjednodušuje návratovú štruktúru
 - Špecificky navrhnutá pre čistý farebný rendering bez ďalších dát
-
+- Pre 
+- Pre verziu V4Optim-V2 je urýchlená intersekcia s bounding boxami o 25.86%
+- Vo verzii V4Optim-V2 je odstránený gamma post processing
+- **V4LinOptim**
 ![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LinOptim.png?raw=true)
----
 ![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LinOptim-Table.png?raw=true)
-
-- [V4LinOptim Profile](https://flamegraph.com/share/5c771661-f8f1-11ef-8d53-2a7e77e4af82)
-
-![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LogOptim.png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V4LinOptim.png?raw=true)
+- [V4LinOptim Profil](https://flamegraph.com/share/5c771661-f8f1-11ef-8d53-2a7e77e4af82)
 ---
+- **V4LogOptim**
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LogOptim.png?raw=true)
 ![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4LogOptim-Table.png?raw=true)
-
-- [V4LogOptim Profile](https://flamegraph.com/share/4959148d-f8f2-11ef-8d53-2a7e77e4af82)
-
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/V4LogOptim.png?raw=true)
+- [V4LogOptim Profil](https://flamegraph.com/share/4959148d-f8f2-11ef-8d53-2a7e77e4af82)
+---
+- **V4Optim-V2**
+![Profile](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4V2.png?raw=true)
+![Table](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/profiles/V4O2-Table.png?raw=true)
+- ![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/4V2.png?raw=true)
+- [V4Optim-V2 Profil](https://flamegraph.com/share/d27d9331-09f0-11f0-8d53-2a7e77e4af82)
+---
 
 ## 4.1 Kľúčové body evolúcie:
 
@@ -858,13 +1049,17 @@ Implementovaný benchmarkový systém predstavuje sofistikovaný nástroj pre ko
 
 1. V1
 2. V2
-3. V2Log
-4. V2Linear
-5. V2LinearTexture
-6. V4Log
-7. V4Lin
-8. V4LinOptim
-9. V4LogOptim
+3. V2M
+4. V2Log
+5. V2Linear
+6. V2LinearTexture
+7. V4Log
+8. V4Lin
+9. V4LinOptim
+10. V4LogOptim
+11. V4LinOptim-V2
+10. V4LogOptim-V2
+12. V4Optim-V2
 
 ### 4.1.4 Príprava Testovania
 
@@ -1121,11 +1316,121 @@ func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat3
 }
 ```
 
-### 5.0.1 Kľúčové Funkcie:
+### 5.0.2 Kľúčové Funkcie:
 - Binárna viditeľnosť (voxel existuje alebo nie)
 - Výpočet tvrdého tieňa
 - Exponenciálny útlm svetla so vzdialenosťou
 - Jednoduchý model priameho osvetlenia
+
+#### 5.0.2.1 Optimalizácia Renderingu Voxelov
+- Pre efektívnejšie indexovanie v 1-dimenzionálnom poli reprezentujúcom voxely je použitý package `unsafe`, ktorý umožňuje indexovanie bez boundary checkov
+- Experimentoval som aj s reprezentáciou voxelov ako bool array alebo bit array, kde je pole aktívnych voxelov reprezentované ako pole `uint64` a na zistenie, či je daný voxel aktívny, sa pozerá, či je daný index `uint64` nastavený na 1 alebo 0
+
+```go
+// BoolArray ukladá každý bit ako samostatný bool
+type BoolArray struct {
+    data []bool
+    size int
+}
+
+// NewBoolArray inicializuje bool pole zadanej veľkosti
+func NewBoolArray(size int) *BoolArray {
+    return &BoolArray{
+        data: make([]bool, size),
+        size: size,
+    }
+}
+
+// IsSet skontroluje, či je n-tý bit nastavený v BoolArray
+func (b *BoolArray) IsSet(n int) bool {
+    if n >= b.size || n < 0 {
+        return false
+    }
+    return b.data[n]
+}
+
+// BitArray ukladá bity efektívne pomocou uint64
+type BitArray struct {
+    data []uint64
+    size int
+}
+
+// NewBitArray inicializuje bit array zadanej veľkosti
+func NewBitArray(size int) *BitArray {
+    return &BitArray{
+        data: make([]uint64, (size+63)/64),
+        size: size,
+    }
+}
+
+// IsSet skontroluje, či je n-tý bit nastavený v BitArray
+func (b *BitArray) IsSet(n int) bool {
+    if n >= b.size || n < 0 {
+        return false
+    }
+    return (b.data[n/64] & (1 << (n % 64))) != 0
+}
+
+// Benchmark funkcia na porovnanie BoolArray vs BitArray
+func BenchmarkCheckSpeed() {
+    const size = 32*32*32
+    const numChecks = 128*128*128
+    
+    // Inicializácia BoolArray a nastavenie náhodných bitov
+    boolArr := NewBoolArray(size)
+    for i := 0; i < size/10; i++ {
+        boolArr.data[rand.Intn(size)] = true
+    }
+    
+    // Inicializácia náhodných blokov
+    blocks := make([]Block, size)
+    // Náhodné nastavenie blokov na true (LightColor.A > 25)
+    for i := 0; i < size/10; i++ {
+        blocks[rand.Intn(size)] = Block{LightColor: ColorFloat32{A: 26}}
+    }
+    
+    // Inicializácia BitArray a nastavenie náhodných bitov
+    bitArr := NewBitArray(size)
+    for i := 0; i < size/10; i++ {
+        pos := rand.Intn(size)
+        bitArr.data[pos/64] |= (1 << (pos % 64))
+    }
+    
+    // Benchmark BoolArray
+    start := time.Now()
+    for i := 0; i < numChecks; i++ {
+        _ = boolArr.IsSet(rand.Intn(size))
+    }
+    boolTime := time.Since(start)
+    
+    // Benchmark BitArray
+    start = time.Now()
+    for i := 0; i < numChecks; i++ {
+        _ = bitArr.IsSet(rand.Intn(size))
+    }
+    bitTime := time.Since(start)
+    
+    // Benchmark priameho prístupu
+    start = time.Now()
+    for i := 0; i < numChecks; i++ {
+        _ = blocks[rand.Intn(size)].LightColor.A > 25
+    }
+    directTime := time.Since(start)
+    
+    // Výpis výsledkov
+    fmt.Println("BoolArray čas testu:", boolTime)
+    fmt.Println("BitArray čas testu:", bitTime)
+    fmt.Println("Priamy čas testu:", directTime)
+}
+```
+
+- Výsledky:
+   - BoolArray čas testu: 18.178246ms
+   - BitArray čas testu: 17.968679ms
+   - Priamy čas testu: 17.94769ms
+
+
+
 
 ## 5.1 Implementácia Objemového Renderingu
 
@@ -1204,6 +1509,10 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterial Vo
 }
 ```
 
+**Ilustračné obrázky**
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Volume.png?raw=true)
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Volume(2).png?raw=true)
+
 ### 5.1.1 Kľúčové Funkcie:
 - Fyzikálne založené rozptyľovanie svetla pomocou Henyey-Greensteinovej fázovej funkcie
 - Beer-Lambertov zákon pre absorpciu svetla
@@ -1229,6 +1538,12 @@ Systém podporuje niekoľko interaktívnych editačných operácií:
 - **Manipulácia Farieb**: Farby voxelov môžu byť menené individuálne alebo skupinovo.
 - **Konverzia na Objemy**: Pevné voxely môžu byť konvertované na objemové dáta pre efekty dymu/hmly.
 - **Úprava Materiálových Parametrov**: Hustota a priehľadnosť môžu byť nastavené pre rôzne vizuálne efekty.
+
+**Pred Operáciami nad Voxelmi**
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/Voxels.png?raw=true)
+
+**Po Operáciách nad Voxelmi**
+![img](https://github.com/DarkBenky/GO-Draaw/blob/Float32Lighting/Renders/VoxelsEdited.png?raw=true)
 
 ## 5.4 Fyzikálne Modely Objemu
 
@@ -1291,28 +1606,69 @@ func CylinderSDF(point, center Vector, height, radius float32) float32 {
 ```
 
 ### 6.1.3 SDF Operácie
-Pre umožnenie vytvárania komplexných objektov prostredníctvom operácií ako zjednotenie, priesečník a rozdiel:
+Vo verzii V2 je možné vykonať tieto operácie medzi jednotlivými objektami. Žiaľ, v dôsledku toho, že táto implementácia nevyužíva BVH, je táto verzia omnoho pomalšia.
 
 ```go
-// Zjednotenie dvoch SDF
-func SdfUnion(d1, d2 float32) float32 {
+// Union spojí dva SDF objekty výberom najbližšieho povrchu
+func Union(d1, d2 float32) float32 {
     return math32.Min(d1, d2)
 }
 
-// Hladké zjednotenie s prelínaním
-func SdfSmoothUnion(d1, d2, k float32) float32 {
-    h := math32.Max(k-math32.Abs(d1-d2), 0.0)
-    return math32.Min(d1, d2) - h*h*0.25/k
+// SmoothUnionNoMix vytvára hladký prechod medzi objektmi bez miešania farieb
+func SmoothUnionNoMix(d1, d2, k float32) float32 {
+    h := math32.Max(k-math32.Abs(d1-d2), 0.0) / k
+    return math32.Min(d1, d2) - h*h*h*k*(1.0/6.0)
 }
 
-// Priesečník dvoch SDF
-func SdfIntersection(d1, d2 float32) float32 {
+// SmoothUnion spája objekty s vyhladeným prechodom a zmiešaním ich farieb
+func SmoothUnion(d1, d2, k float32, color1, color2 ColorFloat32) (float32, ColorFloat32) {
+    h := math32.Max(k-math32.Abs(d1-d2), 0.0) / k
+    d := math32.Min(d1, d2) - h*h*h*k*(1.0/6.0)
+    
+    // Výpočet faktora zmiešania na základe vyhladenia
+    blend := h * h * h // Kubický pokles pre plynulejší prechod
+    
+    // Zmiešanie farieb podľa faktora zmiešania
+    blendedColor := ColorFloat32{
+        R: color1.R*(1-blend) + color2.R*blend,
+        G: color1.G*(1-blend) + color2.G*blend,
+        B: color1.B*(1-blend) + color2.B*blend,
+        A: color1.A*(1-blend) + color2.A*blend,
+    }
+    
+    return d, blendedColor
+}
+
+// IntersectionOfTwoSDFs nájde spoločný priestor dvoch SDF objektov
+func IntersectionOfTwoSDFs(d1, d2 float32) float32 {
     return math32.Max(d1, d2)
 }
 
-// Rozdiel SDF2 od SDF1
-func SdfDifference(d1, d2 float32) float32 {
-    return math32.Max(d1, -d2)
+// SmoothIntersection vytvára vyhladený prechod pri prieniku objektov
+func SmoothIntersection(d1, d2, k float32) float32 {
+    h := math32.Max(k+math32.Abs(d1-d2), 0.0) / k
+    return math32.Max(d1, d2) + h*h*h*k*(1.0/6.0)
+}
+
+// Subtraction odoberá jeden SDF objekt z druhého
+func Subtraction(d1, d2 float32) float32 {
+    return math32.Max(-d1, d2)
+}
+
+// SmoothSubtraction vytvára vyhladený prechod pri odčítaní objektov
+func SmoothSubtraction(d1, d2, k float32) float32 {
+    h := math32.Max(k-math32.Abs(d1+d2), 0.0) / k
+    return math32.Max(d1, -d2) - h*h*h*k*(1.0/6.0)
+}
+
+// SmoothAddition logaritmicky spája dva SDF objekty s vyhladeným prechodom
+func SmoothAddition(d1, d2, k float32) float32 {
+    return math32.Log(math32.Exp(d1/k) + math32.Exp(d2/k)) * k
+}
+
+// Addition logaritmicky spája dva SDF objekty
+func Addition(d1, d2 float32) float32 {
+    return math32.Log(math32.Exp(d1) + math32.Exp(d2))
 }
 ```
 
@@ -1320,10 +1676,6 @@ func SdfDifference(d1, d2 float32) float32 {
 1. **Rozšírenie Primitívov**
    - Implementácia základných primitívov (kocka, torus, valec)
    - Pridanie ovládacích parametrov v užívateľskom rozhraní pre každý typ primitívu
-
-2. **SDF Operácie**
-   - Implementácia Booleovských operácií (zjednotenie, priesečník, rozdiel)
-   - Pridanie hladkého prelínania medzi tvarmi pre organické formy
 
 3. **Optimalizácia Výkonu**
    - Rozšírenie BVH akceleračnej štruktúry pre všetky SDF primitívy
