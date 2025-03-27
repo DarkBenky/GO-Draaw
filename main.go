@@ -4720,6 +4720,36 @@ func PrecomputeScreenSpaceCoordinatesSphere(camera Camera) {
 	}
 }
 
+// func PrecomputeScreenSpaceCoordinatesSphere(camera Camera) {
+// 	// Corrected calculation for the top-right position
+// 	topLeft := PositionOnSphere(camera.xAxis, camera.yAxis)
+// 	topRight := PositionOnSphere(camera.xAxis + FOVRadians * (math32.Cos(camera.yAxis)/2), camera.yAxis)
+// 	bottomLeft := PositionOnSphere(camera.xAxis, camera.yAxis+FOVRadians)
+
+// 	// Calculate steps
+// 	xStep := Vector{
+// 		x: (topRight.x - topLeft.x) / float32(screenWidth-1),
+// 		y: (topRight.y - topLeft.y) / float32(screenWidth-1),
+// 		z: (topRight.z - topLeft.z) / float32(screenWidth-1),
+// 	}
+// 	yStep := Vector{
+// 		x: (bottomLeft.x - topLeft.x) / float32(screenHeight-1),
+// 		y: (bottomLeft.y - topLeft.y) / float32(screenHeight-1),
+// 		z: (bottomLeft.z - topLeft.z) / float32(screenHeight-1),
+// 	}
+
+// 	// Interpolate
+// 	for width := 0; width < screenWidth; width++ {
+// 		for height := 0; height < screenHeight; height++ {
+// 			ScreenSpaceCoordinates[width][height] = Vector{
+// 				x: topLeft.x + float32(width)*xStep.x + float32(height)*yStep.x,
+// 				y: topLeft.y + float32(width)*xStep.y + float32(height)*yStep.y,
+// 				z: topLeft.z + float32(width)*xStep.z + float32(height)*yStep.z,
+// 			}
+// 		}
+// 	}
+// }
+
 // func PrecomputeScreenSpaceCoordinatesSphereOptimalized(camera Camera) {
 // 	// Calculate corners
 // 	topLeft := PositionOnSphere(camera.xAxis, camera.yAxis)
@@ -6772,11 +6802,21 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Draw Voxel Grid
 	if g.RenderVolume {
-		DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial, g.PerformanceOptions)
-		for _, block := range g.VoxelGridBlocksImage {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(float64(block.startX), float64(block.startY))
-			g.currentFrame.DrawImage(block.image, op)
+		switch g.VolumeRenderingVersion {
+		case V1:
+			DrawRaysBlockVoxelGrid(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial, g.PerformanceOptions)
+			for _, block := range g.VoxelGridBlocksImage {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				g.currentFrame.DrawImage(block.image, op)
+			}
+		case V2:
+			DrawRaysBlockVoxelGridV2(g.camera, g.scaleFactor, 12, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial, g.PerformanceOptions)
+			for _, block := range g.VoxelGridBlocksImage {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				g.currentFrame.DrawImage(block.image, op)
+			}
 		}
 	}
 	if g.RenderVoxels {
@@ -6957,13 +6997,14 @@ type Game struct {
 	scaleFactor      int
 
 	// Uint8 values (1 byte each) grouped together
-	mode               uint8
-	version            uint8
-	depth              uint8
-	index              uint8
-	VoxelMode          uint8
-	RandomnessVoxel    uint8
-	RayMarchingVersion uint8
+	mode                   uint8
+	version                uint8
+	depth                  uint8
+	index                  uint8
+	VoxelMode              uint8
+	RandomnessVoxel        uint8
+	RayMarchingVersion     uint8
+	VolumeRenderingVersion uint8
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume          bool
@@ -7457,22 +7498,23 @@ func (g *Game) submitTextures(c echo.Context) error {
 
 func (g *Game) submitRenderOptions(c echo.Context) error {
 	type RenderOptions struct {
-		Depth              int     `json:"depth"`
-		Scatter            int     `json:"scatter"`
-		Gamma              float64 `json:"gamma"`
-		SnapLight          string  `json:"snapLight"`
-		RayMarching        string  `json:"rayMarching"`
-		Performance        string  `json:"performance"`
-		Mode               string  `json:"mode"`
-		Resolution         string  `json:"resolution"`
-		Version            string  `json:"version"`
-		FOV                float64 `json:"fov"`
-		LightIntensity     float64 `json:"lightIntensity"`
-		R                  float64 `json:"r"`
-		G                  float64 `json:"g"`
-		B                  float64 `json:"b"`
-		PaintTexture       string  `json:"paintTexture"`
-		RayMarchingVersion string  `json:"rayMarchingVersion"`
+		Depth                  int     `json:"depth"`
+		Scatter                int     `json:"scatter"`
+		Gamma                  float64 `json:"gamma"`
+		SnapLight              string  `json:"snapLight"`
+		RayMarching            string  `json:"rayMarching"`
+		Performance            string  `json:"performance"`
+		Mode                   string  `json:"mode"`
+		Resolution             string  `json:"resolution"`
+		Version                string  `json:"version"`
+		FOV                    float64 `json:"fov"`
+		LightIntensity         float64 `json:"lightIntensity"`
+		R                      float64 `json:"r"`
+		G                      float64 `json:"g"`
+		B                      float64 `json:"b"`
+		PaintTexture           string  `json:"paintTexture"`
+		RayMarchingVersion     string  `json:"rayMarchingVersion"`
+		VolumeRenderingVersion string  `json:"volumeRenderingVersion"`
 	}
 
 	renderOptions := new(RenderOptions)
@@ -7492,6 +7534,15 @@ func (g *Game) submitRenderOptions(c echo.Context) error {
 		*(*uint8)(unsafe.Pointer(&g.RayMarchingVersion)) = RayMarchingV1
 	case "V2":
 		*(*uint8)(unsafe.Pointer(&g.RayMarchingVersion)) = RayMarchingV2
+	}
+
+	switch renderOptions.VolumeRenderingVersion {
+	case "V1":
+		fmt.Println("Volume Rendering Version", renderOptions.VolumeRenderingVersion)
+		*(*uint8)(unsafe.Pointer(&g.VolumeRenderingVersion)) = V1
+	case "V2":
+		fmt.Println("Volume Rendering Version", renderOptions.VolumeRenderingVersion)
+		*(*uint8)(unsafe.Pointer(&g.VolumeRenderingVersion)) = V2
 	}
 
 	if renderOptions.SnapLight == "yes" {
@@ -7849,7 +7900,7 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 		avgTimePerFrame := elapsed.Seconds()
 		remainingTime := avgTimePerFrame * float64(remainingFrames)
 
-		fmt.Printf("Frame %d, Remaining: %d, Remaining Time: %.1f seconds\n",i, remainingFrames, remainingTime)
+		fmt.Printf("Frame %d, Remaining: %d, Remaining Time: %.1f seconds\n", i, remainingFrames, remainingTime)
 	}
 
 	// fmt.Println("Image Size", averagedFrame.Bounds().Dx(), averagedFrame.Bounds().Dy())
@@ -9874,6 +9925,97 @@ func (v *VoxelGrid) Intersect(ray Ray, steps int, light Light, volumeMaterail Vo
 	return accumColor
 }
 
+func (v *VoxelGrid) IntersectV2(ray Ray, steps int, light Light, volumeMaterail VolumeMaterial) ColorFloat32 {
+	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+	if !hit {
+		return ColorFloat32{}
+	}
+
+	// Physical constants - adjusted for better visibility
+	const (
+		extinctionCoeff        = 0.5          // Reduced from 0.5 for less extinction
+		scatteringAlbedo       = 0.9          // Single scattering albedo
+		asymmetryParam         = float32(0.3) // Henyey-Greenstein asymmetry parameter
+		temperatureScale       = 0.001        // Temperature influence on density
+		depthAttenuationFactor = 0.95         // How quickly light attenuates with depth
+	)
+
+	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
+	stepLength := stepSize.Length()
+
+	var accumColor ColorFloat32
+	transmittance := volumeMaterail.transmittance
+
+	// Track accumulated optical depth for depth-dependent lighting
+	accumulatedOpticalDepth := float32(0.0)
+	distanceFromEntry := float32(0.0)
+	totalDistance := exit.Sub(entry).Length()
+
+	currentPos := entry
+	for i := 0; i < steps; i++ {
+		block, exists := v.GetBlockUnsafe(currentPos)
+		if !exists {
+			currentPos = currentPos.Add(stepSize)
+			distanceFromEntry += stepLength
+			continue
+		}
+
+		density := volumeMaterail.density
+		extinction := density * extinctionCoeff
+
+		// Accumulate optical depth as we move through the volume
+		accumulatedOpticalDepth += extinction * stepLength
+
+		// Calculate depth-based attenuation factor
+		// This decreases available light as we go deeper into the volume
+		depthRatio := distanceFromEntry / totalDistance
+		depthAttenuation := math32.Pow(depthAttenuationFactor, depthRatio*float32(steps)*0.1)
+
+		// Calculate light direction and phase function
+		lightDir := light.Position.Sub(currentPos).Normalize()
+		cosTheta := ray.direction.Dot(lightDir)
+		g := asymmetryParam
+		phaseFunction := (1.0 - g*g) / (4.0 * math32.Pi * math32.Pow(1.0+g*g-2.0*g*cosTheta, 1.5))
+
+		// Calculate light contribution through volume
+		lightRay := Ray{origin: currentPos, direction: lightDir}
+		lightTransmittance := v.calculateLightTransmittance(lightRay, light, density)
+
+		// Apply the depth attenuation to the light transmittance
+		lightTransmittance *= depthAttenuation
+
+		// Increased scattering for better visibility
+		scattering := extinction * scatteringAlbedo * phaseFunction * 2.0
+
+		// Apply Beer-Lambert law with adjusted extinction
+		sampleExtinction := math32.Exp(-extinction * stepLength)
+		transmittance *= sampleExtinction
+
+		// Calculate color contribution with enhanced intensity and depth-based attenuation
+		lightContribution := ColorFloat32{
+			R: block.SmokeColor.R * light.Color[0] * lightTransmittance * scattering,
+			G: block.SmokeColor.G * light.Color[1] * lightTransmittance * scattering,
+			B: block.SmokeColor.B * light.Color[2] * lightTransmittance * scattering,
+			A: block.SmokeColor.A * density, // Tie alpha to density
+		}
+
+		// Accumulate color with transmittance
+		accumColor = accumColor.Add(lightContribution.MulScalar(transmittance))
+
+		// Adjusted early exit threshold
+		if transmittance < 0.001 {
+			break
+		}
+
+		currentPos = currentPos.Add(stepSize)
+		distanceFromEntry += stepLength
+	}
+
+	// Ensure final color has some opacity
+	accumColor.A = math32.Min(accumColor.A, 1.0)
+	return accumColor
+}
+
 func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light, intensity float32) float32 {
 	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
 	if !hit {
@@ -9900,6 +10042,41 @@ func (v *VoxelGrid) calculateLightTransmittance(ray Ray, light Light, intensity 
 }
 
 func DrawRaysBlockVoxelGrid(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light, volumeMaterial VolumeMaterial, preformance bool) {
+	var wg sync.WaitGroup
+	for i := 0; i < len(blocks); i++ {
+		wg.Add(1)
+		go func(blockIndex int) {
+			defer wg.Done()
+			block := blocks[blockIndex]
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := voxelGrid.Intersect(Ray{origin: camera.Position, direction: rayDir}, samples, light, volumeMaterial)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(i)
+	}
+
+	if !preformance {
+		wg.Wait()
+	}
+}
+
+func DrawRaysBlockVoxelGridV2(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, light Light, volumeMaterial VolumeMaterial, preformance bool) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(blocks); i++ {
 		wg.Add(1)
