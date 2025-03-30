@@ -8084,6 +8084,29 @@ func (g *Game) InterpolateBetweenPositions(c echo.Context) error {
 	return c.JSON(http.StatusOK, interpolatedPositions)
 }
 
+func (g *Game) LockCamera(c echo.Context) error {
+    type LockCameraRequest struct {
+        LockedCamera bool `json:"lockedCamera"`
+    }
+
+    request := new(LockCameraRequest)
+    if err := c.Bind(request); err != nil {
+        return c.JSON(http.StatusBadRequest, map[string]string{
+            "error": "Failed to parse request: " + err.Error(),
+        })
+    }
+
+    // Update the xyzLock flag using unsafe pointer to avoid race conditions
+    *(*bool)(unsafe.Pointer(&fullScreen)) = request.LockedCamera
+
+    fmt.Println("Camera lock state updated:", g.xyzLock)
+
+    return c.JSON(http.StatusOK, map[string]interface{}{
+        "status":      "success",
+        "lockedCamera": g.xyzLock,
+    })
+}
+
 func startServer(game *Game) {
 	e := echo.New()
 	// CORS middleware
@@ -8102,6 +8125,7 @@ func startServer(game *Game) {
 	e.GET("getTypes", game.GetTypes)
 	e.POST("/updateSphere", game.UpdateSphere)
 	e.POST("/moveCamera", game.InterpolateBetweenPositions)
+	e.POST("/lockCamera", game.LockCamera)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
