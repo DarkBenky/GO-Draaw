@@ -8348,16 +8348,16 @@ func main() {
 	}
 	fmt.Println("BoundingBoxCollisionPair:", time.Since(start))
 
-	start = time.Now()
-	for i := 0; i < 1000_000; i++ {
-		bBoxMin := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
-		bBoxMax := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
-		bBoxMin1 := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
-		bBoxMax1 := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
-		ray := Ray{origin: Vector{rand.Float32(), rand.Float32(), rand.Float32()}, direction: Vector{rand.Float32(), rand.Float32(), rand.Float32()}}
-		_, _, _, _ = BoundingBoxCollisionPairOptim(bBoxMin, bBoxMax, bBoxMin1, bBoxMax1, ray)
-	}
-	fmt.Println("BoundingBoxCollisionPairOptim:", time.Since(start))
+	// start = time.Now()
+	// for i := 0; i < 1000_000; i++ {
+	// 	bBoxMin := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+	// 	bBoxMax := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+	// 	bBoxMin1 := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+	// 	bBoxMax1 := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+	// 	ray := Ray{origin: Vector{rand.Float32(), rand.Float32(), rand.Float32()}, direction: Vector{rand.Float32(), rand.Float32(), rand.Float32()}}
+	// 	_, _, _, _ = BoundingBoxCollisionPairOptim(bBoxMin, bBoxMax, bBoxMin1, bBoxMax1, ray)
+	// }
+	// fmt.Println("BoundingBoxCollisionPairOptim:", time.Since(start))
 
 	if Benchmark {
 		debug.SetGCPercent(-1)
