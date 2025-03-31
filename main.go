@@ -34,6 +34,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
 	"sort"
@@ -67,7 +68,7 @@ const maxDepth = 16
 const NumNodes = (1 << (maxDepth + 1)) - 1
 const numCPU = 16
 
-const Benchmark = false
+const Benchmark = true
 
 // var AverageFrameRate float64 = 0.0
 // var MinFrameRate float64 = math.MaxFloat64
@@ -5549,6 +5550,42 @@ func DrawRaysBlockAdvanceV4O2(camera Camera, light Light, scaling int, samples i
 	}
 }
 
+func DrawRaysBlockAdvanceV4O3(camera Camera, light Light, scaling int, samples int, depth int, blocks *[]BlocksImage, gama float32, performance bool, bvh *BVHLeanNode, textureMap *[128]Texture) {
+	var wg sync.WaitGroup
+
+	// Process each block
+	for _, block := range *blocks {
+		wg.Add(1)
+		go func(block BlocksImage) {
+			defer wg.Done()
+			for y := block.startY; y < block.endY; y++ {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x++ {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c := TraceRayV4AdvanceTextureLeanOptim(Ray{origin: camera.Position, direction: rayDir}, depth, light, samples, textureMap, bvh)
+
+					// Write the pixel color to the float buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(block)
+	}
+
+	if !performance {
+		wg.Wait()
+	}
+}
+
 func DrawRaysBlockAdvanceV4LogO2(camera Camera, light Light, scaling int, samples int, depth int, blocks []BlocksImageAdvance, gama float32, performance bool, bvh *BVHLeanNode, textureMap *[128]Texture) {
 	var wg sync.WaitGroup
 
@@ -6985,6 +7022,7 @@ const (
 	V4O2            = uint8(iota)
 	RayMarchingV1   = uint8(iota)
 	RayMarchingV2   = uint8(iota)
+	V4O3            = uint8(iota)
 )
 
 type Game struct {
@@ -7010,6 +7048,8 @@ type Game struct {
 	roughness       float32
 	metallic        float32
 	gamma           float32
+	remainingTime   float32
+	remainingImages uint32
 	// FOV             float32
 
 	// 28-bit pointers (3.5 bytes each) grouped together
@@ -7925,6 +7965,10 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 		remainingTime := avgTimePerFrame * float64(remainingFrames)
 
 		fmt.Printf("Frame %d, Remaining: %d, Remaining Time: %.1f seconds\n", i, remainingFrames, remainingTime)
+
+		// set raemaining time and number of remainig frames
+		*(*float32)(unsafe.Pointer(&g.remainingTime)) = float32(remainingTime)
+		*(*uint32)(unsafe.Pointer(&g.remainingImages)) = uint32(remainingFrames)
 	}
 
 	// fmt.Println("Image Size", averagedFrame.Bounds().Dx(), averagedFrame.Bounds().Dy())
@@ -8004,6 +8048,10 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 			"error": "Failed to read image data: " + err.Error(),
 		})
 	}
+
+	// set remaining Time and images to 0
+	*(*float32)(unsafe.Pointer(&g.remainingTime)) = float32(0)
+	*(*uint32)(unsafe.Pointer(&g.remainingImages)) = uint32(0)
 
 	// Send image data to client
 	return c.Blob(http.StatusOK, "image/png", data)
@@ -8182,6 +8230,16 @@ func (g *Game) LockCamera(c echo.Context) error {
 	})
 }
 
+func (g *Game) GetRemainingTime(c echo.Context) error {
+	// Return the remaining time and number of frames
+	remainingTime := float32(*(*float32)(unsafe.Pointer(&g.remainingTime)))
+	remainingFrames := uint32(*(*uint32)(unsafe.Pointer(&g.remainingImages)))
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"remainingTime":   float64(remainingTime),
+		"remainingFrames": int(remainingFrames),
+	})
+}
+
 func startServer(game *Game) {
 	e := echo.New()
 	// CORS middleware
@@ -8201,6 +8259,7 @@ func startServer(game *Game) {
 	e.POST("/updateSphere", game.UpdateSphere)
 	e.POST("/moveCamera", game.InterpolateBetweenPositions)
 	e.POST("/lockCamera", game.LockCamera)
+	e.GET("/getRemainingTime", game.GetRemainingTime)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -8801,7 +8860,7 @@ func main() {
 	ebiten.SetWindowTitle("Ebiten Benchmark")
 
 	if Benchmark {
-		renderVersions := []uint8{V1, V2, V2M, V2Log, V2Linear, V2LinearTexture, V2LogTexture, V4Log, V4Lin, V4LogOptim, V4LinOptim, V4LinO2, V4LogO2, V4O2}
+		renderVersions := []uint8{V1, V2, V2M, V2Log, V2Linear, V2LinearTexture, V2LogTexture, V4Log, V4Lin, V4LogOptim, V4LinOptim, V4LinO2, V4LogO2, V4O2, V4O3}
 
 		cPositions := []Position{
 			{X: -424.48, Y: 986.71, Z: 17.54, CameraX: 0.24, CameraY: -2.08},
@@ -8837,6 +8896,7 @@ func main() {
 
 		// Preformance Options Off
 		versionTimes := make(map[string][]float64)
+		memoryStats := make(map[string][]runtime.MemStats)
 
 		// preformanceVersions := []bool{false, true}
 		preformanceVersions := []bool{false}
@@ -8929,10 +8989,23 @@ func main() {
 					} else {
 						name = "V4O2"
 					}
+				case V4O3:
+					if preformance {
+						name = "V4O3Preformance"
+					} else {
+						name = "V4O3"
+					}
 				}
 
 				profileFilename := fmt.Sprintf("profiles/cpu_profile_v%s.prof", name)
 				f, err := os.Create(profileFilename)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				// Create memory profile file
+				memFilename := fmt.Sprintf("profiles/mem_profile_v%s.prof", name)
+				memFile, err := os.Create(memFilename)
 				if err != nil {
 					log.Fatal(err)
 				}
@@ -8942,7 +9015,19 @@ func main() {
 					log.Fatal(err)
 				}
 
+				// Force garbage collection before measuring
+				runtime.GC()
+
+				// Statistics collection
 				TimeProfile := []float64{}
+				memStatsList := []runtime.MemStats{}
+
+				// Force garbage collection before measuring
+				runtime.GC()
+				// Collect initial memory stats
+				var initialStats runtime.MemStats
+				runtime.ReadMemStats(&initialStats)
+
 				for _, cPos := range CameraPositions {
 					camera.Position = Vector{float32(cPos.X), float32(cPos.Y), float32(cPos.Z)}
 					camera.xAxis = float32(cPos.CameraX)
@@ -8950,78 +9035,99 @@ func main() {
 
 					PrecomputeScreenSpaceCoordinatesSphere(camera)
 
+
 					switch version {
 					case V1:
 						startTime = time.Now()
 						DrawRaysBlock(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+
 					case V2:
 						startTime = time.Now()
 						DrawRaysBlockV2(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+
 					case V2M:
 						startTime = time.Now()
 						DrawRaysBlockV2M(camera, light, scaleFactor, scatter, depth, BlocksImage, preformance)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V2Log:
 						startTime = time.Now()
 						DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, logMode)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V2Linear:
 						startTime = time.Now()
 						DrawRaysBlockAdvance(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, linMode)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V2LinearTexture:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance, linMode)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V2LogTexture:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceTexture(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, &TextureMap, preformance, logMode)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V4Log:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceV4Log(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V4Lin:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceV4Lin(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V4LinOptim:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceV4LinOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V4LogOptim:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceV4LogOptim(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V4LinO2:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceV4LinO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V4LogO2:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceV4LogO2(camera, light, scaleFactor, scatter, depth, BlocksImageAdvance, gamma, preformance, bvhLean, &TextureMap)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
 					case V4O2:
 						startTime = time.Now()
 						DrawRaysBlockAdvanceV4O2(camera, light, scaleFactor, scatter, depth, BlocksImage, gamma, preformance, bvhLean, &TextureMap)
-						TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+					case V4O3:
+						startTime = time.Now()
+						DrawRaysBlockAdvanceV4O3(camera, light, scaleFactor, scatter, depth, &BlocksImage, gamma, preformance, bvhLean, &TextureMap)
 					}
 
+					TimeProfile = append(TimeProfile, float64(time.Since(startTime).Microseconds()))
+
+					// Collect post-execution memory stats
+					var finalStats runtime.MemStats
+					runtime.ReadMemStats(&finalStats)
+					memStatsList = append(memStatsList, finalStats)
 				}
 
 				// Stop CPU profiling
 				pprof.StopCPUProfile()
 				f.Close()
 
+				// stop memory profiling
+				if err := pprof.WriteHeapProfile(memFile); err != nil {
+					log.Fatal("Could not write memory profile: ", err)
+				}
+				// Close memory profile file
+				memFile.Close()
+
 				versionTimes[name] = TimeProfile
+				memoryStats[name] = memStatsList
+
+				// Calculate average memory usage
+				var totalAlloc uint64 = 0
+				var maxHeapInUse uint64 = 0
+				for _, stats := range memStatsList {
+					totalAlloc += stats.TotalAlloc
+					if stats.HeapInuse > maxHeapInUse {
+						maxHeapInUse = stats.HeapInuse
+					}
+				}
+
+				avgAlloc := totalAlloc / uint64(len(memStatsList))
+
 				averageTime := float64(0)
 				for _, time := range TimeProfile {
 					averageTime += time
 				}
 				averageTime = averageTime / float64(len(TimeProfile))
 				fmt.Println("Version:", name, "AverageTime:", averageTime, "µs", "samples:", len(TimeProfile))
+				fmt.Printf("  Avg Total Alloc: %.2f MB, Max Heap In Use: %.2f MB\n",
+					float64(avgAlloc)/(1024*1024), float64(maxHeapInUse)/(1024*1024))
 			}
 
 		}
@@ -9040,6 +9146,32 @@ func main() {
 			TotalRAM   uint64  `json:"TotalRAM"`
 		}
 
+		type MemStats struct {
+			AvgTotalAlloc  uint64 `json:"avgTotalAlloc"`
+			MaxHeapInUse   uint64 `json:"maxHeapInUse"`
+			AvgHeapObjects uint64 `json:"avgHeapObjects"`
+		}
+
+		memStatsReport := make(map[string]MemStats)
+		for name, statsList := range memoryStats {
+			var totalAlloc, totalHeapObjects uint64
+			var maxHeapInUse uint64
+
+			for _, stats := range statsList {
+				totalAlloc += stats.TotalAlloc
+				totalHeapObjects += stats.HeapObjects
+				if stats.HeapInuse > maxHeapInUse {
+					maxHeapInUse = stats.HeapInuse
+				}
+			}
+
+			memStatsReport[name] = MemStats{
+				AvgTotalAlloc:  totalAlloc / uint64(len(statsList)),
+				MaxHeapInUse:   maxHeapInUse,
+				AvgHeapObjects: totalHeapObjects / uint64(len(statsList)),
+			}
+		}
+
 		hwInfo := HWInfo{
 			CPUName:    cpuName,
 			NumCores:   numCores,
@@ -9050,11 +9182,13 @@ func main() {
 		type Report struct {
 			HWInfo       HWInfo               `json:"HWInfo"`
 			VersionTimes map[string][]float64 `json:"VersionTimes"`
+			MemoryStats  map[string]MemStats  `json:"MemoryStats"`
 		}
 
 		report := Report{
 			HWInfo:       hwInfo,
 			VersionTimes: versionTimes,
+			MemoryStats:  memStatsReport,
 		}
 
 		// dump times to file
