@@ -1464,6 +1464,81 @@ func BoundingBoxCollisionPair(box1Min, box1Max, box2Min, box2Max Vector, ray Ray
 	return hit1, hit2, tmin_1, tmin_2
 }
 
+// func BoundingBoxCollisionPairOptim(box1Min, box1Max, box2Min, box2Max Vector, ray Ray) (bool, bool, float32, float32) {
+//     invDirX := 1.0 / ray.direction.x
+//     invDirY := 1.0 / ray.direction.y
+//     invDirZ := 1.0 / ray.direction.z
+
+//     ox := ray.origin.x
+//     oy := ray.origin.y
+//     oz := ray.origin.z
+
+//     computeHit := func(bMin, bMax Vector) (bool, float32) {
+//         var tmin, tmax float32
+
+//         // X axis
+//         if invDirX >= 0 {
+//             tmin = (bMin.x - ox) * invDirX
+//             tmax = (bMax.x - ox) * invDirX
+//         } else {
+//             tmin = (bMax.x - ox) * invDirX
+//             tmax = (bMin.x - ox) * invDirX
+//         }
+
+//         // Y axis
+//         var ty1, ty2 float32
+//         if invDirY >= 0 {
+//             ty1 = (bMin.y - oy) * invDirY
+//             ty2 = (bMax.y - oy) * invDirY
+//         } else {
+//             ty1 = (bMax.y - oy) * invDirY
+//             ty2 = (bMin.y - oy) * invDirY
+//         }
+
+//         if ty1 > tmin {
+//             tmin = ty1
+//         }
+//         if ty2 < tmax {
+//             tmax = ty2
+//         }
+//         if tmax < tmin {
+//             return false, tmin
+//         }
+
+//         // Z axis
+//         var tz1, tz2 float32
+//         if invDirZ >= 0 {
+//             tz1 = (bMin.z - oz) * invDirZ
+//             tz2 = (bMax.z - oz) * invDirZ
+//         } else {
+//             tz1 = (bMax.z - oz) * invDirZ
+//             tz2 = (bMin.z - oz) * invDirZ
+//         }
+
+//         if tz1 > tmin {
+//             tmin = tz1
+//         }
+//         if tz2 < tmax {
+//             tmax = tz2
+//         }
+
+//         hit := tmax >= Max(0.0, tmin)
+//         return hit, tmin
+//     }
+
+//     hit1, tmin1 := computeHit(box1Min, box1Max)
+//     hit2, tmin2 := computeHit(box2Min, box2Max)
+
+//     return hit1, hit2, tmin1, tmin2
+// }
+
+// func Max(a, b float32) float32 {
+//     if a > b {
+//         return a
+//     }
+//     return b
+// }
+
 func (triangle *TriangleSimple) Rotate(xAngle, yAngle, zAngle float32) {
 	// Rotation matrices
 	rotationMatrixX := [3][3]float32{
@@ -6789,7 +6864,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	for _, shader := range g.Shaders {
-		g.currentFrame = ApplyShader(g.currentFrame, shader)
+		g.currentFrame = ApplyShader(g.currentFrame, &shader)
 	}
 	screen.DrawImage(g.currentFrame, mainOp)
 
@@ -6811,7 +6886,7 @@ type Shader struct {
 	multipass int
 }
 
-func ApplyShader(image *ebiten.Image, shader Shader) *ebiten.Image {
+func ApplyShader(image *ebiten.Image, shader *Shader) *ebiten.Image {
 	if image == nil {
 		return nil
 	}
@@ -7830,7 +7905,7 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 		}
 
 		for _, shader := range g.Shaders {
-			currentFrame = ApplyShader(currentFrame, shader)
+			currentFrame = ApplyShader(currentFrame, &shader)
 		}
 
 		image := ebiten.NewImageFromImage(currentFrame)
@@ -7849,7 +7924,7 @@ func (g *Game) GetCurrentImage(c echo.Context) error {
 		avgTimePerFrame := elapsed.Seconds()
 		remainingTime := avgTimePerFrame * float64(remainingFrames)
 
-		fmt.Printf("Frame %d, Remaining: %d, Remaining Time: %.1f seconds\n",i, remainingFrames, remainingTime)
+		fmt.Printf("Frame %d, Remaining: %d, Remaining Time: %.1f seconds\n", i, remainingFrames, remainingTime)
 	}
 
 	// fmt.Println("Image Size", averagedFrame.Bounds().Dx(), averagedFrame.Bounds().Dy())
@@ -8085,26 +8160,26 @@ func (g *Game) InterpolateBetweenPositions(c echo.Context) error {
 }
 
 func (g *Game) LockCamera(c echo.Context) error {
-    type LockCameraRequest struct {
-        LockedCamera bool `json:"lockedCamera"`
-    }
+	type LockCameraRequest struct {
+		LockedCamera bool `json:"lockedCamera"`
+	}
 
-    request := new(LockCameraRequest)
-    if err := c.Bind(request); err != nil {
-        return c.JSON(http.StatusBadRequest, map[string]string{
-            "error": "Failed to parse request: " + err.Error(),
-        })
-    }
+	request := new(LockCameraRequest)
+	if err := c.Bind(request); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Failed to parse request: " + err.Error(),
+		})
+	}
 
-    // Update the xyzLock flag using unsafe pointer to avoid race conditions
-    *(*bool)(unsafe.Pointer(&fullScreen)) = request.LockedCamera
+	// Update the xyzLock flag using unsafe pointer to avoid race conditions
+	*(*bool)(unsafe.Pointer(&fullScreen)) = request.LockedCamera
 
-    fmt.Println("Camera lock state updated:", g.xyzLock)
+	fmt.Println("Camera lock state updated:", g.xyzLock)
 
-    return c.JSON(http.StatusOK, map[string]interface{}{
-        "status":      "success",
-        "lockedCamera": g.xyzLock,
-    })
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"status":       "success",
+		"lockedCamera": g.xyzLock,
+	})
 }
 
 func startServer(game *Game) {
@@ -8272,6 +8347,17 @@ func main() {
 		_, _, _, _ = BoundingBoxCollisionPair(bBoxMin, bBoxMax, bBoxMin1, bBoxMax1, ray)
 	}
 	fmt.Println("BoundingBoxCollisionPair:", time.Since(start))
+
+	start = time.Now()
+	for i := 0; i < 1000_000; i++ {
+		bBoxMin := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		bBoxMax := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		bBoxMin1 := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		bBoxMax1 := Vector{rand.Float32(), rand.Float32(), rand.Float32()}
+		ray := Ray{origin: Vector{rand.Float32(), rand.Float32(), rand.Float32()}, direction: Vector{rand.Float32(), rand.Float32(), rand.Float32()}}
+		_, _, _, _ = BoundingBoxCollisionPairOptim(bBoxMin, bBoxMax, bBoxMin1, bBoxMax1, ray)
+	}
+	fmt.Println("BoundingBoxCollisionPairOptim:", time.Since(start))
 
 	if Benchmark {
 		debug.SetGCPercent(-1)
