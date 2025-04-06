@@ -9035,7 +9035,6 @@ func main() {
 
 					PrecomputeScreenSpaceCoordinatesSphere(camera)
 
-
 					switch version {
 					case V1:
 						startTime = time.Now()
@@ -9152,7 +9151,16 @@ func main() {
 			AvgHeapObjects uint64 `json:"avgHeapObjects"`
 		}
 
+		type MemStatistics struct {
+			TotalAlloc   uint64 `json:"totalAlloc"`
+			HeapInuse    uint64 `json:"heapInuse"`
+			HeapObjects  uint64 `json:"heapObjects"`
+			NumOfForceGC uint64 `json:"numOfForceGC"`
+			NumOfGC      uint32 `json:"numOfGC"`
+		}
+
 		memStatsReport := make(map[string]MemStats)
+		memStatistics := make(map[string][]MemStatistics)
 		for name, statsList := range memoryStats {
 			var totalAlloc, totalHeapObjects uint64
 			var maxHeapInUse uint64
@@ -9162,6 +9170,18 @@ func main() {
 				totalHeapObjects += stats.HeapObjects
 				if stats.HeapInuse > maxHeapInUse {
 					maxHeapInUse = stats.HeapInuse
+				}
+			}
+
+			// add memory stats to memStatistics
+			memStatistics[name] = make([]MemStatistics, len(statsList))
+			for i, stats := range statsList {
+				memStatistics[name][i] = MemStatistics{
+					TotalAlloc:   stats.TotalAlloc,
+					HeapInuse:    stats.HeapInuse,
+					HeapObjects:  stats.HeapObjects,
+					NumOfForceGC: uint64(stats.NumForcedGC),
+					NumOfGC:      stats.NumGC,
 				}
 			}
 
@@ -9179,16 +9199,20 @@ func main() {
 			TotalRAM:   totalRAM,
 		}
 
+		
+
 		type Report struct {
-			HWInfo       HWInfo               `json:"HWInfo"`
-			VersionTimes map[string][]float64 `json:"VersionTimes"`
-			MemoryStats  map[string]MemStats  `json:"MemoryStats"`
+			HWInfo            HWInfo                        `json:"HWInfo"`
+			VersionTimes      map[string][]float64          `json:"VersionTimes"`
+			MemoryStats       map[string]MemStats           `json:"MemoryStats"`
+			MemoryStatsValues map[string][]MemStatistics `json:"MemoryStatsValues"`
 		}
 
 		report := Report{
 			HWInfo:       hwInfo,
 			VersionTimes: versionTimes,
 			MemoryStats:  memStatsReport,
+			MemoryStatsValues: memStatistics,
 		}
 
 		// dump times to file
