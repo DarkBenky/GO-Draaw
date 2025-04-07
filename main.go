@@ -68,7 +68,7 @@ const maxDepth = 16
 const NumNodes = (1 << (maxDepth + 1)) - 1
 const numCPU = 16
 
-const Benchmark = true
+const Benchmark = false
 
 // var AverageFrameRate float64 = 0.0
 // var MinFrameRate float64 = math.MaxFloat64
@@ -4318,10 +4318,261 @@ type BVHNode struct {
 	active      bool
 }
 
+func (node *BVHNode) ConvertToObjects() object {
+	objects := object{}
+	if node == nil {
+		return objects
+	}
+
+	if node.active {
+		objects.triangles = append(objects.triangles, node.Triangles)
+	} else {
+		if node.Left != nil {
+			leftObjects := node.Left.ConvertToObjects()
+			objects.triangles = append(objects.triangles, leftObjects.triangles...)
+		}
+		if node.Right != nil {
+			rightObjects := node.Right.ConvertToObjects()
+			objects.triangles = append(objects.triangles, rightObjects.triangles...)
+		}
+	}
+	return objects
+}
+
+type ObjectJson struct {
+	V1x             float64 `json:"v1x"`
+	V1y             float64 `json:"v1y"`
+	V1z             float64 `json:"v1z"`
+	V2x             float64 `json:"v2x"`
+	V2y             float64 `json:"v2y"`
+	V2z             float64 `json:"v2z"`
+	V3x             float64 `json:"v3x"`
+	V3y             float64 `json:"v3y"`
+	V3z             float64 `json:"v3z"`
+	ColorR          float64 `json:"colorR"`
+	ColorG          float64 `json:"colorG"`
+	ColorB          float64 `json:"colorB"`
+	ColorA          float64 `json:"colorA"`
+	NormalX         float64 `json:"normalX"`
+	NormalY         float64 `json:"normalY"`
+	NormalZ         float64 `json:"normalZ"`
+	Reflection      float64 `json:"reflection"`
+	DirectToScatter float64 `json:"directToScatter"`
+	Specular        float64 `json:"specular"`
+	Roughness       float64 `json:"Roughness"`
+	Metallic        float64 `json:"Metallic"`
+	Id              int64   `json:"id"`
+}
+
+func (obj *object) ConvertToJson() []ObjectJson {
+	if obj == nil {
+		return nil
+	}
+
+	objJson := make([]ObjectJson, len(obj.triangles))
+	for i, triangle := range obj.triangles {
+		objJson[i] = ObjectJson{
+			V1x:             float64(triangle.v1.x),
+			V1y:             float64(triangle.v1.y),
+			V1z:             float64(triangle.v1.z),
+			V2x:             float64(triangle.v2.x),
+			V2y:             float64(triangle.v2.y),
+			V2z:             float64(triangle.v2.z),
+			V3x:             float64(triangle.v3.x),
+			V3y:             float64(triangle.v3.y),
+			V3z:             float64(triangle.v3.z),
+			ColorR:          float64(triangle.color.R),
+			ColorG:          float64(triangle.color.G),
+			ColorB:          float64(triangle.color.B),
+			ColorA:          float64(triangle.color.A),
+			NormalX:         float64(triangle.Normal.x),
+			NormalY:         float64(triangle.Normal.y),
+			NormalZ:         float64(triangle.Normal.z),
+			Reflection:      float64(triangle.reflection),
+			DirectToScatter: float64(triangle.directToScatter),
+			Specular:        float64(triangle.specular),
+			Roughness:       float64(triangle.Roughness),
+			Metallic:        float64(triangle.Metallic),
+			Id:              int64(triangle.id),
+		}
+	}
+	return objJson
+}
+
+func (BVH *BVHNode) SaveBVHToJson(filename string) error {
+	obj := BVH.ConvertToObjects()
+	objJson := obj.ConvertToJson()
+	jsonData, err := json.MarshalIndent(objJson, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	// Write JSON data to file
+	err = ioutil.WriteFile(filename, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write JSON to file: %v", err)
+	}
+
+	return nil
+}
+
+func LoadBVHFromJson(filename string) (*BVHNode, error) {
+	// Read JSON data from file
+	jsonData, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read JSON file: %v", err)
+	}
+
+	// Unmarshal JSON data into ObjectJson structures
+	var objJsons []ObjectJson
+	err = json.Unmarshal(jsonData, &objJsons)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON data: %v", err)
+	}
+
+	// Convert ObjectJson structures into triangles
+	triangles := make([]TriangleSimple, len(objJsons))
+
+	uniqIDs := make(map[int64]int)
+
+	for i, obj := range objJsons {
+		triangles[i] = TriangleSimple{
+			v1: Vector{
+				x: float32(obj.V1x),
+				y: float32(obj.V1y),
+				z: float32(obj.V1z),
+			},
+			v2: Vector{
+				x: float32(obj.V2x),
+				y: float32(obj.V2y),
+				z: float32(obj.V2z),
+			},
+			v3: Vector{
+				x: float32(obj.V3x),
+				y: float32(obj.V3y),
+				z: float32(obj.V3z),
+			},
+			color: ColorFloat32{
+				R: float32(obj.ColorR),
+				G: float32(obj.ColorG),
+				B: float32(obj.ColorB),
+				A: float32(obj.ColorA),
+			},
+			Normal: Vector{
+				x: float32(obj.NormalX),
+				y: float32(obj.NormalY),
+				z: float32(obj.NormalZ),
+			},
+			reflection:      float32(obj.Reflection),
+			directToScatter: float32(obj.DirectToScatter),
+			specular:        float32(obj.Specular),
+			Roughness:       float32(obj.Roughness),
+			Metallic:        float32(obj.Metallic),
+			id:              uint8(obj.Id),
+		}
+		// save unique ids
+		if _, exists := uniqIDs[obj.Id]; !exists {
+			uniqIDs[obj.Id] = 1
+		} else {
+			uniqIDs[obj.Id]++
+		}
+
+	}
+
+	fmt.Println("Unique IDs LoadBVHFromJson:", uniqIDs)
+
+	// Create an object with the triangles
+	obj := object{triangles: triangles}
+
+	// Build a BVH from the object
+	bvh := obj.BuildBVH(maxDepth)
+	return bvh, nil
+}
+
 type BVHLeanNode struct {
 	Left, Right  *BVHLeanNode
 	TriangleBBOX TriangleBBOX
 	active       bool
+}
+
+func (triangle *TriangleBBOX) ConvertToTriangleSimple() TriangleSimple {
+	id := triangle.id
+	if triangle.id == -1 {
+		id = 127
+	}
+	return TriangleSimple{
+		v1:     triangle.V1orBBoxMin,
+		v2:     triangle.V2orBBoxMax,
+		v3:     triangle.V3,
+		Normal: triangle.normal,
+		id:     uint8(id),
+	}
+}
+
+func (node *BVHLeanNode) ConvertToObjects() object {
+	objects := object{}
+	if node == nil {
+		return objects
+	}
+	if node.active {
+		objects.triangles = append(objects.triangles, node.TriangleBBOX.ConvertToTriangleSimple())
+	} else {
+		if node.Left != nil {
+			leftObjects := node.Left.ConvertToObjects()
+			objects.triangles = append(objects.triangles, leftObjects.triangles...)
+		}
+		if node.Right != nil {
+			rightObjects := node.Right.ConvertToObjects()
+			objects.triangles = append(objects.triangles, rightObjects.triangles...)
+		}
+	}
+	return objects
+}
+
+func (node *BVHLeanNode) SaveBVHToJson(filename string) error {
+	objects := node.ConvertToObjects()
+	objJson := objects.ConvertToJson()
+	jsonData, err := json.MarshalIndent(objJson, "", "  ")
+	if err != nil {
+		return err
+	}
+	// Write JSON data to file
+	err = ioutil.WriteFile(filename, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write JSON to file: %v", err)
+	}
+	return nil
+}
+
+func LoadBVHFromJsonLean(filename string) (*BVHLeanNode, error) {
+	bvh, err := LoadBVHFromJson(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	uniqueIDs := make(map[int64]int)
+	// recursively traverse the BVH and collect unique IDs
+	var collectUniqueIDs func(node *BVHNode)
+	collectUniqueIDs = func(node *BVHNode) {
+		if node == nil {
+			return
+		}
+		if node.active {
+			if _, exists := uniqueIDs[int64(node.Triangles.id)]; !exists {
+				uniqueIDs[int64(node.Triangles.id)] = 1
+			} else {
+				uniqueIDs[int64(node.Triangles.id)]++
+			}
+		} else {
+			collectUniqueIDs(node.Left)
+			collectUniqueIDs(node.Right)
+		}
+	}
+	collectUniqueIDs(bvh)
+	fmt.Println("Unique IDs LoadBVHFromJsonLean:", uniqueIDs)
+
+	leanBVH := bvh.ConvertToLeanBVH()
+	return leanBVH, nil
 }
 
 func (node *BVHLeanNode) FindIntersectionAndSetId(id int32, ray Ray, textureMap *[128]Texture) {
@@ -4356,20 +4607,31 @@ func (node *BVHNode) ConvertToLeanBVH() *BVHLeanNode {
 	}
 
 	// Create new lean node
-	leanNode := &BVHLeanNode{
-		active: node.active,
-	}
+	leanNode := &BVHLeanNode{}
+
+	uniqueIDs := make(map[int32]bool)
 
 	// Handle leaf nodes (triangles)
 	if node.active {
+		if node.Triangles.id == 2 {
+			fmt.Println("Triangle ID 2 found in BVHLeanNode")
+		}
 		leanNode.TriangleBBOX = TriangleBBOX{
 			V1orBBoxMin: node.Triangles.v1,
 			V2orBBoxMax: node.Triangles.v2,
 			V3:          node.Triangles.v3,
 			normal:      node.Triangles.Normal,
-			id:          int32(1),
+			id:          int32(node.Triangles.id),
+		}
+		leanNode.active = true
+		// Check if the ID is unique
+		if _, exists := uniqueIDs[leanNode.TriangleBBOX.id]; !exists {
+			uniqueIDs[leanNode.TriangleBBOX.id] = true
 		}
 	} else {
+		if node.Triangles.id == 2 {
+			fmt.Println("Triangle ID 2 found in BVHLeanNode")
+		}
 		// Handle internal nodes (bounding boxes)
 		leanNode.TriangleBBOX = TriangleBBOX{
 			V1orBBoxMin: node.BoundingBox[0],
@@ -4378,6 +4640,7 @@ func (node *BVHNode) ConvertToLeanBVH() *BVHLeanNode {
 			normal:      Vector{},
 			id:          -1, // Use -1 to indicate internal node
 		}
+		leanNode.active = false
 
 		if node.Left != nil {
 			leanNode.Left = node.Left.ConvertToLeanBVH()
@@ -4388,6 +4651,10 @@ func (node *BVHNode) ConvertToLeanBVH() *BVHLeanNode {
 
 	}
 
+	// check if len (uniqueIDs) > 0
+	// if len(uniqueIDs) > 0 {
+	// 	fmt.Println("Unique IDs in BVHLeanNode:", uniqueIDs)
+	// }
 	return leanNode
 }
 
@@ -4501,7 +4768,7 @@ func buildBVHNode(triangles []TriangleSimple, depth int, maxDepth int) *BVHNode 
 				directToScatter: 0.5,
 				Roughness:       triangles[0].Roughness,
 				Metallic:        triangles[0].Metallic,
-				id:              uint8(1),
+				id:              uint8(triangles[0].id),
 			},
 			active: true,
 		}
@@ -7525,6 +7792,8 @@ func (g *Game) submitTextures(c echo.Context) error {
 	*(*float32)(unsafe.Pointer(&g.specular)) = float32(request.Specular)
 	*(*uint8)(unsafe.Pointer(&g.index)) = uint8(request.Index)
 
+	fmt.Println("Index", request.Index)
+
 	// BVH.SetPropertiesWithID(uint8(1), float32(request.Reflection), float32(request.Specular), float32(request.DirectToScatter), float32(request.Roughness), float32(request.Metallic))
 
 	// Convert and update color texture
@@ -8240,6 +8509,442 @@ func (g *Game) GetRemainingTime(c echo.Context) error {
 	})
 }
 
+func (g *Game) GetCurrentBVH(c echo.Context) error {
+	// Return the current BVH
+	err := BVH.SaveBVHToJson("bvh.json")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to save BVH to JSON: " + err.Error(),
+		})
+	}
+	file, err := os.Open("bvh.json")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to open BVH file: " + err.Error(),
+		})
+	}
+	defer file.Close()
+
+	// Read the JSON file content
+	data, err := ioutil.ReadAll(file)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to read BVH file: " + err.Error(),
+		})
+	}
+
+	// Send JSON data to client
+	return c.Blob(http.StatusOK, "application/json", data)
+}
+
+func (g *Game) GetCurrentBVHLean(c echo.Context) error {
+	// Return the current BVH
+	err := g.bvhLean.SaveBVHToJson("bvhLean.json")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to save BVH to JSON: " + err.Error(),
+		})
+	}
+
+	// Read the BVH file content
+	file, err := os.Open("bvhLean.json")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to open BVH file: " + err.Error(),
+		})
+	}
+	defer file.Close()
+
+	// Parse existing BVH data to use as base for our enhanced response
+	var bvhData []map[string]interface{}
+	data, err := ioutil.ReadAll(file)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to read BVH file: " + err.Error(),
+		})
+	}
+
+	if err := json.Unmarshal(data, &bvhData); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to parse BVH JSON: " + err.Error(),
+		})
+	}
+
+	// Create a combined response with BVH and texture data
+	type TextureData struct {
+		TextureColors  [][][]float32        `json:"textureColors"`  // [idx][x][y][rgba]
+		TextureNormals [][][]float32        `json:"textureNormals"` // [idx][x][y][xyz]
+		MaterialProps  []map[string]float32 `json:"materialProps"`  // Properties per texture
+	}
+
+	response := map[string]interface{}{
+		"bvh": bvhData,
+		"textures": TextureData{
+			TextureColors:  make([][][]float32, 128),
+			TextureNormals: make([][][]float32, 128),
+			MaterialProps:  make([]map[string]float32, 128),
+		},
+	}
+
+	// Populate texture data (for active textures only)
+	textureData := response["textures"].(TextureData)
+	for i := 0; i < 128; i++ {
+		// Check if this texture is used (simple check - non-zero values in first pixel)
+		if g.TextureMap[i].texture[0][0].R != 0 ||
+			g.TextureMap[i].texture[0][0].G != 0 ||
+			g.TextureMap[i].texture[0][0].B != 0 ||
+			g.TextureMap[i].texture[0][0].A != 0 {
+
+			// Encode color texture data
+			textureData.TextureColors[i] = make([][]float32, 128*128*4) // Flattened for more efficient JSON
+			idx := 0
+			for x := 0; x < 128; x++ {
+				for y := 0; y < 128; y++ {
+					color := g.TextureMap[i].texture[x][y]
+					textureData.TextureColors[i][idx] = []float32{color.R, color.G, color.B, color.A}
+					idx++
+				}
+			}
+
+			// Encode normal map data
+			textureData.TextureNormals[i] = make([][]float32, 128*128*3) // Flattened
+			idx = 0
+			for x := 0; x < 128; x++ {
+				for y := 0; y < 128; y++ {
+					normal := g.TextureMap[i].normals[x][y]
+					textureData.TextureNormals[i][idx] = []float32{normal.x, normal.y, normal.z}
+					idx++
+				}
+			}
+
+			// Material properties
+			textureData.MaterialProps[i] = map[string]float32{
+				"reflection":      g.TextureMap[i].reflection,
+				"directToScatter": g.TextureMap[i].directToScatter,
+				"specular":        g.TextureMap[i].specular,
+				"roughness":       g.TextureMap[i].Roughness,
+				"metallic":        g.TextureMap[i].Metallic,
+			}
+		}
+	}
+
+	// Serialize the combined response
+	responseJSON, err := json.Marshal(response)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to serialize response: " + err.Error(),
+		})
+	}
+
+	// Send the combined JSON data to client
+	return c.Blob(http.StatusOK, "application/json", responseJSON)
+}
+
+func (g *Game) SubmitBVH(c echo.Context) error {
+	// Parse the JSON data from the request
+	var jsonData []byte
+	var err error
+
+	// Check if we're dealing with file upload or raw JSON
+	contentType := c.Request().Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		// Handle file upload
+		file, err := c.FormFile("bvhFile")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Failed to get uploaded file: " + err.Error(),
+			})
+		}
+
+		src, err := file.Open()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to open uploaded file: " + err.Error(),
+			})
+		}
+		defer src.Close()
+
+		jsonData, err = ioutil.ReadAll(src)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to read uploaded file: " + err.Error(),
+			})
+		}
+	} else {
+		// Handle raw JSON in request body
+		jsonData, err = ioutil.ReadAll(c.Request().Body)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Failed to read request body: " + err.Error(),
+			})
+		}
+	}
+
+	// Save the JSON data to a temporary file
+	tempFile := "bvh_upload.json"
+	err = ioutil.WriteFile(tempFile, jsonData, 0644)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to save JSON data: " + err.Error(),
+		})
+	}
+
+	// Load BVH from the temporary file
+	newBVH, err := LoadBVHFromJson(tempFile)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to parse BVH data: " + err.Error(),
+		})
+	}
+
+	// Update the global BVH
+	// *(*BVHNode)(unsafe.Pointer(&BVH)) = *newBVH
+	BVH = newBVH
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "BVH updated successfully",
+	})
+}
+
+func (g *Game) SubmitBVHLean(c echo.Context) error {
+	// Parse the JSON data from the request
+	var jsonData []byte
+	var err error
+
+	// Check if we're dealing with file upload or raw JSON
+	contentType := c.Request().Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		// Handle file upload
+		file, err := c.FormFile("bvhFile")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Failed to get uploaded file: " + err.Error(),
+			})
+		}
+
+		src, err := file.Open()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to open uploaded file: " + err.Error(),
+			})
+		}
+		defer src.Close()
+
+		jsonData, err = ioutil.ReadAll(src)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to read uploaded file: " + err.Error(),
+			})
+		}
+	} else {
+		// Handle raw JSON in request body
+		jsonData, err = ioutil.ReadAll(c.Request().Body)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Failed to read request body: " + err.Error(),
+			})
+		}
+	}
+
+	// Try to parse the JSON data as a combined BVH + texture format
+	var combinedData map[string]json.RawMessage
+	err = json.Unmarshal(jsonData, &combinedData)
+
+	// Check if the data was successfully parsed as combined format with both BVH and textures
+	if err == nil && len(combinedData) > 0 {
+		// Check if we have BVH data
+		bvhData, hasBVH := combinedData["bvh"]
+
+		if hasBVH {
+			// Save BVH data to a temporary file
+			tempFile := "bvh_lean_upload.json"
+			err = ioutil.WriteFile(tempFile, bvhData, 0644)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error": "Failed to save BVH data: " + err.Error(),
+				})
+			}
+
+			fmt.Println("Here")
+
+			// Load BVH from the temporary file
+			newBVHLean, err := LoadBVHFromJsonLean(tempFile)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error": "Failed to parse BVH lean data: " + err.Error(),
+				})
+			}
+
+			// Update the game's BVH lean
+			// copyTreesIds(g.bvhLean,newBVHLean)
+			g.bvhLean = newBVHLean
+
+			// Check if we have texture data
+			textureData, hasTextures := combinedData["textures"]
+
+			if hasTextures {
+				fmt.Println("Processing texture data...")
+				// Define the structure for texture data
+				var textureInfo struct {
+					TextureColors  [][][]float64        `json:"textureColors"`
+					TextureNormals [][][]float64        `json:"textureNormals"`
+					MaterialProps  []map[string]float64 `json:"materialProps"`
+				}
+
+				// Parse the texture JSON
+				if err := json.Unmarshal(textureData, &textureInfo); err != nil {
+					return c.JSON(http.StatusPartialContent, map[string]string{
+						"status":  "partial",
+						"message": "BVH lean updated successfully, but texture processing failed: " + err.Error(),
+					})
+				}
+
+				// Process texture colors
+				for i, textureColorData := range textureInfo.TextureColors {
+					if i >= 128 || len(textureColorData) == 0 {
+						continue // Skip invalid or empty texture data
+					}
+					fmt.Println("Processing texture colors for texture", i)
+					fmt.Println("Texture Color Data", textureColorData[0][0])
+					// Process each color entry
+					for j, rgba := range textureColorData {
+						if len(rgba) < 4 {
+							continue // Skip invalid color data
+						}
+
+						// Convert index j to 2D coordinates
+						x := j % 128
+						y := j / 128
+
+						if x < 128 && y < 128 {
+							// Update the texture color
+							g.TextureMap[i].texture[x][y] = ColorFloat32{
+								R: float32(rgba[0]),
+								G: float32(rgba[1]),
+								B: float32(rgba[2]),
+								A: float32(rgba[3]),
+							}
+						}
+					}
+				}
+
+				// Process texture normals
+				for i, textureNormalData := range textureInfo.TextureNormals {
+					if i >= 128 || len(textureNormalData) == 0 {
+						continue // Skip invalid or empty normal data
+					}
+					// Process each normal entry
+					for j, xyz := range textureNormalData {
+						if len(xyz) < 3 {
+							continue // Skip invalid normal data
+						}
+
+						// Convert index j to 2D coordinates
+						x := j % 128
+						y := j / 128
+
+						if x < 128 && y < 128 {
+							// Update the normal vector
+							g.TextureMap[i].normals[x][y] = Vector{
+								x: float32(xyz[0]),
+								y: float32(xyz[1]),
+								z: float32(xyz[2]),
+							}
+						}
+					}
+				}
+
+				// Process material properties
+				fmt.Println(textureInfo.MaterialProps, "Material Properties")
+				for i, props := range textureInfo.MaterialProps {
+					if i >= 128 || len(props) == 0 {
+						continue // Skip invalid or empty property data
+					}
+					fmt.Println("Processing material properties for texture", i)
+
+					// Update material properties
+					if reflection, ok := props["reflection"]; ok {
+						g.TextureMap[i].reflection = float32(reflection)
+					}
+					if directToScatter, ok := props["directToScatter"]; ok {
+						g.TextureMap[i].directToScatter = float32(directToScatter)
+					}
+					if specular, ok := props["specular"]; ok {
+						g.TextureMap[i].specular = float32(specular)
+					}
+					if roughness, ok := props["roughness"]; ok {
+						g.TextureMap[i].Roughness = float32(roughness)
+					}
+					if metallic, ok := props["metallic"]; ok {
+						g.TextureMap[i].Metallic = float32(metallic)
+					}
+				}
+
+				return c.JSON(http.StatusOK, map[string]string{
+					"status":  "success",
+					"message": "BVH lean and textures updated successfully",
+				})
+			}
+
+			return c.JSON(http.StatusOK, map[string]string{
+				"status":  "success",
+				"message": "BVH lean updated successfully (no texture data found)",
+			})
+		}
+	}
+
+	// Fall back to processing just the BVH data
+	tempFile := "bvh_lean_upload.json"
+	err = ioutil.WriteFile(tempFile, jsonData, 0644)
+	fmt.Println("Here Too ?", tempFile)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to save JSON data: " + err.Error(),
+		})
+	}
+
+	// Load BVH from the temporary file
+	newBVHLean, err := LoadBVHFromJsonLean(tempFile)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to parse BVH lean data: " + err.Error(),
+		})
+	}
+
+	// Update the game's BVH lean
+	g.bvhLean = newBVHLean
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "BVH lean updated successfully (no texture data detected)",
+	})
+}
+
+func copyTreesIds(bvhNew *BVHLeanNode, bvhOld *BVHLeanNode) {
+	// Base case: if either node is nil, return
+	if bvhNew == nil || bvhOld == nil {
+		return
+	}
+
+	// Copy the id if both nodes are active (leaf nodes)
+	if bvhNew.active && bvhOld.active {
+		// bvhOld.TriangleBBOX.id = bvhNew.TriangleBBOX.id
+		bvhNew.TriangleBBOX.id = bvhOld.TriangleBBOX.id
+		// fmt.Println("Copying id", bvhNew.TriangleBBOX.id, "from old to new BVH node")
+	}
+
+	// Recursively process left children
+	if bvhNew.Left != nil && bvhOld.Left != nil {
+		copyTreesIds(bvhNew.Left, bvhOld.Left)
+	}
+
+	// Recursively process right children
+	if bvhNew.Right != nil && bvhOld.Right != nil {
+		copyTreesIds(bvhNew.Right, bvhOld.Right)
+	}
+}
+
 func startServer(game *Game) {
 	e := echo.New()
 	// CORS middleware
@@ -8260,6 +8965,10 @@ func startServer(game *Game) {
 	e.POST("/moveCamera", game.InterpolateBetweenPositions)
 	e.POST("/lockCamera", game.LockCamera)
 	e.GET("/getRemainingTime", game.GetRemainingTime)
+	e.GET("getCurrentBVH", game.GetCurrentBVH)
+	e.GET("getCurrentBVHLean", game.GetCurrentBVHLean)
+	e.POST("submitBVH", game.SubmitBVH)
+	e.POST("submitBVHLean", game.SubmitBVHLean)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -8638,7 +9347,21 @@ func main() {
 	// objects = append(objects, cubes...)
 
 	BVH = ConvertObjectsToBVH(objects, maxDepth)
+	// err = BVH.SaveBVHToJson("bvh.json")
+	// BVH, err = LoadBVHFromJson("bvh_upload.json")
+
+	// if err != nil {
+	// 	panic(err)
+	// }
+
 	bvhLean := BVH.ConvertToLeanBVH()
+
+	bvhLean.SaveBVHToJson("bvhLean.json")
+	bvhLean, err = LoadBVHFromJsonLean("bvhLean.json")
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println("BVH Lean:", *bvhLean)
 	fmt.Println("BVH Lean left:", *bvhLean.Left)
 	fmt.Println("BVH Lean right:", *bvhLean.Right)
@@ -9199,19 +9922,17 @@ func main() {
 			TotalRAM:   totalRAM,
 		}
 
-		
-
 		type Report struct {
-			HWInfo            HWInfo                        `json:"HWInfo"`
-			VersionTimes      map[string][]float64          `json:"VersionTimes"`
-			MemoryStats       map[string]MemStats           `json:"MemoryStats"`
+			HWInfo            HWInfo                     `json:"HWInfo"`
+			VersionTimes      map[string][]float64       `json:"VersionTimes"`
+			MemoryStats       map[string]MemStats        `json:"MemoryStats"`
 			MemoryStatsValues map[string][]MemStatistics `json:"MemoryStatsValues"`
 		}
 
 		report := Report{
-			HWInfo:       hwInfo,
-			VersionTimes: versionTimes,
-			MemoryStats:  memStatsReport,
+			HWInfo:            hwInfo,
+			VersionTimes:      versionTimes,
+			MemoryStats:       memStatsReport,
 			MemoryStatsValues: memStatistics,
 		}
 

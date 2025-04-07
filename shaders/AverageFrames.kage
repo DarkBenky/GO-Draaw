@@ -7,7 +7,7 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
     color2 := imageSrc1At(texCoord)
 
     // Average the colors by adding them and dividing by 2
-    blendedColor := (color1 * 0.9) + (color2 * 0.1)
+    blendedColor := (color1 * 0.95) + (color2 * 0.05)
 
     return blendedColor
 }
