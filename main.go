@@ -9558,21 +9558,21 @@ func main() {
 		// TriangleShader: 	   rayCasterShader,
 		// averageFramesShader: averageFramesShader,
 		Shaders: []Shader{
-			Shader{
-				shader: colorMappingShader,
-				options: map[string]interface{}{
-					"ColorR": 16.0,
-					"ColorG": 16.0,
-					"ColorB": 16.0,
-					"Alpha":  0.8,
-				},
-				amount:    0.1,
-				multipass: 1,
-			},
+			// Shader{
+			// 	shader: colorMappingShader,
+			// 	options: map[string]interface{}{
+			// 		"ColorR": 16.0,
+			// 		"ColorG": 16.0,
+			// 		"ColorB": 16.0,
+			// 		"Alpha":  0.8,
+			// 	},
+			// 	amount:    0.1,
+			// 	multipass: 1,
+			// },
 			// Shader{shader: contrastShader, options: map[string]interface{}{"Contrast": 1.5, "Alpha": 0.1}, amount: 0.1},
 			// Shader{shader: tintShader, options: map[string]interface{}{"TintColor": []float32{0.2, 0.6, 0.1}, "TintStrength": 0.1, "Alpha": 1}, amount: 0.5},
 			// Shader{shader: ditherShaderColor, options: map[string]interface{}{"BayerMatrix": bayerMatrix, "Alpha": float32(0.5)}, amount: 1.0,},
-			Shader{shader: bloomShader, options: map[string]interface{}{"BloomThreshold": 0.05, "BloomIntensity": 1.1, "Alpha": 1.0}, amount: 0.2, multipass: 2},
+			// Shader{shader: bloomShader, options: map[string]interface{}{"BloomThreshold": 0.05, "BloomIntensity": 1.1, "Alpha": 1.0}, amount: 0.2, multipass: 2},
 			// Shader{shader: sharpnessShader, options: map[string]interface{}{"Sharpness": 1.0, "Alpha": 1.0}, amount: 0.2},
 		},
 		VolumeMaterial: VolumeMaterial,
