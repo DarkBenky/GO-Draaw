@@ -238,7 +238,7 @@ func LoadOBJ(filename string) (object, error) {
 						triangle.color.A = 255 // Ensure alpha is fully opaque
 					} else {
 						// triangle.color = color.RGBA{255, 125, 0, 255} // Default color
-						triangle.color = ColorFloat32{255, 125, 0, 255} // Default color
+						triangle.color = ColorFloat32{178, 178, 178, 255} // Default color
 					}
 
 					obj.triangles = append(obj.triangles, triangle)
@@ -6749,6 +6749,17 @@ func (g *Game) Update() error {
 		g.InterpolatedPositions = g.InterpolatedPositions[:len(g.InterpolatedPositions)-1]
 		PrecomputeScreenSpaceCoordinatesSphere(g.camera)
 	}
+	if g.stopAnimation {
+		fmt.Println("Stopping animation")
+		// empty the list
+		g.InterpolatedPositions = []Position{}
+		g.stopAnimation = false
+		fmt.Println("Animation stopped", g.InterpolatedPositions)
+	}
+	if g.update {
+		PrecomputeScreenSpaceCoordinatesSphere(g.camera)
+		g.update = false
+	}
 
 	// for s := range g.Spheres.Spheres {
 	// 	randomX := rand.Float32()*2 - 1
@@ -7356,6 +7367,8 @@ type Game struct {
 	PerformanceOptions    bool
 	UseRandomnessForPaint bool
 	PaintTexture          bool
+	update                bool
+	stopAnimation         bool
 }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
@@ -8096,7 +8109,18 @@ func (g *Game) MoveToCameraPosition(c echo.Context) error {
 	}
 
 	*(*Camera)(unsafe.Pointer(&g.camera)) = newCamera
+	// update camera
+	*(*bool)(unsafe.Pointer(&g.update)) = true
+
 	return c.JSON(http.StatusOK, pos)
+}
+
+func (g *Game) StopAnimation(c echo.Context) error {
+	*(*bool)(unsafe.Pointer(&g.update)) = true
+	*(*bool)(unsafe.Pointer(&g.stopAnimation)) = true
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "Animation stopped",
+	})
 }
 
 func corsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
@@ -8969,6 +8993,7 @@ func startServer(game *Game) {
 	e.GET("getCurrentBVHLean", game.GetCurrentBVHLean)
 	e.POST("submitBVH", game.SubmitBVH)
 	e.POST("submitBVHLean", game.SubmitBVHLean)
+	e.GET("stopAnimation", game.StopAnimation)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
