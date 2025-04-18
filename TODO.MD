@@ -4,7 +4,7 @@
  - [ ] Sparse set implementation
 - [ ] Voxel Baked 3d Lighting for Voxel Rendering and also for V4
 - [X] APIs Updated
-- [ ] Add part about this benchmark
+- [X] Add part about this benchmark
   - Results: BoolArray check time: 18.178246ms
     BitArray check time: 17.968679ms
     Direct check time: 17.94769ms
@@ -162,7 +162,7 @@
 - [ ] Test BVH.SetPropertiesWithID
 - [ ] Add Multiplayer for Textures In Frontend
 - [X] Fix Benchmarking
-- [ ] GOAMD64
+- [X] GOAMD64
   - v1: Base AMD64 features (default).
   - v2: Adds support for SSE3, SSSE3, and SSE4.1 instructions.
   - v3: Includes all v2 features plus SSE4.2, AVX, and AVX2.
@@ -171,8 +171,8 @@
   - [ ] float 32 Vs float 64
 - [X] add support for normal maps
   - [X] check if it does not have api ([link](https://cpetry.github.io/NormalMap-Online/))
-- [ ] Why V2 is faster than V2-LOG...
-  - [ ] Profiling
+- [X] Why V2 is faster than V2-LOG...
+  - [X] Profiling
 - [X] Color Mapping Shader
 - [X] IntersectTriangleTexture fix add textures
 - [ ] Movement options
