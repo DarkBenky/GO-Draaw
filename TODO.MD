@@ -2,6 +2,7 @@
 
 - [ ] Particle sim
  - [ ] Sparse set implementation
+ - [ ] Each Part should run in own Go rutine and be separate so it will not need mutexes
 - [ ] Voxel Baked 3d Lighting for Voxel Rendering and also for V4
 - [X] APIs Updated
 - [X] Add part about this benchmark
