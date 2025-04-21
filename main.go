@@ -6652,8 +6652,15 @@ func (g *Game) Update() error {
 
 	if g.SnapLightToCamera {
 		g.light.Position = g.camera.Position
+	}
+	if g.reCalculateLighing {
 		g.VoxelGrid.CalcualteLighMap(g.light, g.LightMap)
-		BlureLightMap(&g.LightMap)
+
+		for i := 0; i < int(g.numberOfBlures); i++ {
+			BlureLightMap(&g.LightMap)
+		}
+
+		g.reCalculateLighing = false
 	}
 
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -7373,6 +7380,7 @@ type Game struct {
 	RandomnessVoxel    uint8
 	RayMarchingVersion uint8
 	VoxelRenderVersion uint8
+	numberOfBlures     uint8
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume          bool
@@ -7385,6 +7393,7 @@ type Game struct {
 	PaintTexture          bool
 	update                bool
 	stopAnimation         bool
+	reCalculateLighing    bool
 }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
@@ -7475,6 +7484,21 @@ func MakeNewBlocksAdvance(scaling int) []BlocksImageAdvance {
 // Handler
 func hello(c echo.Context) error {
 	return c.String(http.StatusOK, "Hello, World!")
+}
+
+func (g *Game) reCalcualteLighing(c echo.Context) error {
+	type Recalculate struct {
+		Blur int `json:"blor"`
+	}
+	recalculate := new(Recalculate)
+	if err := c.Bind(recalculate); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	*(*bool)(unsafe.Pointer(&g.reCalculateLighing)) = true
+	*(*uint8)(unsafe.Pointer(&g.numberOfBlures)) = uint8(recalculate.Blur)
+	fmt.Println("Recalculate Lighting", g.reCalculateLighing)
+	return c.JSON(http.StatusOK, recalculate)
 }
 
 func (g *Game) submitColor(c echo.Context) error {
@@ -9020,6 +9044,7 @@ func startServer(game *Game) {
 	e.POST("submitBVH", game.SubmitBVH)
 	e.POST("submitBVHLean", game.SubmitBVHLean)
 	e.GET("stopAnimation", game.StopAnimation)
+	e.POST("recalcualteLighting", game.reCalcualteLighing)
 
 	// Start server
 	if err := e.Start(":5053"); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -9510,8 +9535,6 @@ func main() {
 	VolumeMaterial := VolumeMaterial{transmittance: 50, density: 0.001}
 
 	VoxelGrid := NewVoxelGrid(96, obj.BoundingBox[0].Mul(0.75), obj.BoundingBox[1].Mul(0.75), ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
-
-	
 
 	// VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	// VoxelGrid.SetRandomLightColor()
@@ -10541,7 +10564,7 @@ func (v *VoxelGrid) CalcualteLighMap(light Light, lightMap [][][]float32) {
 				for j := 0; j < steps; j++ {
 					_, exists := v.GetVoxelUnsafe(currentPos)
 					if exists {
-						lightMap[i][j][k] = 0.01
+						lightMap[i][j][k] = 0.075
 						fmt.Println("Light blocked at position:", currentPos)
 						break
 					}
@@ -10584,7 +10607,7 @@ func BlureLightMap(lightMap *[][][]float32) {
 	}
 
 	// Dark value emphasis factor - higher means more emphasis on dark areas
-	const darkEmphasisFactor float32 = 1.25
+	const darkEmphasisFactor float32 = 0.5
 
 	for i := 0; i < len(*lightMap); i++ {
 		for j := 0; j < len((*lightMap)[i]); j++ {
