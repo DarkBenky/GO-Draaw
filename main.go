@@ -6652,6 +6652,8 @@ func (g *Game) Update() error {
 
 	if g.SnapLightToCamera {
 		g.light.Position = g.camera.Position
+		g.VoxelGrid.CalcualteLighMap(g.light, g.LightMap)
+		BlureLightMap(&g.LightMap)
 	}
 
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -7170,11 +7172,21 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 	if g.RenderVoxels {
-		DrawRaysBlockVoxels(g.camera, g.scaleFactor, 32, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial, g.PerformanceOptions)
-		for _, block := range g.VoxelGridBlocksImage {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(float64(block.startX), float64(block.startY))
-			g.currentFrame.DrawImage(block.image, op)
+		switch g.VoxelRenderVersion {
+		case VoxelV1:
+			DrawRaysBlockVoxels(g.camera, g.scaleFactor, 32, g.VoxelGridBlocksImage, g.VoxelGrid, g.light, g.VolumeMaterial, g.PerformanceOptions)
+			for _, block := range g.VoxelGridBlocksImage {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				g.currentFrame.DrawImage(block.image, op)
+			}
+		case VoxelV2:
+			DrawRaysBlockVoxelsV2(g.camera, g.scaleFactor, 64, g.VoxelGridBlocksImage, g.VoxelGrid, &g.LightMap, g.VolumeMaterial, g.PerformanceOptions, g.light)
+			for _, block := range g.VoxelGridBlocksImage {
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(block.startX), float64(block.startY))
+				g.currentFrame.DrawImage(block.image, op)
+			}
 		}
 	}
 
@@ -7301,6 +7313,8 @@ const (
 	RayMarchingV1   = uint8(iota)
 	RayMarchingV2   = uint8(iota)
 	V4O3            = uint8(iota)
+	VoxelV1         = uint8(iota)
+	VoxelV2         = uint8(iota)
 )
 
 type Game struct {
@@ -7341,6 +7355,7 @@ type Game struct {
 	Shaders               []Shader
 	Spheres               []SphereSimple
 	InterpolatedPositions []Position
+	LightMap              [][][]float32
 
 	// 20-bit pointers (2.5 bytes each) grouped together
 	camera Camera
@@ -7357,6 +7372,7 @@ type Game struct {
 	VoxelMode          uint8
 	RandomnessVoxel    uint8
 	RayMarchingVersion uint8
+	VoxelRenderVersion uint8
 
 	// Boolean flags (1 byte each) at the end
 	RenderVolume          bool
@@ -7511,10 +7527,11 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 		VoxelColorB           float64 `json:"voxelColorB"`
 		VoxelColorA           float64 `json:"voxelColorA"`
 		RandomnessVoxel       float64 `json:"randomnessVoxel"`
+		VoxelModification     string  `json:"voxelModification"`
+		VoxelVersion          string  `json:"voxelVersion"`
 		RenderVolume          bool    `json:"renderVolume"`
 		RenderVoxel           bool    `json:"renderVoxel"`
 		OverWriteVoxel        bool    `json:"overWriteVoxel"`
-		VoxelModification     string  `json:"voxelModification"`
 		UseRandomnessForPaint bool    `json:"useRandomnessForPaint"`
 		ConvertVoxelsToSmoke  bool    `json:"convertVoxelsToSmoke"`
 	}
@@ -7522,6 +7539,15 @@ func (g *Game) submitVoxelData(c echo.Context) error {
 	volume := new(Volume)
 	if err := c.Bind(volume); err != nil {
 		return err
+	}
+
+	switch volume.VoxelVersion {
+	case "V1":
+		fmt.Println("Voxel Version V1")
+		*(*uint8)(unsafe.Pointer(&g.VoxelRenderVersion)) = VoxelV1
+	case "V2":
+		fmt.Println("Voxel Version V2")
+		*(*uint8)(unsafe.Pointer(&g.VoxelRenderVersion)) = VoxelV2
 	}
 
 	switch volume.VoxelModification {
@@ -9485,11 +9511,16 @@ func main() {
 
 	VoxelGrid := NewVoxelGrid(96, obj.BoundingBox[0].Mul(0.75), obj.BoundingBox[1].Mul(0.75), ColorFloat32{0, 0, 0, 2}, VolumeMaterial)
 
+	
+
 	// VoxelGrid.SetBlockSmokeColorWithRandomnes(ColorFloat32{125, 55, 25, 15}, 50)
 	// VoxelGrid.SetRandomLightColor()
 	for triangle := range obj.triangles {
 		VoxelGrid.ConvertTriangleToVoxels(obj.triangles[triangle])
 	}
+
+	lightMap := VoxelGrid.CreateLightMap(light)
+
 	// fmt.Println("BVH:", BVH)
 	// VoxelGrid.ConvertBVHtoVoxelGrid(BVH)
 
@@ -9578,6 +9609,8 @@ func main() {
 		VoxelGridBlocksImage: MakeNewBlocks(scale),
 		VoxelGrid:            VoxelGrid,
 		TextureMap:           texture,
+		VoxelRenderVersion:   VoxelV1,
+		LightMap:             *lightMap,
 		// bvhArray:             &BVHArray,
 		// RayMarchShader: rayMarchingShader,
 		// TriangleShader: 	   rayCasterShader,
@@ -10478,12 +10511,188 @@ type VolumeMaterial struct {
 }
 
 func ExpDecay(x float32) float32 {
-	const k = 1.0 / (math.MaxFloat32 / 64) // Adjusting k so that f(MaxFloat32) ≈ 0
+	const k = 0.001 // Adjusting k so that f(MaxFloat32) ≈ 0
 	z := float32(math.Exp(-float64(k) * float64(x)))
 	if z > 1 {
 		return 1
 	}
 	return z
+}
+
+func (v *VoxelGrid) CalcualteLighMap(light Light, lightMap [][][]float32) {
+	// Light intensity as parameter between 0-100
+	// lightIntensity := light.intensity
+
+	for i := 0; i < v.Resolution; i++ {
+		for j := 0; j < v.Resolution; j++ {
+			for k := 0; k < v.Resolution; k++ {
+				block := v.Blocks[i+j*v.Resolution+k*v.Resolution*v.Resolution]
+				lightDistance := block.Position.Sub(light.Position).Length()
+
+				baseDecay := ExpDecay(lightDistance)
+				lightMap[i][j][k] = baseDecay
+				const steps = 64
+
+				// calculate shadows
+				currentPos := block.Position
+				lightStep := light.Position.Sub(currentPos).Mul(1.0 / float32(steps))
+				// lightPos := currentPos.Add(lightStep)
+
+				for j := 0; j < steps; j++ {
+					_, exists := v.GetVoxelUnsafe(currentPos)
+					if exists {
+						lightMap[i][j][k] = 0.01
+						fmt.Println("Light blocked at position:", currentPos)
+						break
+					}
+					currentPos = currentPos.Add(lightStep)
+				}
+
+			}
+		}
+	}
+}
+
+func BlureLightMap(lightMap *[][][]float32) {
+	// Create a temporary copy of the lightMap
+	tempMap := make([][][]float32, len(*lightMap))
+	for i := range tempMap {
+		tempMap[i] = make([][]float32, len((*lightMap)[i]))
+		for j := range tempMap[i] {
+			tempMap[i][j] = make([]float32, len((*lightMap)[i][j]))
+			copy(tempMap[i][j], (*lightMap)[i][j])
+		}
+	}
+
+	// Gaussian kernel with center-weighted values
+	kernel := [3][3][3]float32{
+		{
+			{0.008, 0.015, 0.008},
+			{0.015, 0.030, 0.015},
+			{0.008, 0.015, 0.008},
+		},
+		{
+			{0.015, 0.030, 0.015},
+			{0.030, 0.100, 0.030},
+			{0.015, 0.030, 0.015},
+		},
+		{
+			{0.008, 0.015, 0.008},
+			{0.015, 0.030, 0.015},
+			{0.008, 0.015, 0.008},
+		},
+	}
+
+	// Dark value emphasis factor - higher means more emphasis on dark areas
+	const darkEmphasisFactor float32 = 1.25
+
+	for i := 0; i < len(*lightMap); i++ {
+		for j := 0; j < len((*lightMap)[i]); j++ {
+			for k := 0; k < len((*lightMap)[i][j]); k++ {
+				blurredValue := float32(0.0)
+				weightSum := float32(0.0)
+				centerValue := tempMap[i][j][k]
+
+				// Darker center values get more influence from surroundings
+				darknessFactor := 1.0 + darkEmphasisFactor*(1.0-centerValue)
+
+				for dx := -1; dx <= 1; dx++ {
+					for dy := -1; dy <= 1; dy++ {
+						for dz := -1; dz <= 1; dz++ {
+							ni := i + dx
+							nj := j + dy
+							nk := k + dz
+
+							if ni >= 0 && ni < len(tempMap) &&
+								nj >= 0 && nj < len(tempMap[ni]) &&
+								nk >= 0 && nk < len(tempMap[ni][nj]) {
+
+								neighborValue := tempMap[ni][nj][nk]
+								baseWeight := kernel[dx+1][dy+1][dz+1]
+
+								// For dark areas, adjust weights to give more influence
+								// to brighter neighbors (prevents dark areas from becoming too dark)
+								if centerValue < 0.3 && neighborValue > centerValue {
+									// Boost weight of brighter neighbors around dark areas
+									adjustedWeight := baseWeight * darknessFactor
+									blurredValue += neighborValue * adjustedWeight
+									weightSum += adjustedWeight
+								} else {
+									blurredValue += neighborValue * baseWeight
+									weightSum += baseWeight
+								}
+							}
+						}
+					}
+				}
+
+				// Normalize and apply
+				if weightSum > 0 {
+					(*lightMap)[i][j][k] = blurredValue / weightSum
+				}
+			}
+		}
+	}
+}
+
+func (v *VoxelGrid) IntersectVoxelLightMap(ray Ray, steps int, lightMap *[][][]float32, light Light) (ColorFloat32, bool) {
+	hit, entry, exit := BoundingBoxCollisionEntryExitPoint(v.BBMax, v.BBMin, ray)
+	if !hit {
+		return ColorFloat32{}, false
+	}
+
+	stepSize := exit.Sub(entry).Mul(1.0 / float32(steps))
+
+	// Calculate the grid cell sizes
+	xStep := (v.BBMax.x - v.BBMin.x) / float32(v.Resolution)
+	yStep := (v.BBMax.y - v.BBMin.y) / float32(v.Resolution)
+	zStep := (v.BBMax.z - v.BBMin.z) / float32(v.Resolution)
+
+	currentPos := entry
+	for i := 0; i < steps; i++ {
+		block, exists := v.GetVoxelUnsafe(currentPos)
+		if exists {
+			// Calculate the indices correctly for accessing the 3D lightMap
+			iIndex := int((currentPos.x - v.BBMin.x) / xStep)
+			jIndex := int((currentPos.y - v.BBMin.y) / yStep)
+			kIndex := int((currentPos.z - v.BBMin.z) / zStep)
+
+			// Clamp indices to valid range
+			iIndex = max(0, min(iIndex, v.Resolution-1))
+			jIndex = max(0, min(jIndex, v.Resolution-1))
+			kIndex = max(0, min(kIndex, v.Resolution-1))
+
+			// Get the light map value at the correct 3D position
+			lightMapValue := (*lightMap)[iIndex][jIndex][kIndex]
+
+			// Apply the light value to the block color
+			blockColor := block.LightColor.MulScalar(lightMapValue * lightMapValue)
+			blockColor.R *= light.Color[0]
+			blockColor.G *= light.Color[1]
+			blockColor.B *= light.Color[2]
+			// blockColor.A = 1.0
+			return blockColor, true
+		}
+		currentPos = currentPos.Add(stepSize)
+	}
+	return ColorFloat32{}, false
+}
+
+func (v *VoxelGrid) CreateLightMap(light Light) *[][][]float32 {
+	lightMap := make([][][]float32, v.Resolution)
+	for i := range lightMap {
+		lightMap[i] = make([][]float32, v.Resolution)
+		for j := range lightMap[i] {
+			lightMap[i][j] = make([]float32, v.Resolution)
+			for k := range lightMap[i][j] {
+				lightMap[i][j][k] = 0.0
+			}
+		}
+	}
+	v.CalcualteLighMap(light, lightMap)
+	BlureLightMap(&lightMap)
+	// fmt.Println(lightMap)
+	return &lightMap
 }
 
 func (v *VoxelGrid) IntersectVoxel(ray Ray, steps int, light Light) (ColorFloat32, bool) {
@@ -10965,6 +11174,41 @@ func DrawRaysBlockVoxels(camera Camera, scaling int, samples int, blocks []Block
 					}
 					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
 					c, _ := voxelGrid.IntersectVoxel(Ray{origin: camera.Position, direction: rayDir}, 1024, light)
+
+					// Write the pixel color to the pixel buffer
+					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
+					block.pixelBuffer[index] = clampUint8(c.R)
+					block.pixelBuffer[index+1] = clampUint8(c.G)
+					block.pixelBuffer[index+2] = clampUint8(c.B)
+					block.pixelBuffer[index+3] = clampUint8(c.A)
+				}
+			}
+			block.image.WritePixels(block.pixelBuffer)
+		}(i)
+	}
+
+	if !preformance {
+		wg.Wait()
+	}
+}
+
+func DrawRaysBlockVoxelsV2(camera Camera, scaling int, samples int, blocks []BlocksImage, voxelGrid *VoxelGrid, lightMap *[][][]float32, volumeMaterial VolumeMaterial, preformance bool, light Light) {
+	var wg sync.WaitGroup
+	for i := 0; i < len(blocks); i++ {
+		wg.Add(1)
+		go func(blockIndex int) {
+			defer wg.Done()
+			block := blocks[blockIndex]
+			for y := block.startY; y < block.endY; y += 1 {
+				if y*scaling >= screenHeight {
+					continue
+				}
+				for x := block.startX; x < block.endX; x += 1 {
+					if x*scaling >= screenWidth {
+						continue
+					}
+					rayDir := ScreenSpaceCoordinates[x*scaling][y*scaling]
+					c, _ := voxelGrid.IntersectVoxelLightMap(Ray{origin: camera.Position, direction: rayDir}, 128, lightMap, light)
 
 					// Write the pixel color to the pixel buffer
 					index := ((y-block.startY)*(block.endX-block.startX) + (x - block.startX)) * 4
