@@ -10,6 +10,7 @@ func ClearSlice[T any](s []T) []T {
 	return s[:0]
 }
 '''
+
 - [X] Voxel Baked 3d Lighting for Voxel
 	- [ ] Blur Radius
   - [ ] Also for V4
