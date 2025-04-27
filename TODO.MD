@@ -1,5 +1,6 @@
 # TODO List
 
+- [ ] Camera Update
 - [ ] Particle sim
   - [ ] Sparse set implementation
   - [ ] Each Part should run in own Go rutine and be separate so it will not need mutexes
