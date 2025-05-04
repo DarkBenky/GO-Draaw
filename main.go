@@ -6447,8 +6447,8 @@ func findIntersectionAndSetColor(node *BVHNode, ray Ray, newColor ColorFloat32, 
 	return leftHit || rightHit
 }
 
-const sensitivityX = 0.005
-const sensitivityY = 0.005
+const sensitivityX = 0.0025
+const sensitivityY = 0.0025
 
 // func calculateMin15PercentFPS() float64 {
 // 	sort.Float64s(FPS)
@@ -6665,14 +6665,36 @@ func (g *Game) Update() error {
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	if fullScreen {
-		// Get the current mouse position
-		dx := float32(mouseX-g.cursorX) * sensitivityX
-		g.camera.xAxis += float32(dx)
-		g.cursorX = mouseX
+		// Check if mouse button was just pressed
+		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+			// If this is the start of a new drag, update the cursor position
+			if !g.isDragging {
+				g.cursorX = mouseX
+				g.cursorY = mouseY
+				g.isDragging = true
+			}
 
-		dy := float32(mouseY-g.cursorY) * sensitivityY
-		g.camera.yAxis += dy
-		g.cursorY = mouseY
+			// Get the current mouse position
+			dx := float32(mouseX - g.cursorX)
+			dy := float32(mouseY - g.cursorY)
+
+			if dx != 0 || dy != 0 {
+				// Calculate the rotation angles
+				angleX := dx * sensitivityX
+				angleY := dy * sensitivityY
+
+				// Update the camera's rotation angles
+				g.camera.xAxis += angleX
+				g.camera.yAxis += angleY
+
+				// Update the cursor position
+				g.cursorX = mouseX
+				g.cursorY = mouseY
+			}
+		} else {
+			// Reset dragging state when mouse button is released
+			g.isDragging = false
+		}
 
 		forward := Vector{1, 0, 0}
 		right := Vector{0, 1, 0}
@@ -6741,8 +6763,10 @@ func (g *Game) Update() error {
 	}
 
 	// check if mouse button is pressed
-	if ebiten.IsKeyPressed(ebiten.KeyTab) {
+	currentTime := uint32(time.Now().UnixMilli())
+	if ebiten.IsKeyPressed(ebiten.KeyTab) && currentTime-g.lastKeyPressTime > 500 {
 		fullScreen = !fullScreen
+		g.lastKeyPressTime = currentTime
 	}
 
 	// check if g.InterpolatedPositions is not empty
@@ -7348,8 +7372,10 @@ type Game struct {
 	metallic        float32
 	gamma           float32
 	remainingTime   float32
-	remainingImages uint32
-	// FOV             float32
+
+	// 32-bit integers (4 bytes each) grouped together
+	remainingImages  uint32
+	lastKeyPressTime uint32
 
 	// 28-bit pointers (3.5 bytes each) grouped together
 	light Light
@@ -7394,6 +7420,7 @@ type Game struct {
 	update                bool
 	stopAnimation         bool
 	reCalculateLighing    bool
+	isDragging            bool
 }
 
 // LoadShader reads a shader file from the provided path and returns its content as a byte slice.
