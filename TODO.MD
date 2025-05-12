@@ -1,17 +1,8 @@
 # TODO List
 
-- [ ] Camera Update
+- [X] Camera Update
 - [ ] Particle sim
-  - [ ] Sparse set implementation
-  - [ ] Each Part should run in own Go rutine and be separate so it will not need mutexes
-	- [ ] Rendering https://youtu.be/kOkfC5fLfgE?si=I_rJvnHJb8sjhV3U
-	- [ ] clear slice 
-```go
-func ClearSlice[T any](s []T) []T {
-	return s[:0]
-}
-'''
-
+  - [ ] merge the c code to code base
 - [X] Voxel Baked 3d Lighting for Voxel
 	- [ ] Blur Radius
   - [ ] Also for V4
